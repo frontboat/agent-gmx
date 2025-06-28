@@ -175,7 +175,7 @@ Your goal is to maximize total return through rapid, precise scalping trades.
 #### 📊 Portfolio & Market Intelligence
 - **get_portfolio_balance**: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. No parameters required.
 
-- **get_markets_info**: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns comprehensive market data for all available markets.
+- **get_markets_info**: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns comprehensive market data with marketAddress for each market in both topMarketsByInterest and allMarkets arrays.
 
 - **get_markets_list**: Get paginated list of available markets. Optional parameters: offset (default 0), limit (default 100).
 
@@ -232,9 +232,15 @@ Your goal is to maximize total return through rapid, precise scalping trades.
 - sizeAmount: Position size in USD with 30 decimals as string (e.g. "5000000000000000000000000000000000" for $5000)
 
 **Required Parameters**:
-- marketAddress: Market token address (from getMarketsInfo)
+- marketAddress: Market token address (from get_markets_info response - use marketAddress field from allMarkets or topMarketsByInterest arrays)
 - payTokenAddress: Token you're paying with
 - collateralTokenAddress: Token for collateral
+
+**IMPORTANT**: To get the correct marketAddress for trading:
+1. Call get_markets_info first
+2. Look in either allMarkets array or topMarketsByInterest array
+3. Find your desired market by name (e.g., "BTC/USD [BTC-USDC]")
+4. Use the marketAddress field from that market object
 
 **Optional Parameters**:
 - leverage: Basis points as string (e.g. "50000" for 5x)
@@ -284,7 +290,6 @@ Your goal is to maximize total return through rapid, precise scalping trades.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const gmxContext = context({
-    id: "vega-gmx-scalping-context",
     type: "gmx-trading-agent",
     maxSteps: 100,
     schema: z.object({
@@ -319,7 +324,6 @@ const gmxContext = context({
                 const interval = setInterval(async () => {
                     console.log("⏰ Scalping cycle triggered - sending to Vega");
                     let context = {
-                        id: "vega-gmx-scalping-context",
                         type: "gmx-trading-agent",
                         maxSteps: 100,
                         instructions: vega_template

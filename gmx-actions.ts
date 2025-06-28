@@ -156,12 +156,22 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                         count: Object.keys(simplifiedMarketsData).length,
                         topMarketsByInterest: topMarketsByInterest.map(m => ({
                             name: m.name,
+                            marketAddress: m.marketTokenAddress,
                             indexToken: m.indexToken,
                             longInterest: m.longInterestUsd,
                             shortInterest: m.shortInterestUsd,
                             totalInterest: m.longInterestUsd + m.shortInterestUsd
                         }))
                     },
+                    allMarkets: Object.values(simplifiedMarketsData).map(m => ({
+                        name: m.name,
+                        marketAddress: m.marketTokenAddress,
+                        indexToken: m.indexToken,
+                        indexTokenAddress: m.indexTokenAddress,
+                        longToken: m.longToken,
+                        shortToken: m.shortToken,
+                        isSpotOnly: m.isSpotOnly
+                    })),
                     tokensSummary: {
                         count: Object.keys(simplifiedTokensData).length,
                         sampleTokens: Object.values(simplifiedTokensData)

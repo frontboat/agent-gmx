@@ -256,13 +256,98 @@ bun run test:discord
   - Potential liquidation price if order executes
   - Risk assessment for pending orders
 
+### 🎯 Market Address Resolution (Critical Fix)
+
+**Problem Discovered**: Agent couldn't find market addresses because `get_markets_info` was filtering them out in the response.
+
+#### Root Cause Analysis
+- Market addresses were stored internally in `simplifiedMarketsData` 
+- But `topMarketsByInterest` mapping was only returning name, indexToken, interests
+- Missing `marketAddress` field caused "invalid market address" errors
+- Agent had no way to map market names to required addresses
+
+#### Solution Implemented
+1. **Enhanced Response Structure**: Added `marketAddress` field to `topMarketsByInterest`
+2. **Complete Markets List**: Added `allMarkets` array with ALL available markets
+3. **Comprehensive Market Data**: Each market object now includes:
+   ```typescript
+   {
+     name: "BTC/USD [BTC-USDC]",
+     marketAddress: "0x47c031236e19d024b42f8AE6780E44A573170703", // ✅ CRITICAL
+     indexToken: "BTC",
+     indexTokenAddress: "0x47904963fc8b2340414262125aF798B9655E58Cd",
+     longToken: "BTC", 
+     shortToken: "USDC",
+     isSpotOnly: false
+   }
+   ```
+
+#### Market Address Lookup Process
+1. **Call `get_markets_info`** to fetch market data
+2. **Search in response arrays**:
+   - `allMarkets`: Complete list of all markets
+   - `topMarketsByInterest`: Top 10 by volume
+3. **Match by market name**: Find desired market (e.g., "BTC/USD [BTC-USDC]")
+4. **Extract `marketAddress`**: Use this for all trading actions
+5. **Validate address format**: Must be valid hex address starting with 0x
+
+#### Code Changes Made
+```typescript
+// Before (❌ Missing market address)
+topMarketsByInterest: topMarketsByInterest.map(m => ({
+  name: m.name,
+  indexToken: m.indexToken,
+  longInterest: m.longInterestUsd,
+  shortInterest: m.shortInterestUsd,
+  totalInterest: m.longInterestUsd + m.shortInterestUsd
+}))
+
+// After (✅ Includes market address)
+topMarketsByInterest: topMarketsByInterest.map(m => ({
+  name: m.name,
+  marketAddress: m.marketTokenAddress, // ✅ ADDED
+  indexToken: m.indexToken,
+  longInterest: m.longInterestUsd,
+  shortInterest: m.shortInterestUsd,
+  totalInterest: m.longInterestUsd + m.shortInterestUsd
+}))
+```
+
 ### 🛡️ Error Prevention Strategies
 
 1. **Parameter Validation**: Always use exact schema parameter names
 2. **String Format**: All BigInt values must be passed as strings
 3. **Decimal Precision**: Respect each token's decimal precision (check tokensData)
-4. **Market Addresses**: Use marketTokenAddress, never indexTokenAddress
+4. **Market Addresses**: Use marketTokenAddress from get_markets_info response
 5. **Sequential Execution**: Wait between transactions to avoid nonce conflicts
+6. **Market Address Lookup**: Always call get_markets_info first to resolve market names to addresses
+
+### 🐛 Common Debugging Patterns
+
+#### Agent Can't Find Market Addresses
+**Symptoms**: Agent reports "cannot find marketAddress" or uses wrong addresses
+**Root Cause**: Action response missing market addresses in summary data
+**Solution**: Ensure action responses include complete market objects with addresses
+
+#### Template Variables Not Resolving  
+**Symptoms**: Discord messages show `{{calls[0].portfolio.summary.totalValue}}` instead of values
+**Root Cause**: Template engine not processing variables or missing action context
+**Solution**: Add agent instructions to format responses directly from action data
+
+#### Parameter Format Errors
+**Symptoms**: `ParsingError` or `ZodError` with parameter validation
+**Root Cause**: Using raw SDK parameters instead of helper function parameters
+**Solution**: Update agent instructions with correct parameter formats and examples
+
+#### Transaction Nonce Errors
+**Symptoms**: "nonce too low" errors during rapid trading
+**Root Cause**: Transactions sent too quickly without proper sequencing
+**Solution**: Add wait periods and sequential execution instructions
+
+#### Missing Required Parameters
+**Symptoms**: Action calls fail with missing parameter errors
+**Root Cause**: Agent using old parameter names or missing required fields
+**Solution**: Update action descriptions with precise parameter requirements
 
 ## 🤝 Code Reuse Guidelines
 

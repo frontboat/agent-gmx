@@ -166,7 +166,7 @@ Vega executes a complete scalping cycle every 5 minutes:
 - `sizeAmount`: Position size in USD with 30 decimals as string (e.g., "5000000000000000000000000000000000" for $5000)
 
 **Required Parameters**:
-- `marketAddress`: Market token address (from getMarketsInfo)
+- `marketAddress`: Market token address (from get_markets_info response)
 - `payTokenAddress`: Token being paid with
 - `collateralTokenAddress`: Collateral token
 
@@ -174,6 +174,30 @@ Vega executes a complete scalping cycle every 5 minutes:
 - `leverage`: Basis points as string (e.g., "50000" for 5x)
 - `limitPrice`: For limit orders (30 decimal USD string)
 - `allowedSlippageBps`: Default 100 (1%)
+
+#### 🎯 Market Address Resolution
+
+**Critical Process**: To get the correct `marketAddress` for trading:
+
+1. **Call `get_markets_info`** first to fetch all available markets
+2. **Look in response arrays**:
+   - `allMarkets`: Complete list of all available markets
+   - `topMarketsByInterest`: Top 10 markets by trading volume
+3. **Find your market by name** (e.g., "BTC/USD [BTC-USDC]", "ETH/USD [ETH-USDC]")
+4. **Extract `marketAddress`** field from the market object
+5. **Use in trading actions** - pass this address to `open_long_position`, `open_short_position`, etc.
+
+**Example Market Object**:
+```json
+{
+  "name": "BTC/USD [BTC-USDC]",
+  "marketAddress": "0x47c031236e19d024b42f8AE6780E44A573170703",
+  "indexToken": "BTC",
+  "indexTokenAddress": "0x47904963fc8b2340414262125aF798B9655E58Cd",
+  "longToken": "BTC",
+  "shortToken": "USDC"
+}
+```
 
 ### 🎯 Advanced Order Management
 

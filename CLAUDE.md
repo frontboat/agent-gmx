@@ -51,15 +51,18 @@ This is **agent-gmx**, an autonomous cryptocurrency trading agent specialized in
 - Defines agent memory structure and behavior patterns
 
 #### `gmx-actions.ts` (Trading Engine)
-- **Market Data**: Price feeds, volume analysis, oracle integration
-- **Position Management**: Open/close positions, leverage control, PnL tracking
-- **Risk Management**: Stop-loss, take-profit, position sizing calculations
-- **AI Integration**: Synth AI predictions and signal processing
+- **Market Data**: Price feeds, volume analysis, oracle integration, comprehensive portfolio balance
+- **Position Management**: Open/close positions using GMX SDK helper functions, leverage control, PnL tracking
+- **Risk Management**: Stop-loss, take-profit, position sizing calculations with liquidation price analysis
+- **AI Integration**: Synth AI predictions and signal processing with leaderboard access
+- **Order Management**: Comprehensive order tracking with execution analysis and risk metrics
+- **Trading History**: Advanced analytics with win rate, slippage analysis, and performance tracking
 
 #### `types.ts` (Data Structures)
-- `GmxMemory`: Agent memory interface for persistent state
+- `GmxMemory`: Agent memory interface for persistent state including portfolio balance tracking
 - Trading position types and market data structures
 - Validation schemas for external API responses
+- Portfolio balance interface with token/position allocation tracking
 
 #### `utils.ts` (Financial Calculations)
 - Price calculations with BigInt precision
@@ -176,9 +179,96 @@ bun run test:discord
 - **Real-Time**: Sub-minute response times for market opportunities
 - **Risk-Aware**: Multiple layers of protection against significant losses
 
+## 🔧 GMX SDK Integration Learnings
+
+### 🎯 Critical Parameter Format Requirements
+
+**MANDATORY**: All trading actions must use GMX SDK helper functions with precise parameter formats:
+
+#### Position Opening (Either/Or Parameters)
+- **payAmount**: Token amount in BigInt string using token's native decimals
+  - Example: `"1000000"` for 1 USDC (6 decimals)
+  - Example: `"1000000000000000000"` for 1 ETH (18 decimals)
+- **sizeAmount**: Position size in BigInt string with USD_DECIMALS (30) precision
+  - Example: `"5000000000000000000000000000000000"` for $5000 position
+
+#### Required Parameters for All Positions
+- **marketAddress**: Market token address from `getMarketsInfo()` (NOT indexTokenAddress)
+- **payTokenAddress**: ERC20 contract address of token being paid with
+- **collateralTokenAddress**: ERC20 contract address for collateral
+
+#### Optional Parameters
+- **leverage**: Basis points as BigInt string (e.g., `"50000"` for 5x leverage)
+- **limitPrice**: For limit orders, USD price with 30 decimal precision
+- **allowedSlippageBps**: Slippage tolerance in basis points (default: 100 = 1%)
+- **referralCodeForTxn**: Optional referral code string
+
+### ❌ Common Parameter Errors to Avoid
+
+**NEVER use these parameters** (they're for raw SDK methods, not helpers):
+- `indexTokenAddress`
+- `acceptablePrice`
+- `minOutputAmount`
+- `orderType`
+- `sizeUsd`
+- `collateralAmount`
+- `triggerPrice` (for positions - use `limitPrice` instead)
+
+### 🔧 Helper Function Benefits
+
+1. **Simplified Parameters**: No complex calculations required
+2. **Auto-Detection**: SDK automatically picks strategy based on payAmount vs sizeAmount
+3. **Built-in Validation**: Parameter validation and market compatibility checks
+4. **Order Type Detection**: Presence of limitPrice/triggerPrice determines order type
+5. **Error Handling**: Better error messages and transaction simulation
+
+### ⚠️ Transaction Timing Issues
+
+**Nonce Too Low Error**: If you encounter "nonce too low" errors:
+- **Cause**: Transactions sent too quickly without proper sequencing
+- **Solution**: Wait 3-5 seconds between transactions
+- **Prevention**: Use sequential execution only (never parallel transactions)
+
+### 📊 Enhanced Action Capabilities
+
+#### Portfolio Management
+- `get_portfolio_balance`: Complete portfolio overview with token/position allocation
+- Automatic USD value calculation using current market prices
+- Position net value calculation including PnL and fees
+
+#### Advanced Analytics
+- `get_trade_history`: Comprehensive trading analytics including:
+  - Win rate, profit factor, risk-adjusted returns
+  - Slippage analysis and fee tracking
+  - Market-by-market performance breakdown
+  - Daily trading activity patterns
+
+#### Position Risk Analysis
+- `get_positions`: Enhanced with liquidation price calculations
+- Distance to liquidation percentage
+- Leverage calculation with fee consideration
+- Risk level assessment (High/Medium/Low)
+
+#### Order Intelligence
+- `get_orders`: Smart order analysis including:
+  - Execution probability based on current market price
+  - Order age tracking and performance metrics
+  - Potential liquidation price if order executes
+  - Risk assessment for pending orders
+
+### 🛡️ Error Prevention Strategies
+
+1. **Parameter Validation**: Always use exact schema parameter names
+2. **String Format**: All BigInt values must be passed as strings
+3. **Decimal Precision**: Respect each token's decimal precision (check tokensData)
+4. **Market Addresses**: Use marketTokenAddress, never indexTokenAddress
+5. **Sequential Execution**: Wait between transactions to avoid nonce conflicts
+
 ## 🤝 Code Reuse Guidelines
 
 - Always check existing components before creating new ones
 - Reuse calculation utilities from `utils.ts`
 - Follow established patterns in `gmx-actions.ts`
 - Maintain consistency with agent personality in `example-gmx.ts`
+- Use GMX SDK helper functions instead of raw SDK methods
+- Validate all parameters against action schemas before implementation

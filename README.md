@@ -143,24 +143,52 @@ Vega executes a complete scalping cycle every 5 minutes:
 
 ### 📊 Market Intelligence
 
-- `get_markets_info` - Lightning-fast BTC/ETH price updates
+- `get_portfolio_balance` - Comprehensive portfolio balance with token balances, position values, and total worth
+- `get_markets_info` - Lightning-fast BTC/ETH price updates and comprehensive market data
+- `get_markets_list` - Get list of available markets with pagination
 - `get_daily_volumes` - Liquidity analysis for scalping conditions
+- `get_tokens_data` - Complete token information including balances and prices
 - `get_synth_leaderboard` - Top AI miners for prediction quality
 - `get_latest_predictions` - Real-time AI signals for entry timing
 
-### ⚡ High-Frequency Trading
+### ⚡ High-Frequency Trading (GMX SDK Helper Functions)
 
-- `open_long_position` - Rapid long scalp execution (5x leverage max)
-- `open_short_position` - Lightning short scalp entry
-- `close_position` - Immediate profit-taking or loss-cutting
-- `set_take_profit` - 1-3% profit targets for quick exits
-- `set_stop_loss` - 0.5% maximum loss protection
+- `open_long_position` - Rapid long scalp execution using simplified GMX helper
+- `open_short_position` - Lightning short scalp entry with helper function
+- `swap_tokens` - Token swapping with limit/market order support
+- `cancel_orders` - Cancel pending orders by order keys
+- `close_position_market` - Immediate market price position closing
 
-### 📈 Competition Monitoring
+#### 🔧 Critical Parameter Format Requirements
 
-- `get_positions` - Real-time scalp position tracking
-- `get_account_stats` - Competition performance metrics
-- `get_trade_history` - Win rate and frequency analysis
+**Position Opening** (Either/Or Parameters):
+- `payAmount`: Token amount in native decimals as string (e.g., "1000000" for 1 USDC)
+- `sizeAmount`: Position size in USD with 30 decimals as string (e.g., "5000000000000000000000000000000000" for $5000)
+
+**Required Parameters**:
+- `marketAddress`: Market token address (from getMarketsInfo)
+- `payTokenAddress`: Token being paid with
+- `collateralTokenAddress`: Collateral token
+
+**Optional Parameters**:
+- `leverage`: Basis points as string (e.g., "50000" for 5x)
+- `limitPrice`: For limit orders (30 decimal USD string)
+- `allowedSlippageBps`: Default 100 (1%)
+
+### 🎯 Advanced Order Management
+
+- `create_take_profit_order` - Conditional take profit orders (1-3% targets)
+- `create_stop_loss_order` - Stop loss protection (0.5% maximum loss)
+- `get_orders` - Comprehensive pending orders with execution analysis
+- `get_positions` - Enhanced position tracking with PnL, liquidation prices, risk metrics
+
+### 📈 Competition Analytics
+
+- `get_trade_history` - Comprehensive trading history with advanced analytics including:
+  - Win rate, profit factor, risk-adjusted returns
+  - Portfolio analysis by market and daily activity
+  - Slippage analysis and fee tracking
+  - Performance metrics for competition ranking
 
 ## 💬 Competition Communications
 

@@ -46,7 +46,6 @@ import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
-import type { GmxMemory } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -65,14 +64,6 @@ const env = validateEnv(
         GMX_SUBSQUID_URL: z.string(),
         GMX_WALLET_ADDRESS: z.string(),
         GMX_PRIVATE_KEY: z.string(),
-        GMX_MAX_POSITION_SIZE: z.string().default("10"),
-        GMX_MIN_POSITION_SIZE: z.string().default("5"),
-        GMX_MAX_LEVERAGE: z.string().default("3"),
-        GMX_SLIPPAGE_TOLERANCE: z.string().default("125"),
-        MARKET_ANALYSIS_INTERVAL: z.string().default("300000"),
-        POSITION_CHECK_INTERVAL: z.string().default("60000"),
-        AUTO_TAKE_PROFIT_PERCENT: z.string().default("20"),
-        AUTO_STOP_LOSS_PERCENT: z.string().default("10"),
         SYNTH_API_KEY: z.string().min(1, "SYNTH_API_KEY is required for market intelligence"),
         DISCORD_TOKEN: z.string().min(1, "DISCORD_TOKEN is required for Discord output"),
         DISCORD_BOT_NAME: z.string().min(1, "DISCORD_BOT_NAME is required for Discord output"),
@@ -171,59 +162,65 @@ if (env.GMX_WALLET_ADDRESS) {
 // 🤖 VEGA CHARACTER DEFINITION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const vegaCharacter = {
-    id: "vega-gmx-scalping-competitor-v1",
-    name: "Vega",
-    description: "Elite GMX scalping specialist competing for top rankings"
-};
+const vega_template = 
+`You are Vega, an Elite GMX scalping specialist competing for top rankings.
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 📊 GMX TRADING CONTEXT CONFIGURATION
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const gmxContext = context<GmxMemory>({
-    id: "vega-gmx-scalping-context",
-    type: "gmx-trading-agent",
-    maxSteps: 100,
-    schema: z.object({
-        name: z.string().describe("The agent's name"),
-        role: z.string().describe("The agent's role and specialization"),
-    }),
-    instructions: `
-You are ${vegaCharacter.name}, ${vegaCharacter.description}.
- You are ${vegaCharacter.name}, ${vegaCharacter.description}.
-
-🏆 COMPETITION MODE: You are competing in a GMX scalping competition. Every trade counts toward your ranking. 
+You are competing in a GMX scalping competition. Every trade counts toward your ranking. 
 Your goal is to maximize total return through rapid, precise scalping trades.
 
 ## Scalping Strategy
 
+### Available actions :
+
+#### 📊 Portfolio & Market Intelligence
+- **get_portfolio_balance**: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. No parameters required.
+
+- **get_markets_info**: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns comprehensive market data for all available markets.
+
+- **get_markets_list**: Get paginated list of available markets. Optional parameters: offset (default 0), limit (default 100).
+
+- **get_daily_volumes**: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis.
+
+- **get_tokens_data**: Get complete token information including prices, balances, decimals, and addresses for all available tokens.
+
+#### 📈 Position & Order Management
+- **get_positions**: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
+
+- **get_orders**: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices.
+
+- **get_trade_history**: Get comprehensive trading history with advanced analytics including win rate, profit factor, slippage analysis, fee tracking, and market-by-market performance. Optional parameters: pageSize (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
+
+#### 🤖 AI Intelligence
+- **get_synth_leaderboard**: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs.
+
+- **get_latest_predictions**: Get real-time prediction data from specific Synth miners. Required parameters: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
+
+#### ⚡ Trading Execution (GMX SDK Helper Functions)
+- **open_long_position**: Open long position using simplified helper. EITHER payAmount OR sizeAmount required, plus marketAddress, payTokenAddress, collateralTokenAddress. Optional: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
+
+- **open_short_position**: Open short position using simplified helper. Same parameters as open_long_position.
+
+- **swap_tokens**: Swap tokens using helper function. EITHER fromAmount OR toAmount required, plus fromTokenAddress, toTokenAddress. Optional: triggerPrice (for limit swaps), allowedSlippageBps, referralCodeForTxn.
+
+- **close_position_market**: Close position immediately at market price. Required: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd. Optional: collateralDeltaAmount, allowedSlippage.
+
+#### 🎯 Risk Management Orders
+- **create_take_profit_order**: Create conditional take profit order. Required: marketAddress, collateralTokenAddress, isLong, triggerPrice (30 decimals), sizeDeltaUsd (30 decimals). Optional: collateralDeltaAmount, allowedSlippage.
+
+- **create_stop_loss_order**: Create stop loss protection order. Same parameters as take profit.
+
+- **cancel_orders**: Cancel pending orders by order keys. Required: orderKeys (array of hex strings).
+
 ### 🎯 When to Scalp
-- Find the trend using synth miners predictions
-- Open a scalping position in the direction of the trend
+- Query the synth leaderboard to find the top miners
+- Query the latest predictions for the top miners
+- Find the trend using the synth miners predictions
+- Check existing positions and orders
+- If needed, open a scalping position in the direction of the trend
 
 ### 🛡️ Risk Management
 - Set up stop losses and take profits on every trade
 - **Portfolio Limits**: Never exceed maximum position size
-
-### Available actions :
-- get_portfolio_balance: Get the current balance of the portfolio.
-- get_markets_info: Get detailed information about markets and tokens.
-- get_markets_list: Get a list of markets.
-- get_daily_volumes: Get daily volume data for markets.
-- get_tokens_data: Get data for available tokens on GMX.
-- get_positions: Get all current trading positions.
-- get_orders: Get all pending orders.
-- get_trade_history: Get trading history.
-- get_synth_leaderboard: Get the current leaderboard of top-performing Synth miners.
-- get_latest_predictions: Get real-time prediction data from specific Synth miners.
-- cancel_orders: Cancel one or more pending orders.
-- open_long_position: Open a long position.
-- open_short_position: Open a short position.
-- swap_tokens: Swap tokens.
-- create_take_profit_order: Create a take profit order.
-- create_stop_loss_order: Create a stop loss order.
-- close_position_market: Close position immediately at market price.
 
 ## Critical Trading Rules
 
@@ -244,157 +241,107 @@ Your goal is to maximize total return through rapid, precise scalping trades.
 - limitPrice: For limit orders (30 decimal USD string)
 - allowedSlippageBps: Default 100 (1%)
 
-**EXAMPLE - Short Position with Size Amount**:
-\`\`\`json
-{
-  "sizeAmount": "5000000000000000000000000000000000",
-  "marketAddress": "0x47c031236e19d024b42f8AE6780E44A573170703",
-  "payTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-  "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-  "leverage": "30000"
-}
-\`\`\`
-
-**NEVER use**: indexTokenAddress, acceptablePrice, minOutputAmount, orderType, sizeUsd, collateralAmount, triggerPrice (for positions)
-
 ### 💰 Position Sizing
 - Fetch the current balance using get_portfolio_balance
 - Calculate the max position size based on the balance
-- Calculate the max leverage based on the balance
-- Calculate the dynamic sizing based on the balance
-- Calculate the conviction scaling based on the balance
-
-- **Max Position**: use ${env.GMX_MIN_POSITION_SIZE}% up to ${env.GMX_MAX_POSITION_SIZE}% of portfolio
-- **Max Leverage**: Use 1x up to ${env.GMX_MAX_LEVERAGE}x leverage
+- **Max Position**: use up to 5% of portfolio per trade
+- Calculate the max leverage
+- **Max Leverage**: Use up to 5x leverage
 - **Dynamic Sizing**: Calculate based on current portfolio value
-- **Conviction Scaling**: Larger positions for higher-conviction trades
 
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)
-2. **Wait Between**: 1-2 second pause between transactions  
+2. **Wait Between**: 2 second pause between transactions to avoid nonce errors
 3. **Complete Analysis**: Finish analysis and take action in same response
 4. **No "Thinking" Endings**: Every conversation must end with executed action
 5. **Nonce Too Low Error**: If you see "nonce too low" error, it means you're sending transactions too quickly. Wait 3-5 seconds and retry the transaction
 
-## Communication Style
-
-### 📝 Discord Rules
-- Natural language only (no JSON output)
-- Use Discord formatting (**bold**, *italic*)
-- Under 2000 characters per message
-- Always provide helpful response even if action fails
-- Keep scalping updates under 500 characters
-
 ## Key Reminders
 - You ARE competing - every trade counts toward ranking
+- You can only have one trade per market at a time, so if you have a long and want to open a short, you need to close the long first - and vice versa
 - Execute scalps immediately
 - Set TP/SL automatically on every position
 - Calculate position sizes dynamically based on portfolio value
 - Never end responses with analysis—always execute a decision
 - Competition mode: aggressive but calculated risk-taking
+- Only one stop loss and one take profit per position
+- Always check pending orders for issues and cancel them if needed
 
-`,
-render: (state) => {
-    const memory = state.memory;
-    
-    return `
-        **🏆 ${vegaCharacter.name} - GMX Scalping Competitor** ⚡
+### 📝 Discord Rules
+- Natural language only (no JSON output)
+- When calling actions, format the response using the action result data directly.
+- NEVER use template variables like {{calls[0]}} - always extract and format the actual values from the action response.
+- Use Discord formatting (**bold**, *italic*)
+- Under 2000 characters per message
+- Always provide helpful response even if action fails
+- Keep scalping updates under 500 characters
+`
+;
 
-        **🎯 Competition Status**
-        - Current Mode: ${memory.currentTask || "Hunting scalping opportunities"}
 
-        **📊 Live Performance**
-        - Active Scalps: ${memory.positions.length}
-        - Total P&L: $${memory.totalPnl.toFixed(2)}
-        - Win Rate: ${memory.winRate.toFixed(1)}% (target: >75%)
-        - Trade Count: ${memory.trades.length} 
-        - Avg Win: $${memory.averageProfit.toFixed(2)} | Avg Loss: $${memory.averageLoss.toFixed(2)}
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 GMX TRADING CONTEXT CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════════
 
-        **⚡ Scalping Parameters**
-        - Position Size: ${env.GMX_MIN_POSITION_SIZE}% up to ${env.GMX_MAX_POSITION_SIZE}% of portfolio
-        - Max Leverage: 1x up to ${env.GMX_MAX_LEVERAGE}x leverage
+const gmxContext = context({
+    id: "vega-gmx-scalping-context",
+    type: "gmx-trading-agent",
+    maxSteps: 100,
+    schema: z.object({
+        instructions: z.string().describe("The agent's instructions")
+    }),
 
-        **🤖 AI Intelligence**
-        - Top Synth Miners: ${memory.synthLeaderboard.topMinerIds.length}
-        - Last AI Update: ${memory.synthLeaderboard.lastUpdated ? new Date(memory.synthLeaderboard.lastUpdated).toLocaleString() : "Fetching..."}
-        - Active Signals: ${Object.keys(memory.synthPredictions).reduce((total, asset) => total + Object.keys(memory.synthPredictions[asset]).length, 0)} predictions
-
-        **🔥 Competition Mode**
-        - Markets: BTC ${Object.keys(memory.markets).includes('BTC') ? '✅' : '⏳'} | ETH ${Object.keys(memory.markets).includes('ETH') ? '✅' : '⏳'}
-
-        ${memory.lastResult ? `**⚡ Last Action:** ${memory.lastResult}` : ""}
-
-        🎯 Ready to scalp !
-    `;
-  },
-  create: () => {
-        console.log("🎯 Creating memory for GMX trading agent");
-        
-        return {
-            // Core trading data
-            positions: [],
-            orders: [],
-            markets: {},
-            tokens: {},
-            volumes: {},
-            
-            // Trading performance
-            trades: [],
-            totalPnl: 0,
-            winRate: 0,
-            averageProfit: 0,
-            averageLoss: 0,
-            
-            // Current state
-            currentTask: "Initializing GMX trading agent",
-            lastResult: null,
-            
-            // Risk configuration
-            maxPositionSize: parseFloat(env.GMX_MAX_POSITION_SIZE || "10"),
-            minPositionSize: parseFloat(env.GMX_MIN_POSITION_SIZE || "5"),
-            maxLeverage: parseInt(env.GMX_MAX_LEVERAGE || "3"),
-            slippageTolerance: parseInt(env.GMX_SLIPPAGE_TOLERANCE || "125"),
-            
-            // Trading strategy
-            activeStrategies: ["Scalping"],
-            
-            // Synth intelligence data
-            synthLeaderboard: {
-                miners: [],
-                lastUpdated: null,
-                topMinerIds: []
-            },
-            synthPredictions: {}
-        };
+    key({ id }) {
+      return id;
     },
-}).setInputs({
-    "gmx:scalping-cycle": input({
-        subscribe(send, { container }) {
-            console.log("⚡ Scalping cycle input ACTIVATED - starting 5-minute intervals");
-            console.log("📋 Send function:", typeof send);
-            console.log("🏗️ Container available:", !!container);
-            
-            const interval = setInterval(async () => {
-                console.log("⏰ Scalping cycle triggered - sending to Vega");
-                try {
-                    await send(gmxContext, 
-                        { name: "vega", role: "scalping-competitor" }, 
-                        "🏆 Scalping cycle time! Pick up where we left off and check markets, monitor positions, scan for opportunities using synth data, and execute trades autonomously. Follow the trends !"
-                    );
-                    console.log("✅ Send completed successfully");
-                } catch (error) {
-                    console.error("❌ Send failed:", error);
-                }
-            }, 300000); // 5 minutes
 
-            console.log("✅ Scalping cycle subscription setup complete");
-            return () => {
-                console.log("🛑 Scalping cycle subscription cleanup");
-                clearInterval(interval);
-            };
-        }
-    })
-});
+    create: (state) => {
+          return {
+            instructions:state.args.instructions
+          };
+      },
+
+    render({ memory }) {
+        return render(vega_template, {
+            instructions: memory.instructions
+          });
+    },
+    }).setInputs({
+        "gmx:scalping-cycle": input({  
+            schema: z.object({
+                text: z.string(),
+          }),
+            subscribe(send, { container }) {
+                console.log("⚡ Scalping cycle input ACTIVATED - starting 5 minutes intervals");
+                console.log("📋 Send function:", typeof send);
+                console.log("🏗️ Container available:", !!container);
+                
+                const interval = setInterval(async () => {
+                    console.log("⏰ Scalping cycle triggered - sending to Vega");
+                    let context = {
+                        id: "vega-gmx-scalping-context",
+                        type: "gmx-trading-agent",
+                        maxSteps: 100,
+                        instructions: vega_template
+                    };
+                    let text = "🏆 Scalping cycle time! Pick up where we left off and check markets, monitor positions, scan for opportunities using synth data, and execute trades autonomously. Follow the trends !";
+
+                    try {
+                        await send(gmxContext, context, {text});
+                        console.log("✅ Send completed successfully");
+                    } catch (error) {
+                        console.error("❌ Send failed:", error);
+                    }
+                }, 300000); // 5 minutes
+
+                console.log("✅ Scalping cycle subscription setup complete");
+                return () => {
+                    console.log("🛑 Scalping cycle subscription cleanup");
+                    clearInterval(interval);
+                };
+            }
+        })
+    });
 
 // Create GMX actions using the SDK instance
 const gmxActions = createGmxActions(sdk, env);
@@ -439,10 +386,7 @@ console.log("✅ Agent created successfully!");
 
 // Start the agent with GMX context arguments
 await agent.start({
-    name: vegaCharacter.name,
-    role: vegaCharacter.description,
+    instructions: vega_template
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");
-console.log("📡 Discord Channel ID:", env.DISCORD_CHANNEL_ID);
-console.log("🤖 Discord Bot Name:", env.DISCORD_BOT_NAME);

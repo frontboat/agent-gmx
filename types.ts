@@ -24,6 +24,15 @@ export interface GmxMemory {
     averageProfit: number;
     averageLoss: number;
     
+    // Portfolio balance
+    portfolioBalance?: {
+        totalValue: number;
+        tokenValue: number;
+        positionValue: number;
+        totalPnl: number;
+        lastUpdated: string;
+    };
+    
     // Current state
     currentTask: string | null;
     lastResult: string | null;

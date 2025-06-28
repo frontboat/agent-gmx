@@ -187,8 +187,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_markets_list",
         description: "Get list of markets using official SDK method",
         schema: z.object({
-            offset: z.number().optional().describe("Offset for pagination"),
-            limit: z.number().optional().describe("Limit for pagination")
+            offset: z.number().optional().describe("Offset for pagination (0-based, default: 0)"),
+            limit: z.number().optional().describe("Limit for pagination (1-1000, default: 100)")
         }),
         async handler(data, ctx, agent) {
             try {
@@ -311,6 +311,168 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to fetch tokens data"
+                };
+            }
+        }
+    }),
+
+    // Portfolio Balance Query
+    action({
+        name: "get_portfolio_balance",
+        description: "Get comprehensive portfolio balance including token balances, position values, and total portfolio worth. No parameters required - uses SDK account context automatically.",
+        async handler(data, ctx, agent) {
+            try {
+                // Get tokens data with balances and prices
+                const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+                    throw new Error(`Failed to get tokens data: ${error.message || error}`);
+                });
+                
+                // Get markets and positions data
+                const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+                    throw new Error(`Failed to get markets data: ${error.message || error}`);
+                });
+                
+                if (!tokensData || !marketsInfoData) {
+                    throw new Error("Failed to get required market and token data");
+                }
+
+                // Get positions info for portfolio value calculation
+                const positionsResult = await sdk.positions.getPositionsInfo({
+                    marketsInfoData,
+                    tokensData,
+                    showPnlInLeverage: false
+                }).catch(error => {
+                    throw new Error(`Failed to get positions info: ${error.message || error}`);
+                });
+
+                const memory = ctx.memory as GmxMemory;
+                
+                // Calculate token balances in USD
+                const tokenBalances: Array<{
+                    symbol: string;
+                    address: string;
+                    balance: string;
+                    usdValue: string;
+                    price: string;
+                }> = [];
+                
+                let totalTokenValueUsd = 0;
+                
+                Object.values(tokensData).forEach(token => {
+                    if (token.balance && token.balance > 0n) {
+                        const balanceDecimal = bigIntToDecimal(token.balance, token.decimals);
+                        const price = token.prices?.minPrice ? 
+                            bigIntToDecimal(token.prices.minPrice, USD_DECIMALS) : 0;
+                        const usdValue = balanceDecimal * price;
+                        
+                        totalTokenValueUsd += usdValue;
+                        
+                        tokenBalances.push({
+                            symbol: token.symbol,
+                            address: token.address,
+                            balance: formatTokenAmount(token.balance, token.decimals, 6),
+                            usdValue: formatUsdAmount(convertToUsd(token.balance, token.decimals, token.prices?.minPrice || 0n) || 0n, 2),
+                            price: formatUsdAmount(token.prices?.minPrice || 0n, 6)
+                        });
+                    }
+                });
+
+                // Calculate position values
+                const positionValues: Array<{
+                    marketName: string;
+                    side: string;
+                    sizeUsd: string;
+                    collateralUsd: string;
+                    pnl: string;
+                    netValue: string;
+                    leverage: string;
+                }> = [];
+                
+                let totalPositionValueUsd = 0;
+                let totalPositionPnl = 0;
+                
+                if (positionsResult.positionsInfoData) {
+                    Object.values(positionsResult.positionsInfoData).forEach(position => {
+                        const marketInfo = marketsInfoData[position.marketAddress];
+                        if (!marketInfo) return;
+                        
+                        const netValueDecimal = bigIntToDecimal(position.netValue || 0n, USD_DECIMALS);
+                        const pnlDecimal = bigIntToDecimal(position.pnl || 0n, USD_DECIMALS);
+                        
+                        totalPositionValueUsd += netValueDecimal;
+                        totalPositionPnl += pnlDecimal;
+                        
+                        positionValues.push({
+                            marketName: marketInfo.name,
+                            side: position.isLong ? 'LONG' : 'SHORT',
+                            sizeUsd: formatUsdAmount(position.sizeInUsd || 0n, 2),
+                            collateralUsd: formatUsdAmount(position.collateralUsd || 0n, 2),
+                            pnl: formatUsdAmount(position.pnl || 0n, 2),
+                            netValue: formatUsdAmount(position.netValue || 0n, 2),
+                            leverage: position.leverage ? 
+                                `${(Number(position.leverage) / 10000).toFixed(2)}x` : '0x'
+                        });
+                    });
+                }
+
+                // Calculate total portfolio value
+                const totalPortfolioValue = totalTokenValueUsd + totalPositionValueUsd;
+                
+                // Sort token balances by USD value (highest first)
+                tokenBalances.sort((a, b) => 
+                    parseFloat(b.usdValue.replace(/[$,]/g, '')) - parseFloat(a.usdValue.replace(/[$,]/g, ''))
+                );
+
+                // Calculate portfolio allocation
+                const tokenAllocation = totalPortfolioValue > 0 ? 
+                    (totalTokenValueUsd / totalPortfolioValue) * 100 : 0;
+                const positionAllocation = totalPortfolioValue > 0 ? 
+                    (totalPositionValueUsd / totalPortfolioValue) * 100 : 0;
+
+                // Update memory with portfolio data
+                memory.portfolioBalance = {
+                    totalValue: totalPortfolioValue,
+                    tokenValue: totalTokenValueUsd,
+                    positionValue: totalPositionValueUsd,
+                    totalPnl: totalPositionPnl,
+                    lastUpdated: new Date().toISOString()
+                };
+                memory.currentTask = "💰 Calculating portfolio worth";
+                memory.lastResult = `Portfolio value: $${totalPortfolioValue.toFixed(2)} (${tokenBalances.length} tokens, ${positionValues.length} positions)`;
+
+                return {
+                    success: true,
+                    message: `Portfolio balance calculated successfully`,
+                    portfolio: {
+                        summary: {
+                            totalValue: `$${totalPortfolioValue.toFixed(2)}`,
+                            tokenValue: `$${totalTokenValueUsd.toFixed(2)}`,
+                            positionValue: `$${totalPositionValueUsd.toFixed(2)}`,
+                            totalPnl: `$${totalPositionPnl.toFixed(2)}`,
+                            allocation: {
+                                tokens: `${tokenAllocation.toFixed(1)}%`,
+                                positions: `${positionAllocation.toFixed(1)}%`
+                            }
+                        },
+                        tokens: {
+                            count: tokenBalances.length,
+                            totalValue: `$${totalTokenValueUsd.toFixed(2)}`,
+                            balances: tokenBalances
+                        },
+                        positions: {
+                            count: positionValues.length,
+                            totalValue: `$${totalPositionValueUsd.toFixed(2)}`,
+                            totalPnl: `$${totalPositionPnl.toFixed(2)}`,
+                            positions: positionValues
+                        },
+                        timestamp: new Date().toISOString()
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to get portfolio balance"
                 };
             }
         }
@@ -764,10 +926,10 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_trade_history",
         description: "Get trading history with comprehensive analytics including advanced PnL calculations, liquidation prices, and portfolio-level metrics",
         schema: z.object({
-            pageSize: z.number().optional().default(100).describe("Number of trades per page"),
-            pageIndex: z.number().optional().default(0).describe("Page index for pagination"),
-            fromTxTimestamp: z.number().optional().describe("Start timestamp (Unix timestamp)"),
-            toTxTimestamp: z.number().optional().describe("End timestamp (Unix timestamp)"),
+            pageSize: z.number().optional().default(100).describe("Number of trades per page (1-1000, default: 100)"),
+            pageIndex: z.number().optional().default(0).describe("Page index for pagination (0-based, default: 0)"),
+            fromTxTimestamp: z.number().optional().describe("Start timestamp as Unix timestamp in seconds (e.g. 1672531200 for Jan 1, 2023)"),
+            toTxTimestamp: z.number().optional().describe("End timestamp as Unix timestamp in seconds (e.g. 1704067200 for Jan 1, 2024)"),
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1230,8 +1392,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_latest_predictions",
         description: "Get real-time prediction data from specific Synth miners for current market intelligence",
         schema: z.object({
-            asset: z.enum(["BTC", "ETH"]).default("BTC").describe("Asset symbol (BTC or ETH)"),
-            miner: z.number().describe("Miner ID (required - get from leaderboard first)")
+            asset: z.enum(["BTC", "ETH"]).default("BTC").describe("Asset symbol - must be exactly 'BTC' or 'ETH' (case sensitive)"),
+            miner: z.number().describe("Miner ID as integer (required - get active miner IDs from get_synth_leaderboard first, e.g. 123)")
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1322,7 +1484,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "cancel_orders",
         description: "Cancel one or more pending orders using GMX SDK",
         schema: z.object({
-            orderKeys: z.array(z.string()).describe("Array of order keys to cancel"),
+            orderKeys: z.array(z.string()).describe("Array of order key strings (32-byte hex strings starting with 0x)"),
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1358,14 +1520,19 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Helper: Open Long Position (Simplified)
     action({
         name: "open_long_position",
-        description: "Open a long position using GMX helper function (easier to use)",
+        description: "Open a long position using GMX SDK helper function with simplified parameters",
         schema: z.object({
-            payAmount: z.string().describe("Amount to pay (in token decimals)"),
-            marketAddress: z.string().describe("Market address (e.g. ETH/USD market)"),
-            payTokenAddress: z.string().describe("Token address you're paying with"),
-            collateralTokenAddress: z.string().describe("Token address for collateral"),
-            allowedSlippageBps: z.number().default(125).describe("Allowed slippage in basis points (default: 125 = 1.25%)"),
-            leverage: z.string().describe("Leverage in basis points (e.g. 50000 = 5x leverage)"),
+            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
+            sizeAmount: z.string().optional().describe("Position size in BigInt string format with USD_DECIMALS (30) precision (e.g. '5000000000000000000000000000000000' for $5000 position). Use this for size-based position sizing."),
+            marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+            payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+            collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+            leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
+            limitPrice: z.string().optional().describe("Limit price in BigInt string with USD_DECIMALS (30) precision for limit orders (optional). If provided, creates a limit order instead of market order."),
+            referralCodeForTxn: z.string().optional().describe("Referral code for transaction (optional)"),
+        }).refine((data) => data.payAmount || data.sizeAmount, {
+            message: "Either payAmount or sizeAmount must be provided"
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1396,15 +1563,34 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
                 }
                 
-                // Use the simplified helper function with enhanced error handling
-                const result = await sdk.orders.long({
-                    payAmount: BigInt(data.payAmount),
+                // Prepare parameters for helper function
+                const helperParams: any = {
                     marketAddress: data.marketAddress,
                     payTokenAddress: data.payTokenAddress,
                     collateralTokenAddress: data.collateralTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps,
-                    leverage: BigInt(data.leverage),
-                }).catch(error => {
+                    allowedSlippageBps: data.allowedSlippageBps || 100,
+                };
+
+                // Add either payAmount or sizeAmount
+                if (data.payAmount) {
+                    helperParams.payAmount = BigInt(data.payAmount);
+                } else if (data.sizeAmount) {
+                    helperParams.sizeAmount = BigInt(data.sizeAmount);
+                }
+
+                // Add optional parameters
+                if (data.leverage) {
+                    helperParams.leverage = BigInt(data.leverage);
+                }
+                if (data.limitPrice) {
+                    helperParams.limitPrice = BigInt(data.limitPrice);
+                }
+                if (data.referralCodeForTxn) {
+                    helperParams.referralCodeForTxn = data.referralCodeForTxn;
+                }
+
+                // Use the simplified helper function with enhanced error handling
+                const result = await sdk.orders.long(helperParams).catch(error => {
                     // Enhanced error parsing for trading operations
                     let errorMessage = "Failed to open long position";
                     
@@ -1426,21 +1612,25 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const memory = ctx.memory as GmxMemory;
                 
                 // Update memory with order info
-                const leverageX = parseFloat(data.leverage) / 10000;
+                const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
+                const isLimitOrder = !!data.limitPrice;
                 memory.currentTask = "🚀 Executing LONG scalp entry";
-                memory.lastResult = `Opened long position with ${leverageX}x leverage`;
+                memory.lastResult = `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`;
 
                 return {
                     success: true,
-                    message: `Successfully opened long position with ${leverageX}x leverage`,
+                    message: `Successfully opened long ${isLimitOrder ? 'limit' : 'market'} position`,
                     orderDetails: {
                         marketAddress: data.marketAddress,
                         direction: 'LONG',
-                        payAmount: data.payAmount,
+                        orderType: isLimitOrder ? 'Limit' : 'Market',
+                        payAmount: data.payAmount || null,
+                        sizeAmount: data.sizeAmount || null,
                         payToken: data.payTokenAddress,
                         collateralToken: data.collateralTokenAddress,
-                        leverage: `${leverageX}x`,
-                        slippage: `${data.allowedSlippageBps / 100}%`
+                        leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
+                        limitPrice: data.limitPrice || null,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };
@@ -1457,14 +1647,19 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Helper: Open Short Position (Simplified)
     action({
         name: "open_short_position", 
-        description: "Open a short position using GMX helper function (easier to use)",
+        description: "Open a short position using GMX SDK helper function with simplified parameters",
         schema: z.object({
-            payAmount: z.string().describe("Amount to pay (in token decimals)"),
-            marketAddress: z.string().describe("Market address (e.g. ETH/USD market)"),
-            payTokenAddress: z.string().describe("Token address you're paying with"),
-            collateralTokenAddress: z.string().describe("Token address for collateral"),
-            allowedSlippageBps: z.number().default(125).describe("Allowed slippage in basis points (default: 125 = 1.25%)"),
-            leverage: z.string().describe("Leverage in basis points (e.g. 50000 = 5x leverage)"),
+            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
+            sizeAmount: z.string().optional().describe("Position size in BigInt string format with USD_DECIMALS (30) precision (e.g. '5000000000000000000000000000000000' for $5000 position). Use this for size-based position sizing."),
+            marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+            payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+            collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+            leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
+            limitPrice: z.string().optional().describe("Limit price in BigInt string with USD_DECIMALS (30) precision for limit orders (optional). If provided, creates a limit order instead of market order."),
+            referralCodeForTxn: z.string().optional().describe("Referral code for transaction (optional)"),
+        }).refine((data) => data.payAmount || data.sizeAmount, {
+            message: "Either payAmount or sizeAmount must be provided"
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1490,15 +1685,34 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error("Invalid token addresses provided");
                 }
                 
-                // Use the simplified helper function with enhanced error handling
-                const result = await sdk.orders.short({
-                    payAmount: BigInt(data.payAmount),
+                // Prepare parameters for helper function
+                const helperParams: any = {
                     marketAddress: data.marketAddress,
                     payTokenAddress: data.payTokenAddress,
                     collateralTokenAddress: data.collateralTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps,
-                    leverage: BigInt(data.leverage),
-                }).catch(error => {
+                    allowedSlippageBps: data.allowedSlippageBps || 100,
+                };
+
+                // Add either payAmount or sizeAmount
+                if (data.payAmount) {
+                    helperParams.payAmount = BigInt(data.payAmount);
+                } else if (data.sizeAmount) {
+                    helperParams.sizeAmount = BigInt(data.sizeAmount);
+                }
+
+                // Add optional parameters
+                if (data.leverage) {
+                    helperParams.leverage = BigInt(data.leverage);
+                }
+                if (data.limitPrice) {
+                    helperParams.limitPrice = BigInt(data.limitPrice);
+                }
+                if (data.referralCodeForTxn) {
+                    helperParams.referralCodeForTxn = data.referralCodeForTxn;
+                }
+
+                // Use the simplified helper function with enhanced error handling
+                const result = await sdk.orders.short(helperParams).catch(error => {
                     // Enhanced error parsing for short positions
                     let errorMessage = "Failed to open short position";
                     
@@ -1520,21 +1734,25 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const memory = ctx.memory as GmxMemory;
                 
                 // Update memory with order info
-                const leverageX = parseFloat(data.leverage) / 10000;
+                const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
+                const isLimitOrder = !!data.limitPrice;
                 memory.currentTask = "📉 Executing SHORT scalp entry";
-                memory.lastResult = `Opened short position with ${leverageX}x leverage`;
+                memory.lastResult = `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`;
 
                 return {
                     success: true,
-                    message: `Successfully opened short position with ${leverageX}x leverage`,
+                    message: `Successfully opened short ${isLimitOrder ? 'limit' : 'market'} position`,
                     orderDetails: {
                         marketAddress: data.marketAddress,
                         direction: 'SHORT',
-                        payAmount: data.payAmount,
+                        orderType: isLimitOrder ? 'Limit' : 'Market',
+                        payAmount: data.payAmount || null,
+                        sizeAmount: data.sizeAmount || null,
                         payToken: data.payTokenAddress,
                         collateralToken: data.collateralTokenAddress,
-                        leverage: `${leverageX}x`,
-                        slippage: `${data.allowedSlippageBps / 100}%`
+                        leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
+                        limitPrice: data.limitPrice || null,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };
@@ -1551,37 +1769,63 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Helper: Token Swap (Simplified)
     action({
         name: "swap_tokens",
-        description: "Swap tokens using GMX helper function (easier to use)",
+        description: "Swap tokens using GMX SDK helper function with simplified parameters",
         schema: z.object({
-            fromAmount: z.string().describe("Amount to swap from (in token decimals)"),
-            fromTokenAddress: z.string().describe("Token address to swap from"),
-            toTokenAddress: z.string().describe("Token address to swap to"),
-            allowedSlippageBps: z.number().default(125).describe("Allowed slippage in basis points (default: 125 = 1.25%)"),
+            fromAmount: z.string().optional().describe("Amount to swap from in BigInt string format using source token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for amount-based swapping."),
+            toAmount: z.string().optional().describe("Target amount to receive in BigInt string format using destination token's native decimals (e.g. '1000000000000000000' for 1 ETH). Use this for target-based swapping."),
+            fromTokenAddress: z.string().describe("ERC20 contract address of token to swap from (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+            toTokenAddress: z.string().describe("ERC20 contract address of token to swap to (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+            triggerPrice: z.string().optional().describe("Trigger price in BigInt string with USD_DECIMALS (30) precision for limit swap orders (optional). If provided, creates a limit swap instead of market swap."),
+            referralCodeForTxn: z.string().optional().describe("Referral code for transaction (optional)"),
+        }).refine((data) => data.fromAmount || data.toAmount, {
+            message: "Either fromAmount or toAmount must be provided"
         }),
         async handler(data, ctx, agent) {
             try {
-                // Use the simplified helper function
-                const result = await sdk.orders.swap({
-                    fromAmount: BigInt(data.fromAmount),
+                // Prepare parameters for helper function
+                const helperParams: any = {
                     fromTokenAddress: data.fromTokenAddress,
                     toTokenAddress: data.toTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps,
-                });
+                    allowedSlippageBps: data.allowedSlippageBps || 100,
+                };
+
+                // Add either fromAmount or toAmount
+                if (data.fromAmount) {
+                    helperParams.fromAmount = BigInt(data.fromAmount);
+                } else if (data.toAmount) {
+                    helperParams.toAmount = BigInt(data.toAmount);
+                }
+
+                // Add optional parameters
+                if (data.triggerPrice) {
+                    helperParams.triggerPrice = BigInt(data.triggerPrice);
+                }
+                if (data.referralCodeForTxn) {
+                    helperParams.referralCodeForTxn = data.referralCodeForTxn;
+                }
+
+                // Use the simplified helper function
+                const result = await sdk.orders.swap(helperParams);
 
                 const memory = ctx.memory as GmxMemory;
                 
                 // Update memory with swap info
+                const isLimitSwap = !!data.triggerPrice;
                 memory.currentTask = "🔄 Swapping tokens for scalp setup";
-                memory.lastResult = `Swapped ${data.fromAmount} tokens: ${data.fromTokenAddress} → ${data.toTokenAddress}`;
+                memory.lastResult = `${isLimitSwap ? 'Limit' : 'Market'} swap: ${data.fromTokenAddress} → ${data.toTokenAddress}`;
 
                 return {
                     success: true,
-                    message: `Successfully swapped tokens`,
+                    message: `Successfully created ${isLimitSwap ? 'limit' : 'market'} swap`,
                     swapDetails: {
                         fromToken: data.fromTokenAddress,
                         toToken: data.toTokenAddress,
-                        fromAmount: data.fromAmount,
-                        slippage: `${data.allowedSlippageBps / 100}%`
+                        fromAmount: data.fromAmount || null,
+                        toAmount: data.toAmount || null,
+                        swapType: isLimitSwap ? 'Limit' : 'Market',
+                        triggerPrice: data.triggerPrice || null,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };
@@ -1600,13 +1844,13 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "create_take_profit_order",
         description: "Create a take profit order to close position when price reaches target",
         schema: z.object({
-            marketAddress: z.string().describe("Market address for the position"),
-            collateralTokenAddress: z.string().describe("Collateral token address"),
+            marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
+            collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             isLong: z.boolean().describe("True for long position, false for short position"),
-            triggerPrice: z.string().describe("Price that triggers the take profit (in USD with 30 decimals)"),
-            sizeDeltaUsd: z.string().describe("Position size to close in USD (30 decimals)"),
-            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw (optional)"),
-            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (default: 50 = 0.5%)"),
+            triggerPrice: z.string().describe("Price that triggers take profit in BigInt string with USD_DECIMALS (30) precision (e.g. '2500000000000000000000000000000000' for $2500.00)"),
+            sizeDeltaUsd: z.string().describe("Position size to close in BigInt string with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000.00)"),
+            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
+            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (50 = 0.5%, range: 25-200, default: 50)"),
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1700,13 +1944,13 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "create_stop_loss_order",
         description: "Create a stop loss order to close position when price hits stop level",
         schema: z.object({
-            marketAddress: z.string().describe("Market address for the position"),
-            collateralTokenAddress: z.string().describe("Collateral token address"),
+            marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
+            collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             isLong: z.boolean().describe("True for long position, false for short position"),
-            triggerPrice: z.string().describe("Price that triggers the stop loss (in USD with 30 decimals)"),
-            sizeDeltaUsd: z.string().describe("Position size to close in USD (30 decimals)"),
-            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw (optional)"),
-            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (default: 50 = 0.5%)"),
+            triggerPrice: z.string().describe("Price that triggers stop loss in BigInt string with USD_DECIMALS (30) precision (e.g. '2300000000000000000000000000000000' for $2300.00)"),
+            sizeDeltaUsd: z.string().describe("Position size to close in BigInt string with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000.00)"),
+            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
+            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (50 = 0.5%, range: 25-200, default: 50)"),
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1800,12 +2044,12 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "close_position_market",
         description: "Close position immediately at market price",
         schema: z.object({
-            marketAddress: z.string().describe("Market address for the position"),
-            collateralTokenAddress: z.string().describe("Collateral token address"),
+            marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
+            collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             isLong: z.boolean().describe("True for long position, false for short position"),
-            sizeDeltaUsd: z.string().describe("Position size to close in USD (30 decimals)"),
-            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw (optional)"),
-            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (default: 50 = 0.5%)"),
+            sizeDeltaUsd: z.string().describe("Position size to close in BigInt string with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000.00)"),
+            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
+            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (50 = 0.5%, range: 25-200, default: 50)"),
         }),
         async handler(data, ctx, agent) {
             try {

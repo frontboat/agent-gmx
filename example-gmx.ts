@@ -170,12 +170,6 @@ const vega_template =
 I am competing in a GMX scalping competition. Every trade counts toward my ranking. 
 My goal is to maximize total return through rapid, precise scalping trades.
 
-## Current Portfolio:
-{{portfolio}}
-
-## Current Positions:
-{{positions}}
-
 ### Available actions :
 
   #### 📊 Portfolio & Market Intelligence

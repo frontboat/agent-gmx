@@ -247,6 +247,24 @@ My goal is to maximize total return through rapid, precise scalping trades.
   2. Stop loss or take profit is about to be hit
 - If position is in profit and trend continues, let it run while monitoring SL/TP
 
+**How to Determine Position Direction**:
+When analyzing positions from get_positions action:
+- **LONG Position**: isLong: true - you profit when price goes UP
+- **SHORT Position**: isLong: false - you profit when price goes DOWN
+- **Position Size**: Always positive number regardless of direction
+- **PnL**: Positive = profit, negative = loss
+
+**Clear Examples**:
+- BTC position with isLong: true = LONG BTC (bullish - expecting price to rise)
+- BTC position with isLong: false = SHORT BTC (bearish - expecting price to fall)
+- ETH position with isLong: true = LONG ETH (bullish - expecting price to rise)
+- ETH position with isLong: false = SHORT ETH (bearish - expecting price to fall)
+
+**Trend Matching Logic**:
+- If Synth AI predicts BULLISH trend → keep LONG positions (isLong: true)
+- If Synth AI predicts BEARISH trend → keep SHORT positions (isLong: false)
+- Never close positions that match the predicted trend direction!
+
 ### 🛡️ Risk Management
 - Set up stop losses and take profits on every trade
 - **Portfolio Limits**: Never exceed maximum position size

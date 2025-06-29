@@ -19,6 +19,7 @@ import {
     calculatePositionNetValue,
     getTradeActionDescription
 } from './utils';
+import { get_portfolio_balance_str, get_positions_str } from './queries';
 
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -332,6 +333,88 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive portfolio balance including token balances, position values, and total portfolio worth. No parameters required - uses SDK account context automatically.",
         async handler(data, ctx, agent) {
             try {
+                const memory = ctx.memory as GmxMemory;
+                
+                // Use the formatted string function from queries
+                const portfolioString = await get_portfolio_balance_str(sdk);
+                
+                // Extract portfolio information from formatted string for memory
+                const totalValueMatch = portfolioString.match(/Total Value: \$([0-9.,]+)/);
+                const tokenValueMatch = portfolioString.match(/Tokens: \$([0-9.,]+)/);
+                const positionValueMatch = portfolioString.match(/Positions: \$([0-9.,]+)/);
+                const totalPnlMatch = portfolioString.match(/Total PnL: \$(-?[0-9.,]+)/);
+                
+                const totalValue = totalValueMatch ? parseFloat(totalValueMatch[1].replace(/,/g, '')) : 0;
+                const tokenValue = tokenValueMatch ? parseFloat(tokenValueMatch[1].replace(/,/g, '')) : 0;
+                const positionValue = positionValueMatch ? parseFloat(positionValueMatch[1].replace(/,/g, '')) : 0;
+                const totalPnl = totalPnlMatch ? parseFloat(totalPnlMatch[1].replace(/,/g, '')) : 0;
+                
+                memory.portfolioBalance = {
+                    totalValue: totalValue,
+                    tokenValue: tokenValue,
+                    positionValue: positionValue,
+                    totalPnl: totalPnl,
+                    lastUpdated: new Date().toISOString()
+                };
+                
+                memory.currentTask = "💰 Portfolio balance retrieved successfully";
+                memory.lastResult = `Total portfolio value: $${totalValue.toFixed(2)}`;
+
+                return {
+                    success: true,
+                    message: "Portfolio balance retrieved successfully",
+                    formattedData: portfolioString
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to get portfolio balance"
+                };
+            }
+        }
+    }),
+
+    // Enhanced Positions with Complete Calculations
+    action({
+        name: "get_positions",
+        description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
+        async handler(data, ctx, agent) {
+            try {
+                const memory = ctx.memory as GmxMemory;
+                
+                // Use the formatted string function from queries
+                const positionsString = await get_positions_str(sdk);
+                
+                // Update memory
+                memory.currentTask = "📈 Positions retrieved successfully";
+                memory.lastResult = "Current positions analyzed";
+
+                return {
+                    success: true,
+                    message: "Positions retrieved successfully",
+                    formattedData: positionsString
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to get positions"
+                };
+            }
+        }
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 💹 ORDERS & TRADES
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    // Orders Information (Official SDK Method)
+    action({
+        name: "get_orders",
+        description: "Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices",
+        async handler(data, ctx, agent) {
+            try {
                 // Get tokens data with balances and prices
                 const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
                     throw new Error(`Failed to get tokens data: ${error.message || error}`);
@@ -491,229 +574,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💹 POSITIONS & TRADES
     // ═══════════════════════════════════════════════════════════════════════════════
-
-    // Enhanced Positions with Complete Calculations
-    action({
-        name: "get_positions",
-        description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
-        async handler(data, ctx, agent) {
-            try {
-                // Get required market and token data first
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    throw new Error(`Failed to get market data: ${error.message || error}`);
-                });
-                
-                if (!marketsInfoData || !tokensData) {
-                    throw new Error("Failed to get market and token data");
-                }
-
-                // Use official SDK method with required parameters
-                const positionsResult = await sdk.positions.getPositions({
-                    marketsData: marketsInfoData,
-                    tokensData: tokensData,
-                    start: 0,
-                    end: 1000,
-                }).catch(error => {
-                    throw new Error(`Failed to get positions: ${error.message || error}`);
-                });
-                
-                const memory = ctx.memory as GmxMemory;
-                
-                // Extract and enhance positions data with complete calculations
-                const rawPositions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
-                
-                const enhancedPositions = rawPositions.map(position => {
-                    try {
-                        // Get market and token information
-                        const marketInfo = marketsInfoData[position.marketAddress];
-                        if (!marketInfo) {
-                            console.warn(`Market not found for position: ${position.marketAddress}`);
-                            return null;
-                        }
-                        
-                        const indexToken = tokensData[marketInfo.indexTokenAddress];
-                        const collateralToken = tokensData[position.collateralTokenAddress];
-                        
-                        if (!indexToken || !collateralToken) {
-                            console.warn(`Tokens not found for position: ${position.key}`);
-                            return null;
-                        }
-                        
-                        // Get token decimals
-                        const indexTokenDecimals = indexToken.decimals || 18;
-                        const collateralTokenDecimals = collateralToken.decimals || 6;
-                        
-                        // Determine mark price (use max for longs when increasing, min for shorts)
-                        const markPrice = position.isLong ? 
-                            indexToken.prices?.maxPrice || 0n : 
-                            indexToken.prices?.minPrice || 0n;
-                        
-                        const collateralPrice = position.isLong ?
-                            collateralToken.prices?.minPrice || 0n :
-                            collateralToken.prices?.maxPrice || 0n;
-                        
-                        // Calculate enhanced metrics using our utility functions
-                        const calculatedPnl = calculatePositionPnl({
-                            sizeInUsd: position.sizeInUsd,
-                            sizeInTokens: position.sizeInTokens,
-                            markPrice,
-                            isLong: position.isLong,
-                            indexTokenDecimals
-                        });
-                        
-                        const collateralUsd = convertToUsd(
-                            position.collateralAmount, 
-                            collateralTokenDecimals, 
-                            collateralPrice
-                        );
-                        
-                        const leverage = calculateLeverage({
-                            sizeInUsd: position.sizeInUsd,
-                            collateralUsd,
-                            pnl: calculatedPnl,
-                            pendingFundingFeesUsd: position.pendingFundingFeesUsd || 0n,
-                            pendingBorrowingFeesUsd: position.pendingBorrowingFeesUsd || 0n
-                        });
-                        
-                        // Check if collateral token is same as index token
-                        const isSameCollateralAsIndex = position.collateralTokenAddress.toLowerCase() === 
-                            marketInfo.indexTokenAddress.toLowerCase();
-                        
-                        const liquidationPrice = calculateLiquidationPrice({
-                            sizeInUsd: position.sizeInUsd,
-                            sizeInTokens: position.sizeInTokens,
-                            collateralAmount: position.collateralAmount,
-                            collateralUsd,
-                            markPrice,
-                            indexTokenDecimals,
-                            collateralTokenDecimals,
-                            isLong: position.isLong,
-                            minCollateralFactor: marketInfo.minCollateralFactor || (5n * 10n ** 27n), // 0.5% default
-                            pendingBorrowingFeesUsd: position.pendingBorrowingFeesUsd || 0n,
-                            pendingFundingFeesUsd: position.pendingFundingFeesUsd || 0n,
-                            isSameCollateralAsIndex
-                        });
-                        
-                        const netValue = calculatePositionNetValue({
-                            collateralUsd,
-                            pnl: calculatedPnl,
-                            pendingFundingFeesUsd: position.pendingFundingFeesUsd || 0n,
-                            pendingBorrowingFeesUsd: position.pendingBorrowingFeesUsd || 0n
-                        });
-                        
-                        // Calculate percentage metrics
-                        const pnlPercentage = collateralUsd > 0n ? 
-                            Number((calculatedPnl * 10000n) / collateralUsd) / 100 : 0;
-                        
-                        const leverageNumber = leverage ? Number(leverage) / 10000 : 0;
-                        
-                        // Calculate distance to liquidation
-                        const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
-                        const liqPrice = liquidationPrice ? bigIntToDecimal(liquidationPrice, USD_DECIMALS) : 0;
-                        const distanceToLiquidation = currentPrice > 0 && liqPrice > 0 ? 
-                            Math.abs((currentPrice - liqPrice) / currentPrice) * 100 : 0;
-                        
-                        return {
-                            // Basic position info
-                            key: position.key,
-                            marketAddress: position.marketAddress,
-                            marketName: marketInfo.name,
-                            indexToken: indexToken.symbol,
-                            collateralToken: collateralToken.symbol,
-                            direction: position.isLong ? 'LONG' : 'SHORT',
-                            
-                            // Size and collateral
-                            sizeUsd: formatUsdAmount(position.sizeInUsd, 2),
-                            sizeInTokens: formatTokenAmount(position.sizeInTokens, indexTokenDecimals, 6),
-                            collateralUsd: formatUsdAmount(collateralUsd, 2),
-                            collateralAmount: formatTokenAmount(position.collateralAmount, collateralTokenDecimals, 6),
-                            
-                            // Calculated metrics
-                            pnl: formatUsdAmount(calculatedPnl, 2),
-                            pnlPercentage: `${pnlPercentage.toFixed(2)}%`,
-                            netValue: formatUsdAmount(netValue, 2),
-                            leverage: `${leverageNumber.toFixed(2)}x`,
-                            
-                            // Prices
-                            markPrice: formatUsdAmount(markPrice, 2),
-                            entryPrice: position.sizeInTokens > 0n ? 
-                                formatUsdAmount((position.sizeInUsd * (10n ** BigInt(indexTokenDecimals))) / position.sizeInTokens, 2) : 
-                                "$0.00",
-                            liquidationPrice: liquidationPrice ? formatUsdAmount(liquidationPrice, 2) : "N/A",
-                            
-                            // Risk metrics
-                            distanceToLiquidation: `${distanceToLiquidation.toFixed(2)}%`,
-                            
-                            // Fees
-                            pendingBorrowingFees: formatUsdAmount(position.pendingBorrowingFeesUsd || 0n, 4),
-                            pendingFundingFees: formatUsdAmount(position.pendingFundingFeesUsd || 0n, 4),
-                            
-                            // Timestamps
-                            createdAt: position.increasedAtTime ? 
-                                new Date(Number(position.increasedAtTime) * 1000).toISOString() : null,
-                            
-                            // Raw data for advanced usage
-                            raw: {
-                                sizeInUsd: position.sizeInUsd.toString(),
-                                sizeInTokens: position.sizeInTokens.toString(),
-                                collateralAmount: position.collateralAmount.toString(),
-                                calculatedPnl: calculatedPnl.toString(),
-                                markPrice: markPrice.toString(),
-                                liquidationPrice: liquidationPrice?.toString() || null
-                            }
-                        };
-                    } catch (error) {
-                        console.error(`Error processing position ${position.key}:`, error);
-                        return null;
-                    }
-                }).filter(Boolean);
-                
-                // Update memory with flat structure
-                memory.positions = enhancedPositions;
-                memory.currentTask = "⚖️ Monitoring scalp positions for exit signals";
-                memory.lastResult = `Retrieved ${enhancedPositions.length} positions with complete analysis`;
-
-                // Calculate portfolio summary
-                const totalSizeUsd = enhancedPositions.reduce((sum, pos) => {
-                    const sizeNum = parseFloat(pos.sizeUsd.replace(/[$,]/g, ''));
-                    return sum + sizeNum;
-                }, 0);
-                
-                const totalPnl = enhancedPositions.reduce((sum, pos) => {
-                    const pnlNum = parseFloat(pos.pnl.replace(/[$,]/g, ''));
-                    return sum + pnlNum;
-                }, 0);
-                
-                const totalCollateral = enhancedPositions.reduce((sum, pos) => {
-                    const collateralNum = parseFloat(pos.collateralUsd.replace(/[$,]/g, ''));
-                    return sum + collateralNum;
-                }, 0);
-
-                return {
-                    success: true,
-                    message: `Retrieved ${enhancedPositions.length} positions with complete analysis`,
-                    positions: enhancedPositions,
-                    summary: {
-                        totalPositions: enhancedPositions.length,
-                        totalSizeUsd: `$${totalSizeUsd.toFixed(2)}`,
-                        totalCollateral: `$${totalCollateral.toFixed(2)}`,
-                        totalPnl: `$${totalPnl.toFixed(2)}`,
-                        avgLeverage: enhancedPositions.length > 0 ? 
-                            `${(enhancedPositions.reduce((sum, pos) => 
-                                sum + parseFloat(pos.leverage.replace('x', '')), 0) / enhancedPositions.length).toFixed(2)}x` : 
-                            "0x"
-                    },
-                    error: positionsResult.error ? positionsResult.error.message : null
-                };
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch positions with enhanced calculations"
-                };
-            }
-        }
-    }),
 
     // Orders (Official SDK Method) - Enhanced with Comprehensive Calculations
     action({

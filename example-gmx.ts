@@ -47,6 +47,7 @@ import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
+import { get_portfolio_balance_str, get_positions_str } from "./queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -169,7 +170,11 @@ const vega_template =
 I am competing in a GMX scalping competition. Every trade counts toward my ranking. 
 My goal is to maximize total return through rapid, precise scalping trades.
 
-## Scalping Strategy
+## Current Portfolio:
+{{portfolio}}
+
+## Current Positions:
+{{positions}}
 
 ### Available actions :
 
@@ -232,23 +237,20 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
    - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "collateralDeltaAmount": null, "allowedSlippage": 100})
 
-### 🎯 When to Scalp
+### Scalping cycle
 - Query the synth leaderboard to find the top miners
 - Query the latest predictions for BOTH BTC and ETH from the top miners
 - Analyze trends for both assets using the synth miners predictions
-- Check existing positions and orders for both BTC and ETH markets
+- Check existing positions for both BTC and ETH markets
 - Consider scalping opportunities on BOTH assets based on their individual trends
 - Don't trade just one asset - diversify across BTC and ETH for better opportunities
-
-### 📊 Position Management Rules
-**IMPORTANT - Never Close Profitable Positions in the Right Direction**:
+- **IMPORTANT - Never Close Profitable Positions in the Right Direction**:
 - If I have an existing position that matches the current trend direction, DO NOT close it
-- Instead, I can ADD to the position by opening another trade in the same direction (BUT only if total size stays under 10% of portfolio)
-- Only close positions when the trend has reversed against my position
-- If position is in profit and trend continues, let it run
-- **REMEMBER**: When adding to positions, total size (existing + new) must not exceed 10% of portfolio value
+- Instead, I can ADD to the position by opening another trade in the same direction but only if total collateral stays under 10% of portfolio
+- **REMEMBER**: When adding to positions, total collateral (existing + new) must not exceed 10% of portfolio value
+- Only close positions when the trend has reversed strongly against my position
 
-**How to Determine Position Direction**:
+**How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:
 - LONG Position: isLong: true - I profit when price goes UP
 - SHORT Position: isLong: false - I profit when price goes DOWN
@@ -335,28 +337,23 @@ When analyzing positions from get_positions action:
 
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)
-2. **Wait Between**: 2 second pause between transactions to avoid nonce errors
-3. **Action-Oriented Response**: Complete analysis and execute appropriate action in same response - but only trade when good opportunities exist
+2. **Wait Between**: 2 second pause between actions to avoid nonce errors
 4. **Nonce Too Low Error**: If I see "nonce too low" error, it means I'm sending transactions too quickly. Wait 3-5 seconds and retry the transaction
 5. **Execute Order Simulation Failed**: Check position size (must be ≤5% portfolio), use USDC as collateral, ensure sufficient balance
 
 ## Key Reminders
-- I AM competing - every trade counts toward ranking
-- **ALWAYS use fresh data from get_positions and get_orders - NEVER rely on memory for position info**
 - Competition mode: aggressive but calculated risk-taking
-- **NEVER close positions that are already in the correct trend direction** - let profitable positions run!
+- Calculate position sizes dynamically based on portfolio value
+- **NEVER close positions that are already in the correct trend direction** - let profitable positions run
 - I can add to existing positions by opening new trades in the same direction if opportunity arises
 - Close positions only when trend momentum shifts decisively against your direction
-- Execute scalps immediately
-- Calculate position sizes dynamically based on portfolio value
-- Never end responses with analysis—always execute a decision
-- Always check pending orders for issues and cancel them if needed
+- Action-Oriented Response: Complete analysis and execute appropriate action in same response - but only trade when good opportunities exist
 
 ### 🔧 Troubleshooting Common Errors
 **"Execute order simulation failed"**:
 - Check position size: Must be ≤5% of portfolio value
-- Use USDC as collateral, NEVER synthetic tokens (BTC/ETH index tokens)
 - Ensure sufficient balance in payTokenAddress
+- Use USDC as collateral, NEVER synthetic tokens (BTC/ETH index tokens)
 
 **"Synthetic tokens are not supported"**:
 - NEVER use BTC (0x47904963fc8b2340414262125aF798B9655E58Cd) as collateralTokenAddress
@@ -374,7 +371,9 @@ const gmxContext = context({
     type: "gmx-trading-agent",
     maxSteps: 100,
     schema: z.object({
-        instructions: z.string().describe("The agent's instructions")
+        instructions: z.string().describe("The agent's instructions"),
+        positions: z.string().describe("The agent's positions"),
+        portfolio: z.string().describe("The agent's portfolio"),
     }),
 
     key({ id }) {
@@ -383,13 +382,17 @@ const gmxContext = context({
 
     create: (state) => {
           return {
-            instructions:state.args.instructions
+            instructions:state.args.instructions,
+            positions:state.args.positions,
+            portfolio:state.args.portfolio,
           };
       },
 
     render({ memory }) {
         return render(vega_template, {
-            instructions: memory.instructions
+            instructions: memory.instructions,
+            positions: memory.positions,
+            portfolio: memory.portfolio,
           });
     },
     }).setInputs({
@@ -398,25 +401,18 @@ const gmxContext = context({
                 text: z.string(),
           }),
             subscribe(send, { container }) {
-                console.log("⚡ Scalping cycle input ACTIVATED - starting 10 minutes intervals");
-                console.log("📋 Send function:", typeof send);
-                console.log("🏗️ Container available:", !!container);
-                
                 const interval = setInterval(async () => {
-                    console.log("⏰ Scalping cycle triggered - sending to Vega");
+                    const portfolio = await get_portfolio_balance_str(sdk);
+                    const positions = await get_positions_str(sdk);
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 100,
-                        instructions: vega_template
+                        instructions: vega_template,
+                        positions: positions,
+                        portfolio: portfolio
                     };
-                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities on BTC and ETH using synth data, and execute trades autonomously as needed. Follow the trends !";
-
-                    try {
-                        await send(gmxContext, context, {text});
-                        console.log("✅ Send completed successfully");
-                    } catch (error) {
-                        console.error("❌ Send failed:", error);
-                    }
+                    let text = "Scalping cycle initiated";
+                    await send(gmxContext, context, {text});
                 }, 600000); // 10 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
@@ -460,9 +456,6 @@ const agent = createDreams({
     model: openrouter("google/gemini-2.5-flash-preview-05-20"),
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [discord, gmx], // Add GMX extension
-    context: gmx.contexts!.gmxTrading, // Use context from extension
-    defaultOutput: "discord:message",
-    actions: gmxActions,
     memory: {
         store: mongoMemoryStore,
         vector: createChromaVectorStore("agent", "http://localhost:8000"),
@@ -474,7 +467,9 @@ console.log("✅ Agent created successfully!");
 
 // Start the agent with GMX context arguments
 await agent.start({
-    instructions: vega_template
+    instructions: vega_template,
+    positions: await get_positions_str(sdk),
+    portfolio: await get_portfolio_balance_str(sdk)
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

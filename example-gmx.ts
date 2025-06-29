@@ -257,7 +257,7 @@ When analyzing positions from get_positions action:
 - Memory is for context only - use live action results for all trading decisions
 
 ### 🛡️ Risk Management
-- Monitor positions closely for trend reversals
+- Constantly evaluate trend strength against opened positions direction
 - Portfolio Limits: Never exceed maximum position size
 
 ## Trading Rules
@@ -324,7 +324,7 @@ When analyzing positions from get_positions action:
 - Competition mode: aggressive but calculated risk-taking
 - **NEVER close positions that are already in the correct trend direction** - let profitable positions run!
 - I can add to existing positions by opening new trades in the same direction if opportunity arises
-- Only close positions when trend reverses or >60 minutes hold time
+- Close positions only when trend momentum shifts decisively against your direction
 - Execute scalps immediately
 - Calculate position sizes dynamically based on portfolio value
 - Never end responses with analysis—always execute a decision

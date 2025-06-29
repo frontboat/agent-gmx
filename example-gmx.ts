@@ -195,9 +195,13 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - **close_position_market**: Close position immediately at market price. Required: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd. Optional: collateralDeltaAmount, allowedSlippage.
 
 #### 🎯 Risk Management Orders
-- **create_take_profit_order**: Create conditional take profit order. Required: marketAddress, collateralTokenAddress, isLong, triggerPrice (30 decimals), sizeDeltaUsd (30 decimals). Optional: collateralDeltaAmount, allowedSlippage.
-- **create_stop_loss_order**: Create stop loss protection order. Same parameters as take profit.
+- **create_take_profit_order**: Create conditional take profit order. Required: marketAddress, collateralTokenAddress, isLong, triggerPrice (30 decimals), sizeDeltaUsd (30 decimals). Optional: collateralDeltaAmount, allowedSlippage (NOT allowedSlippageBps).
+- **create_stop_loss_order**: Create stop loss protection order. Same parameters as take profit. Uses allowedSlippage (NOT allowedSlippageBps).
 - **cancel_orders**: Cancel pending orders by order keys. Required: orderKeys (array of hex strings).
+
+**CRITICAL - Slippage Parameter Names**:
+- Position opening/closing: use "allowedSlippageBps" 
+- Stop loss/take profit orders: use "allowedSlippage" (different parameter name!)
 
 **IMPORTANT - How to Call Different Action Types**:
 1. **Actions with NO parameters** (no schema): Call without any data
@@ -218,12 +222,12 @@ My goal is to maximize total return through rapid, precise scalping trades.
 3. **Actions with REQUIRED parameters**: MUST provide all required fields
    - get_latest_predictions({"asset": "BTC", "miner": 123}) or get_latest_predictions({"asset": "ETH", "miner": 123})
    - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x..."})
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x..."})
-   - swap_tokens({"fromAmount": "1000000", "fromTokenAddress": "0x...", "toTokenAddress": "0x..."})
-   - create_take_profit_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2500000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000"})
-   - create_stop_loss_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2300000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000"})
-   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000"})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
+   - swap_tokens({"fromAmount": "1000000", "fromTokenAddress": "0x...", "toTokenAddress": "0x...", "allowedSlippageBps": 100})
+   - create_take_profit_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2500000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000", "allowedSlippage": 50})
+   - create_stop_loss_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2300000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000", "allowedSlippage": 50})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "allowedSlippage": 50})
 
 ### 🎯 When to Scalp
 - Query the synth leaderboard to find the top miners
@@ -407,7 +411,7 @@ const gmxContext = context({
                         maxSteps: 100,
                         instructions: vega_template
                     };
-                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities using synth data, and execute trades autonomously as needed. Follow the trends !";
+                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities on BTC and ETH using synth data, and execute trades autonomously as needed. Follow the trends !";
 
                     try {
                         await send(gmxContext, context, {text});

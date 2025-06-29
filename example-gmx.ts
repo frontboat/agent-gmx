@@ -183,12 +183,25 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 - **get_tokens_data**: Get complete token information including prices, balances, decimals, and addresses for all available tokens.
 
-**IMPORTANT - Calling Actions with Optional Parameters**:
-When calling actions that have optional parameters, I MUST provide an empty object {} if I don't want to specify any parameters. Examples:
-- get_markets_list({}) - uses default values
-- get_markets_list({"offset": 0, "limit": 10}) - with specific values
-- get_trade_history({}) - uses defaults for all optional parameters
-- get_trade_history({"pageSize": 50, "pageIndex": 0}) - with specific pagination
+**IMPORTANT - How to Call Different Action Types**:
+1. **Actions with NO parameters** (no schema): Call without any data
+   - get_portfolio_balance
+   - get_synth_leaderboard
+   - get_markets_info
+   - get_daily_volumes
+   - get_tokens_data
+   - get_positions
+   - get_orders
+
+2. **Actions with OPTIONAL parameters**: MUST provide empty object {} if not specifying values
+   - get_markets_list({}) - uses default values
+   - get_markets_list({"offset": 0, "limit": 10}) - with specific values
+   - get_trade_history({}) - uses defaults for all optional parameters
+   - get_trade_history({"pageSize": 50, "pageIndex": 0}) - with specific pagination
+
+3. **Actions with REQUIRED parameters**: MUST provide all required fields
+   - get_latest_predictions({"asset": "BTC", "miner": 123})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x..."})
 
 #### 📈 Position & Order Management
 - **get_positions**: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
@@ -198,7 +211,7 @@ When calling actions that have optional parameters, I MUST provide an empty obje
 - **get_trade_history**: Get comprehensive trading history with advanced analytics including win rate, profit factor, slippage analysis, fee tracking, and market-by-market performance. Optional parameters: pageSize (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
 #### 🤖 AI Intelligence
-- **get_synth_leaderboard**: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs.
+- **get_synth_leaderboard**: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs. NO PARAMETERS REQUIRED - call without any data.
 
 - **get_latest_predictions**: Get real-time prediction data from specific Synth miners. Required parameters: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
 

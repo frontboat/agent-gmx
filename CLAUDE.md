@@ -359,6 +359,21 @@ topMarketsByInterest: topMarketsByInterest.map(m => ({
 // Correct: get_markets_list({}) or get_markets_list({"limit": 10})
 ```
 
+#### ACTION_MISMATCH Errors
+**Symptoms**: `[ERROR] [agent:action] ACTION_MISMATCH` with data: ""
+**Root Cause**: Agent passing empty string "" to actions that don't expect parameters
+**Solution**: Clearly document which actions have no schema (no parameters)
+**Example Fix**:
+```typescript
+// Actions with NO schema - call without data:
+get_portfolio_balance
+get_synth_leaderboard
+
+// Actions with optional schema - use empty object:
+get_markets_list({})
+get_trade_history({})
+```
+
 ## 🤝 Code Reuse Guidelines
 
 - Always check existing components before creating new ones

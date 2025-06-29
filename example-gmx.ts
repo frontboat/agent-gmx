@@ -32,7 +32,6 @@ import {
     createDreams, 
     context, 
     render, 
-    action, 
     input,
     extension,
     validateEnv, 
@@ -233,7 +232,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
-- Query the latest predictions for BOTH BTC and ETH from the top miners
+- Query the latest predictions for BOTH BTC and ETH from all top miners, one at a time
 - Analyze trends for both assets using the synth miners predictions
 - Check existing positions for both BTC and ETH markets
 - Consider scalping opportunities on BOTH assets based on their individual trends
@@ -264,8 +263,9 @@ When analyzing positions from get_positions action:
 
 **CRITICAL - Always Use Fresh Data**:
 - NEVER rely on memory for position data - it can be stale and outdated
+- ALWAYS call get_synth_leaderboard action to get current leaderboard
+- ALWAYS call get_latest_predictions action to get the latest predictions
 - ALWAYS call get_positions action to get current, real-time position data
-- ALWAYS call get_orders action to get current pending orders
 - Memory is for context only - use live action results for all trading decisions
 
 ### 🛡️ Risk Management

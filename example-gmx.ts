@@ -194,14 +194,14 @@ My goal is to maximize total return through rapid, precise scalping trades.
   - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, EITHER payAmount (6 decimals) OR sizeAmount (30
   decimals). OPTIONAL: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
   - open_short_position: Open short position. Same parameters as open_long_position.
-  - close_position_market: Close position at market price. REQUIRED: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd (30 decimals). OPTIONAL:
-  collateralDeltaAmount, allowedSlippage (NOT allowedSlippageBps).
+  - close_position_market: Close position at market price. REQUIRED: marketAddress, collateralTokenAddress, isLong, sizeUsd (simple USD amount like "1000.50"). OPTIONAL: allowedSlippage (NOT allowedSlippageBps).
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
   #### 📋 Parameter Format Requirements
   - **Decimal String Values**: All amounts must be BigInt strings
     - USDC amounts: 6 decimals (e.g., "1000000" = 1 USDC)
-    - USD position sizes: 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
+    - USD position sizes (open positions): 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
+    - USD amounts (close positions): Simple USD format (e.g., "1000.50" = $1000.50)
     - Prices: 30 decimals
   - **Slippage Parameters**: 
     - Trading actions: use allowedSlippageBps (e.g., 100 = 1%)
@@ -237,12 +237,12 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - Check existing positions for both BTC and ETH markets
 - Consider scalping opportunities on BOTH assets based on their individual trends
 - Don't trade just one asset - diversify across BTC and ETH for better opportunities
-- **IMPORTANT - Never Close Profitable Positions in the Right Direction**:
+- Dont overtrade, if the trend is not clear, dont trade.
+- Don't close profitable positions in the right direction, but you can add to them.
 - When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
-- **IMPORTANT - Close positions :
- 1. When the trend has reversed strongly against my position
- 2. If the position is against the trend and is profitable
- 3. If the position is against the trend and is not profitable
+- Close positions when the trend has reversed strongly against my position
+- Close positions when the position is against the trend and is profitable
+- Close positions when the position is against the trend and is not profitable
 
 **How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:

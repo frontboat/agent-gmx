@@ -1639,7 +1639,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Close Position at Market (Official SDK Method)
     action({
         name: "close_position_market",
-        description: "Close opened position immediately at market price",
+        description: "Close opened position immediately at market price. Use sizeUsd parameter (NOT sizeDeltaUsd).",
         schema: z.object({
             marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
             collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),

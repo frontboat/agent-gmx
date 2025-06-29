@@ -173,27 +173,41 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 ### Available actions :
 
-#### 📊 Portfolio & Market Intelligence
-- get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. No parameters required.
-- get_markets_info: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns comprehensive market data with marketAddress for each market in both topMarketsByInterest and allMarkets arrays.
-- get_markets_list: Get paginated list of available markets. Optional parameters: offset (default 0), limit (default 100).
-- get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis.
-- get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens.
+  #### 📊 Portfolio & Market Intelligence
+  - get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. NO
+  PARAMETERS.
+  - get_markets_info: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns marketAddress for each market in     
+   topMarketsByInterest and allMarkets arrays. NO PARAMETERS.
+  - get_markets_list: Get paginated list of available markets. OPTIONAL: offset (default 0), limit (default 100).
+  - get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis. NO PARAMETERS.
+  - get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens. NO PARAMETERS.
 
-#### 📈 Position & Order Management
-- get_positions: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
-- get_orders: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices.
-- get_trade_history: Get comprehensive trading history with advanced analytics including win rate, profit factor, slippage analysis, fee tracking, and market-by-market performance. Optional parameters: pageSize (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
+  #### 📈 Position & Order Management
+  - get_positions: Get all current trading positions with PnL, liquidation prices, leverage, risk metrics, and distance to liquidation. NO PARAMETERS.
+  - get_orders: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices. NO PARAMETERS.
+  - get_trade_history: Get comprehensive trading history with win rate, profit factor, slippage analysis, fee tracking, and market performance. OPTIONAL: pageSize
+  (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
-#### 🤖 AI Intelligence
-- get_synth_leaderboard: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs. NO PARAMETERS REQUIRED - call without any data.
-- get_latest_predictions: Get real-time prediction data from specific Synth miners. Required parameters: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
+  #### 🤖 AI Intelligence
+  - get_synth_leaderboard: Get current leaderboard of top Synth AI miners with performance metrics and miner IDs. NO PARAMETERS.
+  - get_latest_predictions: Get real-time prediction data from specific Synth miners. REQUIRED: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
 
-#### ⚡ Trading Execution (GMX SDK Helper Functions)
-- open_long_position: Open long position using simplified helper. EITHER payAmount OR sizeAmount required, plus marketAddress, payTokenAddress, collateralTokenAddress. Optional: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
-- open_short_position: Open short position using simplified helper. Same parameters as open_long_position.
-- close_position_market: Close position immediately at market price. Required: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd. Optional: collateralDeltaAmount, allowedSlippage.
-- cancel_orders: Cancel pending orders by order keys. Required: orderKeys (array of hex strings).
+  #### ⚡ Trading Execution
+  - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, EITHER payAmount (6 decimals) OR sizeAmount (30
+  decimals). OPTIONAL: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
+  - open_short_position: Open short position. Same parameters as open_long_position.
+  - close_position_market: Close position at market price. REQUIRED: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd (30 decimals). OPTIONAL:
+  collateralDeltaAmount, allowedSlippage (NOT allowedSlippageBps).
+  - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
+
+  #### 📋 Parameter Format Requirements
+  - **Decimal String Values**: All amounts must be BigInt strings
+    - USDC amounts: 6 decimals (e.g., "1000000" = 1 USDC)
+    - USD position sizes: 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
+    - Prices: 30 decimals
+  - **Slippage Parameters**: 
+    - Trading actions: use allowedSlippageBps (e.g., 100 = 1%)
+    - Close position: use allowedSlippage (e.g., 50 = 0.5%)
 
 **IMPORTANT - How to Call Different Action Types**:
 1. **Actions with NO parameters** (no schema): Call without any data

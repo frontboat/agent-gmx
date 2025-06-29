@@ -174,19 +174,35 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 #### 📊 Portfolio & Market Intelligence
 - **get_portfolio_balance**: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. No parameters required.
-
 - **get_markets_info**: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns comprehensive market data with marketAddress for each market in both topMarketsByInterest and allMarkets arrays.
-
 - **get_markets_list**: Get paginated list of available markets. Optional parameters: offset (default 0), limit (default 100).
-
 - **get_daily_volumes**: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis.
-
 - **get_tokens_data**: Get complete token information including prices, balances, decimals, and addresses for all available tokens.
+
+#### 📈 Position & Order Management
+- **get_positions**: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
+- **get_orders**: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices.
+- **get_trade_history**: Get comprehensive trading history with advanced analytics including win rate, profit factor, slippage analysis, fee tracking, and market-by-market performance. Optional parameters: pageSize (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
+
+#### 🤖 AI Intelligence
+- **get_synth_leaderboard**: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs. NO PARAMETERS REQUIRED - call without any data.
+- **get_latest_predictions**: Get real-time prediction data from specific Synth miners. Required parameters: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
+
+#### ⚡ Trading Execution (GMX SDK Helper Functions)
+- **open_long_position**: Open long position using simplified helper. EITHER payAmount OR sizeAmount required, plus marketAddress, payTokenAddress, collateralTokenAddress. Optional: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
+- **open_short_position**: Open short position using simplified helper. Same parameters as open_long_position.
+- **swap_tokens**: Swap tokens using helper function. EITHER fromAmount OR toAmount required, plus fromTokenAddress, toTokenAddress. Optional: triggerPrice (for limit swaps), allowedSlippageBps, referralCodeForTxn.
+- **close_position_market**: Close position immediately at market price. Required: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd. Optional: collateralDeltaAmount, allowedSlippage.
+
+#### 🎯 Risk Management Orders
+- **create_take_profit_order**: Create conditional take profit order. Required: marketAddress, collateralTokenAddress, isLong, triggerPrice (30 decimals), sizeDeltaUsd (30 decimals). Optional: collateralDeltaAmount, allowedSlippage.
+- **create_stop_loss_order**: Create stop loss protection order. Same parameters as take profit.
+- **cancel_orders**: Cancel pending orders by order keys. Required: orderKeys (array of hex strings).
 
 **IMPORTANT - How to Call Different Action Types**:
 1. **Actions with NO parameters** (no schema): Call without any data
    - get_portfolio_balance
-   - get_synth_leaderboard
+   - get_synth_leaderboard  
    - get_markets_info
    - get_daily_volumes
    - get_tokens_data
@@ -201,35 +217,13 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 3. **Actions with REQUIRED parameters**: MUST provide all required fields
    - get_latest_predictions({"asset": "BTC", "miner": 123})
+   - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x..."})
-
-#### 📈 Position & Order Management
-- **get_positions**: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
-
-- **get_orders**: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices.
-
-- **get_trade_history**: Get comprehensive trading history with advanced analytics including win rate, profit factor, slippage analysis, fee tracking, and market-by-market performance. Optional parameters: pageSize (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
-
-#### 🤖 AI Intelligence
-- **get_synth_leaderboard**: Get current leaderboard of top-performing Synth AI miners with performance metrics and miner IDs. NO PARAMETERS REQUIRED - call without any data.
-
-- **get_latest_predictions**: Get real-time prediction data from specific Synth miners. Required parameters: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
-
-#### ⚡ Trading Execution (GMX SDK Helper Functions)
-- **open_long_position**: Open long position using simplified helper. EITHER payAmount OR sizeAmount required, plus marketAddress, payTokenAddress, collateralTokenAddress. Optional: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
-
-- **open_short_position**: Open short position using simplified helper. Same parameters as open_long_position.
-
-- **swap_tokens**: Swap tokens using helper function. EITHER fromAmount OR toAmount required, plus fromTokenAddress, toTokenAddress. Optional: triggerPrice (for limit swaps), allowedSlippageBps, referralCodeForTxn.
-
-- **close_position_market**: Close position immediately at market price. Required: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd. Optional: collateralDeltaAmount, allowedSlippage.
-
-#### 🎯 Risk Management Orders
-- **create_take_profit_order**: Create conditional take profit order. Required: marketAddress, collateralTokenAddress, isLong, triggerPrice (30 decimals), sizeDeltaUsd (30 decimals). Optional: collateralDeltaAmount, allowedSlippage.
-
-- **create_stop_loss_order**: Create stop loss protection order. Same parameters as take profit.
-
-- **cancel_orders**: Cancel pending orders by order keys. Required: orderKeys (array of hex strings).
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x..."})
+   - swap_tokens({"fromAmount": "1000000", "fromTokenAddress": "0x...", "toTokenAddress": "0x..."})
+   - create_take_profit_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2500000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000"})
+   - create_stop_loss_order({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "triggerPrice": "2300000000000000000000000000000000", "sizeDeltaUsd": "1000000000000000000000000000000000"})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000"})
 
 ### 🎯 When to Scalp
 - Query the synth leaderboard to find the top miners

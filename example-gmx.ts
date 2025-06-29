@@ -194,19 +194,30 @@ My goal is to maximize total return through rapid, precise scalping trades.
   - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, EITHER payAmount (6 decimals) OR sizeAmount (30
   decimals). OPTIONAL: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn.
   - open_short_position: Open short position. Same parameters as open_long_position.
-  - close_position_market: Close position at market price. REQUIRED: marketAddress, collateralTokenAddress, isLong, sizeUsd (simple USD amount like "1000.50"). OPTIONAL: allowedSlippage (NOT allowedSlippageBps).
+  - close_position_market: Close position at market price. REQUIRED: marketAddress, collateralTokenAddress, isLong, sizeDeltaUsd (30 decimals). OPTIONAL: allowedSlippage, collateralDeltaAmount.
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
   #### 📋 Parameter Format Requirements
   - **Decimal String Values**: All amounts must be BigInt strings
     - USDC amounts: 6 decimals (e.g., "1000000" = 1 USDC)
-    - USD position sizes (open positions): 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
-    - USD amounts (close positions): Simple USD format (e.g., "1000.50" = $1000.50)
+    - USD position sizes: 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
     - Prices: 30 decimals
   - **Slippage Parameters**: 
     - Trading actions: use allowedSlippageBps (e.g., 100 = 1%)
     - Close position: use allowedSlippage (e.g., 100 = 1%)
 
+    ### 🔢 Decimal Conversion Rules
+    **USDC (6 decimals)**:
+    - 1 USDC = "1000000"
+    - 100 USDC = "100000000" 
+    - 6.64 USDC = "6640000"
+    
+    **USD Position Sizes (30 decimals)**:
+    - $1 = "1000000000000000000000000000000000"
+    - $100 = "100000000000000000000000000000000000"
+    - $6.64 = "6640000000000000000000000000000000"
+    - **Used for**: sizeAmount (open positions), sizeDeltaUsd (close positions), limitPrice
+    
 **IMPORTANT - How to Call Different Action Types**:
 1. **Actions with NO parameters** (no schema): Call without any data
    - get_portfolio_balance
@@ -228,7 +239,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeUsd": "1000.50", "allowedSlippage": 100})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "allowedSlippage": 100})
 
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
@@ -274,9 +285,6 @@ When analyzing positions from get_positions action:
 
 ## Trading Rules
 
-### MANDATORY Parameter Format
-**Helper Functions**: Use simplified helper function parameters (NOT raw SDK parameters)
-
 **Position Opening**: Use EITHER payAmount OR sizeAmount
 - payAmount: USDC amount with 6 decimals as string (e.g. "100000000" for 100 USDC)
 - sizeAmount: Position size in USD with 30 decimals as string (e.g. "1000000000000000000000000000000000" for $1000 position) 
@@ -299,8 +307,8 @@ When analyzing positions from get_positions action:
 
 **Optional Parameters**:
 - leverage: Basis points as string (e.g. "50000" for 5x)
-- limitPrice: For limit orders (30 decimal USD string)
 - allowedSlippageBps: Default 100 (1%)
+- allowedSlippage: Default 100 (1%)
 
 ### 💰 Position Sizing
 - ALWAYS fetch portfolio balance using get_portfolio_balance first
@@ -317,17 +325,6 @@ When analyzing positions from get_positions action:
 - **Calculate allowed addition**: maxTotalSize = portfolio * 0.10 - existingPositionSize
 - **Only add if**: existingPositionSize < (portfolio * 0.10)
 - **Example**: Portfolio=$1000, existing BTC position=$80, max addition=$20 (to reach $100 total)
-
-### 🔢 Decimal Conversion Rules
-**USDC (6 decimals)**:
-- 1 USDC = "1000000"
-- 100 USDC = "100000000" 
-- 6.64 USDC = "6640000"
-
-**USD Position Sizes (30 decimals)**:
-- $1 = "1000000000000000000000000000000000"
-- $100 = "100000000000000000000000000000000000"
-- $6.64 = "6640000000000000000000000000000000"
 
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)
@@ -352,7 +349,7 @@ When analyzing positions from get_positions action:
 **"Synthetic tokens are not supported"**:
 - NEVER use BTC (0x47904963fc8b2340414262125aF798B9655E58Cd) as collateralTokenAddress
 - Use USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831) as both pay and collateral
-
+- If a position hasnt closed after several tries, the issue is likely with the position size
 `
 ;
 

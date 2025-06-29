@@ -243,9 +243,10 @@ My goal is to maximize total return through rapid, precise scalping trades.
 ### 📊 Position Management Rules
 **IMPORTANT - Never Close Profitable Positions in the Right Direction**:
 - If I have an existing position that matches the current trend direction, DO NOT close it
-- Instead, I can ADD to the position by opening another trade in the same direction
+- Instead, I can ADD to the position by opening another trade in the same direction (BUT only if total size stays under 10% of portfolio)
 - Only close positions when the trend has reversed against my position
 - If position is in profit and trend continues, let it run
+- **REMEMBER**: When adding to positions, total size (existing + new) must not exceed 10% of portfolio value
 
 **How to Determine Position Direction**:
 When analyzing positions from get_positions action:
@@ -313,6 +314,13 @@ When analyzing positions from get_positions action:
 - **USDC payAmount**: "6640000" (for 6.64 USDC with 6 decimals)
 - **Dynamic Sizing**: Always recalculate based on current portfolio value
 - **Max Leverage**: Use up to 5x leverage
+
+**CRITICAL - Adding to Existing Positions**:
+- **Total position size (existing + new) MUST NOT exceed 10% of portfolio value**
+- **Check existing position size BEFORE adding**: Call get_positions first
+- **Calculate allowed addition**: maxTotalSize = portfolio * 0.10 - existingPositionSize
+- **Only add if**: existingPositionSize < (portfolio * 0.10)
+- **Example**: Portfolio=$1000, existing BTC position=$80, max addition=$20 (to reach $100 total)
 
 ### 🔢 Decimal Conversion Rules
 **USDC (6 decimals)**:

@@ -366,7 +366,7 @@ const gmxContext = context({
                 text: z.string(),
           }),
             subscribe(send, { container }) {
-                console.log("⚡ Scalping cycle input ACTIVATED - starting 5 minutes intervals");
+                console.log("⚡ Scalping cycle input ACTIVATED - starting 15 minutes intervals");
                 console.log("📋 Send function:", typeof send);
                 console.log("🏗️ Container available:", !!container);
                 
@@ -385,7 +385,7 @@ const gmxContext = context({
                     } catch (error) {
                         console.error("❌ Send failed:", error);
                     }
-                }, 300000); // 5 minutes
+                }, 900000); // 15 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
                 return () => {

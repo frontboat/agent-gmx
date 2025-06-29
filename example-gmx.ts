@@ -238,6 +238,15 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - Check existing positions and orders
 - If needed, open a scalping position in the direction of the trend
 
+### 📊 Position Management Rules
+**IMPORTANT - Never Close Profitable Positions in the Right Direction**:
+- If you have an existing position that matches the current trend direction, DO NOT close it
+- Instead, you can ADD to the position by opening another trade in the same direction
+- Only close positions when:
+  1. The trend has reversed against your position
+  2. Stop loss or take profit is about to be hit
+- If position is in profit and trend continues, let it run while monitoring SL/TP
+
 ### 🛡️ Risk Management
 - Set up stop losses and take profits on every trade
 - **Portfolio Limits**: Never exceed maximum position size
@@ -303,12 +312,14 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
 ## Key Reminders
 - I AM competing - every trade counts toward ranking
-- I can only have one trade per market at a time, so if I have a long and want to open a short, I need to close the long first - and vice versa
+- Competition mode: aggressive but calculated risk-taking
+- **NEVER close positions that are already in the correct trend direction** - let profitable positions run!
+- I can add to existing positions by opening new trades in the same direction if opportunity arises
+- Only close positions when trend reverses, SL/TP triggers
 - Execute scalps immediately
 - Set TP/SL automatically on every position
 - Calculate position sizes dynamically based on portfolio value
 - Never end responses with analysis—always execute a decision
-- Competition mode: aggressive but calculated risk-taking
 - Only one stop loss and one take profit per position
 - Always check pending orders for issues and cancel them if needed
 
@@ -377,7 +388,7 @@ const gmxContext = context({
                         maxSteps: 100,
                         instructions: vega_template
                     };
-                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities using synth data, and execute trades autonomously. Let's follow the trends !";
+                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities using synth data, and execute trades if needed. Follow the trends !";
 
                     try {
                         await send(gmxContext, context, {text});

@@ -207,7 +207,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
     - Prices: 30 decimals
   - **Slippage Parameters**: 
     - Trading actions: use allowedSlippageBps (e.g., 100 = 1%)
-    - Close position: use allowedSlippage (e.g., 50 = 0.5%)
+    - Close position: use allowedSlippage (e.g., 100 = 1%)
 
 **IMPORTANT - How to Call Different Action Types**:
 1. **Actions with NO parameters** (no schema): Call without any data
@@ -230,7 +230,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "allowedSlippage": 50})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "collateralDeltaAmount": null, "allowedSlippage": 50})
 
 ### 🎯 When to Scalp
 - Query the synth leaderboard to find the top miners
@@ -440,6 +440,7 @@ const gmx = extension({
     contexts: {
         gmxTrading: gmxContext,
     },
+    actions: gmxActions,
 });
 
 console.log("⚡ Initializing Vega trading agent...");

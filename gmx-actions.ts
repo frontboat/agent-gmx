@@ -1786,7 +1786,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
             isLong: z.boolean().describe("True for long position, false for short position"),
             sizeDeltaUsd: z.string().describe("Position size to close in BigInt string with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000.00)"),
             collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
-            allowedSlippage: z.number().default(50).describe("Allowed slippage in basis points (50 = 0.5%, range: 25-200, default: 50)"),
+            allowedSlippage: z.number().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 25-200, default: 100)"),
         }),
         async handler(data, ctx, agent) {
             try {

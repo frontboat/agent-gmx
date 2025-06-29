@@ -228,7 +228,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "collateralDeltaAmount": null, "allowedSlippage": 100})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeUsd": "1000.50", "allowedSlippage": 100})
 
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
@@ -238,10 +238,11 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - Consider scalping opportunities on BOTH assets based on their individual trends
 - Don't trade just one asset - diversify across BTC and ETH for better opportunities
 - **IMPORTANT - Never Close Profitable Positions in the Right Direction**:
-- If I have an existing position that matches the current trend direction, DO NOT close it
-- Instead, I can ADD to the position by opening another trade in the same direction but only if the trade size divided by the leverage stays under 10% of portfolio
-- **REMEMBER**: When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
-- Only close positions when the trend has reversed strongly against my position
+- When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
+- **IMPORTANT - Close positions :
+ 1. When the trend has reversed strongly against my position
+ 2. If the position is against the trend and is profitable
+ 3. If the position is against the trend and is not profitable
 
 **How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:
@@ -253,7 +254,6 @@ When analyzing positions from get_positions action:
 **Trend Matching Logic**:
 - If Synth AI predicts BULLISH trend → keep LONG positions (isLong: true)
 - If Synth AI predicts BEARISH trend → keep SHORT positions (isLong: false)
-- Never close positions that match the predicted trend direction!
 
 **Clear Examples**:
 - BTC position with isLong: true = LONG BTC (bullish - expecting price to rise)

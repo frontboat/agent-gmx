@@ -1644,7 +1644,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
             marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
             collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             isLong: z.boolean().describe("True for long position, false for short position"),
-            sizeDeltaUsd: z.string().describe("Position size to close in BigInt string with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000.00)"),
+            sizeUsd: z.string().describe("Position size to close in USD (e.g. '1000.50' for $1000.50)"),
             collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
             allowedSlippage: z.number().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 25-200, default: 100)"),
         }),
@@ -1686,7 +1686,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     : currentPrice + slippageAmount; // Short: can accept higher price when buying
 
                 const decreaseAmounts = {
-                    sizeDeltaUsd: BigInt(data.sizeDeltaUsd),
+                    sizeDeltaUsd: convertToTokenAmount(parseFloat(data.sizeUsd), USD_DECIMALS),
                     sizeDeltaInTokens: 0n, // Will be calculated by SDK
                     collateralDeltaAmount: data.collateralDeltaAmount ? BigInt(data.collateralDeltaAmount) : 0n,
                     triggerPrice: 0n, // No trigger for market orders

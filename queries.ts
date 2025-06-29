@@ -17,8 +17,18 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
         throw new Error("Failed to get required market and token data");
     }
 
-    // Get positions info for portfolio value calculation
-    const positionsResult = await sdk.positions.getPositionsInfo({
+    // Get positions data (same method as working get_positions_str function)
+    const positionsResult = await sdk.positions.getPositions({
+        marketsData: marketsInfoData,
+        tokensData: tokensData,
+        start: 0,
+        end: 1000,
+    }).catch(error => {
+        throw new Error(`Failed to get positions: ${error.message || error}`);
+    });
+
+    // Get enhanced positions info for value calculations
+    const positionsInfoResult = await sdk.positions.getPositionsInfo({
         marketsInfoData,
         tokensData,
         showPnlInLeverage: false
@@ -70,8 +80,11 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     let totalPositionValueUsd = 0;
     let totalPositionPnl = 0;
     
-    if (positionsResult.positionsInfoData) {
-        Object.values(positionsResult.positionsInfoData).forEach((position: any) => {
+    // First try using enhanced positions info data
+    let positionsProcessed = false;
+    
+    if (positionsInfoResult && Object.keys(positionsInfoResult).length > 0) {
+        Object.values(positionsInfoResult).forEach((position: any) => {
             const marketInfo = marketsInfoData[position.marketAddress];
             if (!marketInfo) return;
             
@@ -90,6 +103,76 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
                 netValue: formatUsdAmount(position.netValue || 0n, 2),
                 leverage: position.leverage ? 
                     `${(Number(position.leverage) / 10000).toFixed(2)}x` : '0x'
+            });
+        });
+        positionsProcessed = true;
+    }
+    
+    // Fallback to raw positions data if enhanced info is empty (same logic as get_positions_str)
+    if (!positionsProcessed && positionsResult.positionsData) {
+        Object.values(positionsResult.positionsData).forEach((position: any) => {
+            const marketInfo = marketsInfoData[position.marketAddress];
+            if (!marketInfo) return;
+            
+            const indexToken = tokensData[marketInfo.indexTokenAddress];
+            const collateralToken = tokensData[position.collateralTokenAddress];
+            
+            if (!indexToken || !collateralToken) return;
+            
+            // Calculate collateral USD value
+            const collateralPrice = position.isLong ?
+                collateralToken.prices?.minPrice || 0n :
+                collateralToken.prices?.maxPrice || 0n;
+            
+            const collateralUsd = convertToUsd(
+                position.collateralAmount, 
+                collateralToken.decimals, 
+                collateralPrice
+            );
+            
+            // Calculate PnL using position data and current prices
+            const markPrice = position.isLong ? 
+                indexToken.prices?.maxPrice || 0n : 
+                indexToken.prices?.minPrice || 0n;
+            
+            const calculatedPnl = calculatePositionPnl({
+                sizeInUsd: position.sizeInUsd,
+                sizeInTokens: position.sizeInTokens,
+                markPrice,
+                isLong: position.isLong,
+                indexTokenDecimals: indexToken.decimals || 18
+            });
+            
+            const netValue = calculatePositionNetValue({
+                collateralUsd,
+                pnl: calculatedPnl,
+                pendingFundingFeesUsd: position.pendingFundingFeesUsd || 0n,
+                pendingBorrowingFeesUsd: position.pendingBorrowingFeesUsd || 0n
+            });
+            
+            const leverage = calculateLeverage({
+                sizeInUsd: position.sizeInUsd,
+                collateralUsd,
+                pnl: calculatedPnl,
+                pendingFundingFeesUsd: position.pendingFundingFeesUsd || 0n,
+                pendingBorrowingFeesUsd: position.pendingBorrowingFeesUsd || 0n
+            });
+            
+            const netValueDecimal = bigIntToDecimal(netValue || 0n, USD_DECIMALS);
+            const pnlDecimal = bigIntToDecimal(calculatedPnl || 0n, USD_DECIMALS);
+            
+            totalPositionValueUsd += netValueDecimal;
+            totalPositionPnl += pnlDecimal;
+            
+            positionValues.push({
+                marketName: marketInfo.name,
+                side: position.isLong ? 'LONG' : 'SHORT',
+                sizeUsd: formatUsdAmount(position.sizeInUsd || 0n, 2),
+                collateralUsd: formatUsdAmount(collateralUsd || 0n, 2),
+                pnl: formatUsdAmount(calculatedPnl || 0n, 2),
+                netValue: formatUsdAmount(netValue || 0n, 2),
+                leverage: leverage ? 
+                    `${(Number(leverage) / 10000).toFixed(2)}x` : '0x'
             });
         });
     }
@@ -112,6 +195,19 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     output += `Total Value: $${totalPortfolioValue.toFixed(2)} (Tokens: $${totalTokenValueUsd.toFixed(2)} | Positions: $${totalPositionValueUsd.toFixed(2)})\n`;
     output += `Total PnL: $${totalPositionPnl.toFixed(2)}\n`;
     output += `Allocation: ${tokenAllocation.toFixed(1)}% tokens, ${positionAllocation.toFixed(1)}% positions\n\n`;
+    
+    // Add debugging info about positions
+    if (positionValues.length > 0) {
+        output += `📊 POSITION VALUES (${positionValues.length} positions):\n`;
+        positionValues.forEach(pos => {
+            output += `• ${pos.marketName} ${pos.side}: Net Value ${pos.netValue} (PnL: ${pos.pnl})\n`;
+        });
+        output += `\n`;
+    } else if (positionsResult.positionsData && Object.keys(positionsResult.positionsData).length > 0) {
+        output += `⚠️ DEBUG: Found ${Object.keys(positionsResult.positionsData).length} raw positions but couldn't process them\n\n`;
+    } else {
+        output += `📊 POSITION VALUES: No active positions\n\n`;
+    }
     
     if (tokenBalances.length > 0) {
         output += `📊 TOKEN BALANCES (${tokenBalances.length} tokens):\n`;

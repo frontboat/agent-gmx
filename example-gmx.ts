@@ -183,6 +183,13 @@ Your goal is to maximize total return through rapid, precise scalping trades.
 
 - **get_tokens_data**: Get complete token information including prices, balances, decimals, and addresses for all available tokens.
 
+**IMPORTANT - Calling Actions with Optional Parameters**:
+When calling actions that have optional parameters, you MUST provide an empty object {} if you don't want to specify any parameters. Examples:
+- get_markets_list({}) - uses default values
+- get_markets_list({"offset": 0, "limit": 10}) - with specific values
+- get_trade_history({}) - uses defaults for all optional parameters
+- get_trade_history({"pageSize": 50, "pageIndex": 0}) - with specific pagination
+
 #### 📈 Position & Order Management
 - **get_positions**: Get all current trading positions with comprehensive analysis including PnL, liquidation prices, leverage, risk metrics, and distance to liquidation.
 

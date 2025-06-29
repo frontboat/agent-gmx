@@ -349,6 +349,16 @@ topMarketsByInterest: topMarketsByInterest.map(m => ({
 **Root Cause**: Agent using old parameter names or missing required fields
 **Solution**: Update action descriptions with precise parameter requirements
 
+#### JSON Parsing Errors with Optional Parameters
+**Symptoms**: `ParsingError: JSON Parse error: Unexpected EOF` when calling actions
+**Root Cause**: Agent sending malformed or empty JSON for actions with optional parameters
+**Solution**: Explicitly instruct agent to use empty object {} for optional parameters
+**Example Fix**: 
+```typescript
+// Wrong: get_markets_list() or get_markets_list("")
+// Correct: get_markets_list({}) or get_markets_list({"limit": 10})
+```
+
 ## 🤝 Code Reuse Guidelines
 
 - Always check existing components before creating new ones

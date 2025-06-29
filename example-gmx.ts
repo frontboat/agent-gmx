@@ -230,7 +230,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "collateralDeltaAmount": null, "allowedSlippage": 50})
+   - close_position_market({"marketAddress": "0x...", "collateralTokenAddress": "0x...", "isLong": true, "sizeDeltaUsd": "1000000000000000000000000000000000", "collateralDeltaAmount": null, "allowedSlippage": 100})
 
 ### 🎯 When to Scalp
 - Query the synth leaderboard to find the top miners

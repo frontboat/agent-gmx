@@ -41,7 +41,7 @@ import {
 } from "@daydreamsai/core";
 import { discord } from "@daydreamsai/discord";
 import { createMongoMemoryStore } from "@daydreamsai/mongodb";
-import { createChromaVectorStore } from "@daydreamsai/chroma";
+import { createChromaVectorStore } from "@daydreamsai/chromadb";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';

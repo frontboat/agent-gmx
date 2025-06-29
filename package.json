@@ -23,7 +23,7 @@
       "@daydreamsai/cli": "^0.3.8",
       "@daydreamsai/discord": "^0.3.8",
       "@daydreamsai/mongodb": "^0.3.8",
-      "@daydreamsai/chroma": "^0.3.8",
+      "@daydreamsai/chromadb": "^0.3.8",
       "@gmx-io/sdk": "^1.1.2",
       "viem": "^2.0.0",
       "zod": "^3.25.23"

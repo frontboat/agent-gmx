@@ -388,7 +388,7 @@ const gmxContext = context({
                         maxSteps: 100,
                         instructions: vega_template
                     };
-                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities using synth data, and execute trades if needed. Follow the trends !";
+                    let text = "🏆 Scalping cycle time! I need to read my instructions carefully, then check markets, monitor positions, scan for opportunities using synth data, and execute trades autonomously as needed. Follow the trends !";
 
                     try {
                         await send(gmxContext, context, {text});

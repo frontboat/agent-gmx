@@ -41,6 +41,7 @@ import {
 } from "@daydreamsai/core";
 import { discord } from "@daydreamsai/discord";
 import { createMongoMemoryStore } from "@daydreamsai/mongodb";
+import { createChromaVectorStore } from "@daydreamsai/chroma";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
@@ -441,7 +442,9 @@ const agent = createDreams({
     defaultOutput: "discord:message",
     actions: gmxActions,
     memory: {
-        store: mongoMemoryStore
+        store: mongoMemoryStore,
+        vector: createChromaVectorStore("agent", "http://localhost:8000"),
+        vectorModel: openrouter("google/gemini-2.0-flash-001"),
     },
 });
 

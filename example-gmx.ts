@@ -240,8 +240,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - Don't trade just one asset - diversify across BTC and ETH for better opportunities
 - **IMPORTANT - Never Close Profitable Positions in the Right Direction**:
 - If I have an existing position that matches the current trend direction, DO NOT close it
-- Instead, I can ADD to the position by opening another trade in the same direction but only if total collateral stays under 10% of portfolio
-- **REMEMBER**: When adding to positions, total collateral (existing + new) must not exceed 10% of portfolio value
+- Instead, I can ADD to the position by opening another trade in the same direction but only if the trade size divided by the leverage stays under 10% of portfolio
+- **REMEMBER**: When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
 - Only close positions when the trend has reversed strongly against my position
 
 **How to Determine Position Direction and Size**:

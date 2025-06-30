@@ -260,9 +260,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - For partial close, use a smaller sizeAmount than raw.sizeInUsd
 - Always specify receiveTokenAddress as USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831)
 **Every scalping cycle MUST end with either**:
- - A trade execution (open_long_position / open_short_position / close_long_position / close_short_position) OR
- - An explicit "No trade" decision with reasoning
- - NEVER end a scalping cycle with "analysis in progress" or "analysis complete" - if you do the scalping cycle is incomplete
+ - A trade execution (open_long_position / open_short_position / close_long_position / close_short_position) OR an explicit "No trade" decision with reasoning
+ - NEVER end a scalping cycle with "analysis in progress" or "I will proceed with the trend analysis"
 
 **How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:

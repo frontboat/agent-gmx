@@ -125,19 +125,6 @@ bun run test:discord
 - Leverage and liquidation price formulas
 - PnL tracking and risk metrics
 
-## 📊 Testing and Validation
-
-### Manual Testing
-- Use testnet environments when available
-- Small position sizes for initial testing
-- Monitor Discord notifications for real-time feedback
-
-### Performance Metrics
-- Win rate tracking (target >75%)
-- Trade frequency (15-30 trades/day)
-- Average hold time (<3 minutes for scalping)
-- Total return optimization
-
 ## ⚠️ Important Considerations
 
 ### Risk Management

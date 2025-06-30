@@ -1636,111 +1636,315 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }
     }),
 
-    // Close Position at Market (Official SDK Method)
+    // Close Long Position
     action({
-        name: "close_position_market",
-        description: "Close opened position immediately at market price using GMX SDK helper function with consistent decimal format",
+        name: "close_long_position",
+        description: "Close an existing long position fully or partially. Use get_positions first to find the position details.",
         schema: z.object({
-            marketAddress: z.string().describe("Market token address (NOT index token) from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD)"),
-            collateralTokenAddress: z.string().describe("ERC20 contract address of collateral token (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-            isLong: z.boolean().describe("True for long position, false for short position"),
-            sizeDeltaUsd: z.string().describe("Position size to close in BigInt string format with USD_DECIMALS (30) precision (e.g. '1000000000000000000000000000000000' for $1000 position)"),
-            collateralDeltaAmount: z.string().optional().describe("Collateral amount to withdraw in BigInt string using collateral token's decimals (optional)"),
-            allowedSlippage: z.number().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 25-200, default: 100)"),
+            marketAddress: z.string().describe("Market token address from get_positions response - must be the exact marketAddress field"),
+            sizeAmount: z.string().describe("Position size to close in USD as BigInt string (30 decimals). For full close, use the sizeInUsd from get_positions raw data. For partial close, use a smaller amount."),
+            receiveTokenAddress: z.string().describe("Token address to receive proceeds in (typically USDC: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 or the collateral token)"),
+            allowedSlippageBps: z.number().optional().describe("Allowed slippage in basis points (default: 100 = 1%)")
         }),
         async handler(data, ctx, agent) {
             try {
+                const memory = ctx.memory as GmxMemory;
+                
                 // Get required market and token data
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    throw new Error(`Failed to get market data: ${error.message || error}`);
-                });
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
                 
                 if (!marketsInfoData || !tokensData) {
-                    throw new Error("Invalid market data received");
+                    throw new Error("Failed to get market and token data");
                 }
-
+                
                 // Validate market exists
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) {
-                    throw new Error(`Market not found: ${data.marketAddress}`);
+                    throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
                 }
-
-                // Validate collateral token exists
-                const collateralToken = tokensData[data.collateralTokenAddress];
-                if (!collateralToken) {
-                    throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
-                }
-
-                // Get current market price for acceptable price calculation
-                const indexToken = marketInfo.indexToken;
-                const currentPrice = data.isLong 
-                    ? indexToken?.prices?.minPrice || 0n  // Long: use min price for selling
-                    : indexToken?.prices?.maxPrice || 0n; // Short: use max price for buying
-
-                if (!currentPrice || currentPrice <= 0n) {
-                    throw new Error("Unable to get valid current market price");
-                }
-
-                // Calculate acceptable price with slippage
-                const slippageAmount = (currentPrice * BigInt(data.allowedSlippage)) / 10000n;
-                const acceptablePrice = data.isLong 
-                    ? currentPrice - slippageAmount  // Long: can accept lower price when selling
-                    : currentPrice + slippageAmount; // Short: can accept higher price when buying
-
-                // Parse size with 30 decimal precision (consistent with other actions)
-                const sizeDeltaUsd = BigInt(data.sizeDeltaUsd);
-
-                const decreaseAmounts = {
-                    sizeDeltaUsd: sizeDeltaUsd,
-                    sizeDeltaInTokens: 0n, // Will be calculated by SDK
-                    collateralDeltaAmount: data.collateralDeltaAmount ? BigInt(data.collateralDeltaAmount) : 0n,
-                    triggerPrice: 0n, // No trigger for market orders
-                    acceptablePrice: acceptablePrice,
-                    triggerOrderType: 4, // OrderType.MarketDecrease for immediate execution
-                    decreaseSwapType: 0, // No swap by default
-                };
-
-                // Create market close order using SDK
-                const result = await sdk.orders.createDecreaseOrder({
-                    marketInfo: marketInfo,
-                    marketsInfoData: marketsInfoData,
-                    tokensData: tokensData,
-                    isLong: data.isLong,
-                    allowedSlippage: data.allowedSlippage,
-                    decreaseAmounts: decreaseAmounts,
-                    collateralToken: collateralToken,
-                    isTrigger: false, // Market order executes immediately
-                });
-
-                const memory = ctx.memory as GmxMemory;
                 
-                // Format size for display
-                const sizeUsdFormatted = formatUsdAmount(sizeDeltaUsd);
-                memory.currentTask = "💰 Closing scalp position at market";
-                memory.lastResult = `Closed ${data.isLong ? 'long' : 'short'} position at market: $${sizeUsdFormatted}`;
-
+                // Get current positions to validate the close request
+                const positionsResult = await sdk.positions.getPositions({
+                    marketsData: marketsInfoData,
+                    tokensData: tokensData,
+                    start: 0,
+                    end: 1000,
+                });
+                
+                // Find the specific long position for this market
+                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
+                const longPosition = positions.find((pos: any) => 
+                    pos.marketAddress === data.marketAddress && pos.isLong === true
+                );
+                
+                if (!longPosition) {
+                    throw new Error(`No long position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                }
+                
+                // Validate size amount
+                const sizeToClose = BigInt(data.sizeAmount);
+                if (sizeToClose > longPosition.sizeInUsd) {
+                    throw new Error(`Size to close (${data.sizeAmount}) exceeds position size (${longPosition.sizeInUsd.toString()})`);
+                }
+                
+                // Validate receive token
+                const receiveToken = tokensData[data.receiveTokenAddress];
+                if (!receiveToken) {
+                    throw new Error(`Invalid receive token address: ${data.receiveTokenAddress}`);
+                }
+                
+                // Get index token data
+                const indexToken = tokensData[marketInfo.indexTokenAddress];
+                const collateralToken = tokensData[longPosition.collateralTokenAddress];
+                
+                if (!indexToken || !collateralToken) {
+                    throw new Error("Failed to get token data for position");
+                }
+                
+                // Calculate size in tokens
+                const markPrice = indexToken.prices?.maxPrice || 0n;
+                const sizeInTokens = (sizeToClose * (10n ** BigInt(indexToken.decimals))) / markPrice;
+                
+                // Calculate acceptable price with slippage
+                const slippageBps = BigInt(data.allowedSlippageBps || 100);
+                const acceptablePrice = markPrice - (markPrice * slippageBps / 10000n);
+                
+                // Calculate collateral to remove proportionally
+                const closeRatio = (sizeToClose * 10000n) / longPosition.sizeInUsd;
+                const collateralDeltaAmount = (longPosition.collateralAmount * closeRatio) / 10000n;
+                
+                // Create decrease order parameters
+                const decreaseParams = {
+                    account: sdk.config.account,
+                    marketAddress: data.marketAddress,
+                    initialCollateralAddress: longPosition.collateralTokenAddress,
+                    receiveTokenAddress: data.receiveTokenAddress,
+                    sizeDeltaUsd: sizeToClose,
+                    sizeDeltaInTokens: sizeInTokens,
+                    acceptablePrice,
+                    initialCollateralDeltaAmount: collateralDeltaAmount,
+                    minOutputUsd: 0n, // Can be calculated based on expected output
+                    isLong: true,
+                    decreasePositionSwapType: 0, // No swap
+                    orderType: 2, // MarketDecrease
+                    executionFee: await sdk.orders.getExecutionFee(),
+                    allowedSlippage: Number(slippageBps),
+                    referralCode: undefined,
+                    skipSimulation: false,
+                    indexToken: marketInfo.indexTokenAddress,
+                    tokensData,
+                    swapPath: []
+                };
+                
+                // Create the decrease order transaction
+                const result = await sdk.orders.createDecreaseOrderTxn(decreaseParams).catch(error => {
+                    let errorMessage = "Failed to close long position";
+                    
+                    if (error?.message?.includes("insufficient")) {
+                        errorMessage = "Insufficient liquidity or invalid parameters";
+                    } else if (error?.message?.includes("slippage")) {
+                        errorMessage = "Slippage tolerance exceeded";
+                    } else if (error?.message?.includes("fee")) {
+                        errorMessage = "Insufficient funds for execution fee";
+                    } else if (error?.message) {
+                        errorMessage = error.message;
+                    }
+                    
+                    throw new Error(errorMessage);
+                });
+                
+                // Calculate close percentage
+                const closePercentage = Number(closeRatio) / 100;
+                const isFullClose = closePercentage >= 99.9;
+                
+                // Update memory
+                memory.currentTask = "📉 Closing LONG position";
+                memory.lastResult = `${isFullClose ? 'Fully' : 'Partially'} closed long position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`;
+                
                 return {
                     success: true,
-                    message: `Successfully closed position at market price`,
-                    orderDetails: {
-                        marketAddress: data.marketAddress,
-                        direction: data.isLong ? 'LONG' : 'SHORT',
-                        orderType: 'Market Close',
-                        currentPrice: formatUsdAmount(currentPrice),
-                        acceptablePrice: formatUsdAmount(acceptablePrice),
-                        sizeUsd: sizeUsdFormatted,
-                        slippage: (data.allowedSlippage / 100).toFixed(2) + '%'
+                    message: `Successfully ${isFullClose ? 'fully' : 'partially'} closed long position`,
+                    closeDetails: {
+                        market: marketInfo.name,
+                        direction: 'LONG',
+                        closeType: isFullClose ? 'Full' : 'Partial',
+                        sizeClosedUsd: formatUsdAmount(sizeToClose, 2),
+                        sizeClosedTokens: formatTokenAmount(sizeInTokens, indexToken.decimals, 6),
+                        collateralReturned: formatTokenAmount(collateralDeltaAmount, collateralToken.decimals, 6),
+                        receiveToken: receiveToken.symbol,
+                        closePercentage: `${closePercentage.toFixed(1)}%`,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
                     },
-                    transactionHash: result?.transactionHash || result?.hash || null
+                    positionRemaining: !isFullClose ? {
+                        sizeUsd: formatUsdAmount(longPosition.sizeInUsd - sizeToClose, 2),
+                        collateral: formatTokenAmount(longPosition.collateralAmount - collateralDeltaAmount, collateralToken.decimals, 6)
+                    } : null,
+                    transactionHash: result?.transactionHash || null
                 };
             } catch (error) {
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to close position at market"
+                    message: "Failed to close long position"
                 };
             }
         }
-    })
+    }),
+
+    // Close Short Position
+    action({
+        name: "close_short_position", 
+        description: "Close an existing short position fully or partially. Use get_positions first to find the position details.",
+        schema: z.object({
+            marketAddress: z.string().describe("Market token address from get_positions response - must be the exact marketAddress field"),
+            sizeAmount: z.string().describe("Position size to close in USD as BigInt string (30 decimals). For full close, use the sizeInUsd from get_positions raw data. For partial close, use a smaller amount."),
+            receiveTokenAddress: z.string().describe("Token address to receive proceeds in (typically USDC: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 or the collateral token)"),
+            allowedSlippageBps: z.number().optional().describe("Allowed slippage in basis points (default: 100 = 1%)")
+        }),
+        async handler(data, ctx, agent) {
+            try {
+                const memory = ctx.memory as GmxMemory;
+                
+                // Get required market and token data
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
+                
+                if (!marketsInfoData || !tokensData) {
+                    throw new Error("Failed to get market and token data");
+                }
+                
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) {
+                    throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
+                }
+                
+                // Get current positions to validate the close request
+                const positionsResult = await sdk.positions.getPositions({
+                    marketsData: marketsInfoData,
+                    tokensData: tokensData,
+                    start: 0,
+                    end: 1000,
+                });
+                
+                // Find the specific short position for this market
+                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
+                const shortPosition = positions.find((pos: any) => 
+                    pos.marketAddress === data.marketAddress && pos.isLong === false
+                );
+                
+                if (!shortPosition) {
+                    throw new Error(`No short position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                }
+                
+                // Validate size amount
+                const sizeToClose = BigInt(data.sizeAmount);
+                if (sizeToClose > shortPosition.sizeInUsd) {
+                    throw new Error(`Size to close (${data.sizeAmount}) exceeds position size (${shortPosition.sizeInUsd.toString()})`);
+                }
+                
+                // Validate receive token
+                const receiveToken = tokensData[data.receiveTokenAddress];
+                if (!receiveToken) {
+                    throw new Error(`Invalid receive token address: ${data.receiveTokenAddress}`);
+                }
+                
+                // Get index token data
+                const indexToken = tokensData[marketInfo.indexTokenAddress];
+                const collateralToken = tokensData[shortPosition.collateralTokenAddress];
+                
+                if (!indexToken || !collateralToken) {
+                    throw new Error("Failed to get token data for position");
+                }
+                
+                // Calculate size in tokens
+                const markPrice = indexToken.prices?.minPrice || 0n;
+                const sizeInTokens = (sizeToClose * (10n ** BigInt(indexToken.decimals))) / markPrice;
+                
+                // Calculate acceptable price with slippage (inverse for shorts)
+                const slippageBps = BigInt(data.allowedSlippageBps || 100);
+                const acceptablePrice = markPrice + (markPrice * slippageBps / 10000n);
+                
+                // Calculate collateral to remove proportionally
+                const closeRatio = (sizeToClose * 10000n) / shortPosition.sizeInUsd;
+                const collateralDeltaAmount = (shortPosition.collateralAmount * closeRatio) / 10000n;
+                
+                // Create decrease order parameters
+                const decreaseParams = {
+                    account: sdk.config.account,
+                    marketAddress: data.marketAddress,
+                    initialCollateralAddress: shortPosition.collateralTokenAddress,
+                    receiveTokenAddress: data.receiveTokenAddress,
+                    sizeDeltaUsd: sizeToClose,
+                    sizeDeltaInTokens: sizeInTokens,
+                    acceptablePrice,
+                    initialCollateralDeltaAmount: collateralDeltaAmount,
+                    minOutputUsd: 0n, // Can be calculated based on expected output
+                    isLong: false,
+                    decreasePositionSwapType: 0, // No swap
+                    orderType: 2, // MarketDecrease
+                    executionFee: await sdk.orders.getExecutionFee(),
+                    allowedSlippage: Number(slippageBps),
+                    referralCode: undefined,
+                    skipSimulation: false,
+                    indexToken: marketInfo.indexTokenAddress,
+                    tokensData,
+                    swapPath: []
+                };
+                
+                // Create the decrease order transaction
+                const result = await sdk.orders.createDecreaseOrderTxn(decreaseParams).catch(error => {
+                    let errorMessage = "Failed to close short position";
+                    
+                    if (error?.message?.includes("insufficient")) {
+                        errorMessage = "Insufficient liquidity or invalid parameters";
+                    } else if (error?.message?.includes("slippage")) {
+                        errorMessage = "Slippage tolerance exceeded";
+                    } else if (error?.message?.includes("fee")) {
+                        errorMessage = "Insufficient funds for execution fee";
+                    } else if (error?.message) {
+                        errorMessage = error.message;
+                    }
+                    
+                    throw new Error(errorMessage);
+                });
+                
+                // Calculate close percentage
+                const closePercentage = Number(closeRatio) / 100;
+                const isFullClose = closePercentage >= 99.9;
+                
+                // Update memory
+                memory.currentTask = "📈 Closing SHORT position";
+                memory.lastResult = `${isFullClose ? 'Fully' : 'Partially'} closed short position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`;
+                
+                return {
+                    success: true,
+                    message: `Successfully ${isFullClose ? 'fully' : 'partially'} closed short position`,
+                    closeDetails: {
+                        market: marketInfo.name,
+                        direction: 'SHORT',
+                        closeType: isFullClose ? 'Full' : 'Partial',
+                        sizeClosedUsd: formatUsdAmount(sizeToClose, 2),
+                        sizeClosedTokens: formatTokenAmount(sizeInTokens, indexToken.decimals, 6),
+                        collateralReturned: formatTokenAmount(collateralDeltaAmount, collateralToken.decimals, 6),
+                        receiveToken: receiveToken.symbol,
+                        closePercentage: `${closePercentage.toFixed(1)}%`,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
+                    },
+                    positionRemaining: !isFullClose ? {
+                        sizeUsd: formatUsdAmount(shortPosition.sizeInUsd - sizeToClose, 2),
+                        collateral: formatTokenAmount(shortPosition.collateralAmount - collateralDeltaAmount, collateralToken.decimals, 6)
+                    } : null,
+                    transactionHash: result?.transactionHash || null
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to close short position"
+                };
+            }
+        }
+    }),
+
     ];
 }

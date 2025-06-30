@@ -218,8 +218,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
     - $6.64 = "6640000000000000000000000000000000"
     - **Used for**: sizeAmount (open positions), limitPrice
     
-**IMPORTANT - How to Call Different Action Types**:
-1. **Actions with NO parameters** (no schema): Call without any data
+**CRITICAL - How to Call Different Action Types**:
+1. **Actions with NO parameters** (no schema): Call without any data (NEVER PROVIDE empty object {})
    - get_portfolio_balance
    - get_synth_leaderboard  
    - get_markets_info
@@ -259,6 +259,11 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - For full position close, use the entire raw.sizeInUsd value from get_positions
 - For partial close, use a smaller sizeAmount than raw.sizeInUsd
 - Always specify receiveTokenAddress as USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831)
+
+  **Every scalping cycle MUST end with either**:
+  - A trade execution (open_long_position / open_short_position / close_long_position / close_short_position) OR
+  - An explicit "No trade" decision with reasoning
+  - NEVER end a scalping cycle with "analysis in progress" or "analysis complete" - if you do the scalping cycle is incomplete
 
 **How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:

@@ -247,8 +247,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - Query the latest predictions for BOTH BTC and ETH from all top miners, one miner id at a time
 - Analyze trends for BOTH BTC and ETH using the synth miners predictions
 - Check existing positions for both BTC and ETH markets
-- Consider scalping opportunities on BOTH BTC and ETH based on their individual trends
 - If the trend is not clear, dont open new positions.
+- Otherwise consider opening scalping positions on BOTH BTC and ETH based on their individual trends
 - Don't close profitable positions in the right direction, but you can add to them.
 - When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
 - Close positions when :

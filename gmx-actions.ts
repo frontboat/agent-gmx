@@ -1441,14 +1441,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     allowedSlippageBps: data.allowedSlippageBps || 100,
                 };
 
-                // Add either payAmount or sizeAmount
+                // Add either payAmount or sizeAmount (SDK expects BigInt objects)
                 if (data.payAmount) {
                     helperParams.payAmount = BigInt(data.payAmount);
                 } else if (data.sizeAmount) {
                     helperParams.sizeAmount = BigInt(data.sizeAmount);
                 }
 
-                // Add optional parameters
+                // Add optional parameters (SDK expects BigInt objects)
                 if (data.leverage) {
                     helperParams.leverage = BigInt(data.leverage);
                 }
@@ -1563,14 +1563,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     allowedSlippageBps: data.allowedSlippageBps || 100,
                 };
 
-                // Add either payAmount or sizeAmount
+                // Add either payAmount or sizeAmount (SDK expects BigInt objects)
                 if (data.payAmount) {
                     helperParams.payAmount = BigInt(data.payAmount);
                 } else if (data.sizeAmount) {
                     helperParams.sizeAmount = BigInt(data.sizeAmount);
                 }
 
-                // Add optional parameters
+                // Add optional parameters (SDK expects BigInt objects)
                 if (data.leverage) {
                     helperParams.leverage = BigInt(data.leverage);
                 }
@@ -1594,6 +1594,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                         errorMessage = "Invalid leverage amount";
                     } else if (error?.message?.includes("borrowing")) {
                         errorMessage = "Borrowing capacity exceeded";
+                    } else if (error?.message?.includes("Execute order simulation failed")) {
+                        errorMessage = "Market conditions unfavorable - try reducing position size or different market";
+                    } else if (error?.message?.includes("liquidity")) {
+                        errorMessage = "Insufficient market liquidity for order size";
+                    } else if (error?.message?.includes("price impact")) {
+                        errorMessage = "Price impact too high - reduce position size or increase slippage";
+                    } else if (error?.message?.includes("market")) {
+                        errorMessage = "Market temporarily unavailable or paused";
                     } else if (error?.message) {
                         errorMessage = error.message;
                     }

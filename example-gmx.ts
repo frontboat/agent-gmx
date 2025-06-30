@@ -342,7 +342,8 @@ When analyzing positions from get_positions action:
 - Use USDC as collateral, NEVER synthetic tokens (BTC/ETH index tokens)
 - **Nonce Too Low Error**: If I see "nonce too low" error, it means I'm sending transactions too quickly. Wait 3-5 seconds and retry the transaction
 - **Execute Order Simulation Failed**:
- - Ensure correct parameters and proper decimal precision is sent to the action
+ - Check that you ONLY use payAmount, sizeAmount is not allowed
+ - payAmount: USDC amount with 6 decimals as string (e.g. "100000000" for 100 USDC)
  - Increase slippage: Use allowedSlippageBps: 200 (2%) or 300 (3%)
 
 **"Synthetic tokens are not supported"**:

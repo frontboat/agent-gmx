@@ -395,7 +395,7 @@ const gmxContext = context({
                     };
                     let text = "Scalping cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 120000); // 5 minutes
+                }, 300000); // 5 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
                 return () => {

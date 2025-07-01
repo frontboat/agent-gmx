@@ -13,13 +13,10 @@ import {
     formatUsdAmount,
     convertToUsd,
     convertToTokenAmount,
-    calculatePositionPnl,
-    calculateLeverage,
     calculateLiquidationPrice,
-    calculatePositionNetValue,
     getTradeActionDescription
 } from './utils';
-import { get_portfolio_balance_str, get_positions_str } from './queries';
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str } from './queries';
 
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -28,265 +25,63 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // 📈 READ METHODS - MARKET DATA
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    // Markets Info (Official SDK Method)
+    // BTC/ETH Markets Info - Focused on scalping markets
     action({
-        name: "get_markets_info",
-        description: "Get detailed information about markets and tokens using official SDK method (volume data excluded - use get_daily_volumes for volume information)",
-        async handler(data, ctx, agent) {                
-            try {
-                // Use official SDK method with enhanced error handling following SDK patterns
-                const marketDataResult = await sdk.markets.getMarketsInfo().catch(error => {
-                    console.error("Failed to fetch markets info:", error);
-                    
-                    // Parse error following GMX SDK patterns
-                    let errorMessage = "Unknown error occurred";
-                    
-                    if (error?.message) {
-                        errorMessage = error.message;
-                    } else if (typeof error === 'string') {
-                        errorMessage = error;
-                    } else if (error?.code === 'NETWORK_ERROR') {
-                        errorMessage = "Network connection failed. Please check your internet connection.";
-                    } else if (error?.code === 'TIMEOUT') {
-                        errorMessage = "Request timed out. Please try again.";
-                    }
-                    
-                    throw new Error(`GMX SDK getMarketsInfo failed: ${errorMessage}`);
-                });
-                
-                const { marketsInfoData, tokensData } = marketDataResult;
-                
-                // Validate response data
-                if (!marketsInfoData || typeof marketsInfoData !== 'object') {
-                    throw new Error("Invalid markets info data received from GMX SDK");
-                }
-                
-                if (!tokensData || typeof tokensData !== 'object') {
-                    throw new Error("Invalid tokens data received from GMX SDK");
-                }
-                
-                
-                // Simplify token data to contain only essential information
-                const simplifiedTokensData: Record<string, any> = {};
-                
-                if (tokensData) {
-                    Object.keys(tokensData).forEach(address => {
-                        const tokenData = tokensData[address];
-                        if (tokenData) {
-                            simplifiedTokensData[address] = {
-                                name: tokenData.name,
-                                symbol: tokenData.symbol,
-                                decimals: tokenData.decimals,
-                                address: tokenData.address,
-                                priceDecimals: tokenData.priceDecimals,
-                                prices: tokenData.prices ? {
-                                    minPrice: tokenData.prices.minPrice,
-                                    maxPrice: tokenData.prices.maxPrice
-                                } : undefined,
-                                balance: tokenData.balance
-                            };
-                        }
-                    });
-                }
-                
-                // Simplify market data to contain only essential information
-                const simplifiedMarketsData: Record<string, any> = {};
-                
-                if (marketsInfoData) {
-                    Object.keys(marketsInfoData).forEach(address => {
-                        const marketData = marketsInfoData[address];
-
-                        if (marketData) {
-                            
-                            const simplifiedMarket = {
-                                marketTokenAddress: marketData.marketTokenAddress,
-                                indexTokenAddress: marketData.indexTokenAddress,
-                                longTokenAddress: marketData.longTokenAddress,
-                                shortTokenAddress: marketData.shortTokenAddress,
-                                name: marketData.name,
-                                longInterestUsd: marketData.longInterestUsd 
-                                    ? Number(marketData.longInterestUsd / BigInt(10 ** USD_DECIMALS)) 
-                                    : 0,
-                                shortInterestUsd: marketData.shortInterestUsd 
-                                    ? Number(marketData.shortInterestUsd / BigInt(10 ** USD_DECIMALS)) 
-                                    : 0,
-                                // Include token symbols for easier reference
-                                indexToken: marketData.indexToken?.symbol,
-                                longToken: marketData.longToken?.symbol,
-                                shortToken: marketData.shortToken?.symbol,
-                                // Include current prices from the tokens
-                                indexTokenPrice: marketData.indexToken?.prices?.maxPrice 
-                                    ? Number(marketData.indexToken.prices.maxPrice / BigInt(10 ** USD_DECIMALS))
-                                    : 0,
-                                longTokenPrice: marketData.longToken?.prices?.maxPrice
-                                    ? Number(marketData.longToken.prices.maxPrice / BigInt(10 ** USD_DECIMALS))
-                                    : 0,
-                                shortTokenPrice: marketData.shortToken?.prices?.maxPrice
-                                    ? Number(marketData.shortToken.prices.maxPrice / BigInt(10 ** USD_DECIMALS))
-                                    : 0,
-                                isSpotOnly: marketData.isSpotOnly
-                            };
-                            
-                            simplifiedMarketsData[address] = simplifiedMarket;
-                        }
-                    });
-                }
-                
-                // Sort markets by interest (open positions) and get top markets
-                const topMarketsByInterest = Object.values(simplifiedMarketsData)
-                    .sort((a: any, b: any) => (b.longInterestUsd + b.shortInterestUsd) - (a.longInterestUsd + a.shortInterestUsd))
-                    .slice(0, 10);
-                                        
-                // Update state with simplified market data - flat memory structure
-                const memory = ctx.memory as GmxMemory;
-                try {
-                    // Direct assignment to flat memory structure
-                    memory.markets = { ...simplifiedMarketsData };
-                    memory.tokens = { ...simplifiedTokensData };
-                    memory.currentTask = "🔄 Refreshing market data for scalping opportunities";
-                    memory.lastResult = `Fetched ${Object.keys(simplifiedMarketsData).length} markets and ${Object.keys(simplifiedTokensData).length} tokens`;
-                } catch (error) {
-                    console.error("Failed to update memory state:", error);
-                    // Continue without updating memory rather than failing
-                }
-                
-                return {
-                    success: true,
-                    message: `Successfully fetched markets info (${Object.keys(simplifiedMarketsData).length} markets) and tokens data (${Object.keys(simplifiedTokensData).length} tokens)`,
-                    marketsSummary: {
-                        count: Object.keys(simplifiedMarketsData).length,
-                        topMarketsByInterest: topMarketsByInterest.map(m => ({
-                            name: m.name,
-                            marketAddress: m.marketTokenAddress,
-                            indexToken: m.indexToken,
-                            longInterest: m.longInterestUsd,
-                            shortInterest: m.shortInterestUsd,
-                            totalInterest: m.longInterestUsd + m.shortInterestUsd
-                        }))
-                    },
-                    allMarkets: Object.values(simplifiedMarketsData).map(m => ({
-                        name: m.name,
-                        marketAddress: m.marketTokenAddress,
-                        indexToken: m.indexToken,
-                        indexTokenAddress: m.indexTokenAddress,
-                        longToken: m.longToken,
-                        shortToken: m.shortToken,
-                        isSpotOnly: m.isSpotOnly
-                    })),
-                    tokensSummary: {
-                        count: Object.keys(simplifiedTokensData).length,
-                        sampleTokens: Object.values(simplifiedTokensData)
-                            .map(token => ({
-                                symbol: token.symbol,
-                                name: token.name,
-                                address: token.address
-                            }))
-                    }
-                };
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch markets info"
-                };
-            }
-        }
-    }),
-
-    // Markets List (Official SDK Method)
-    action({
-        name: "get_markets_list",
-        description: "Get list of markets using official SDK method",
-        schema: z.object({
-            offset: z.number().optional().describe("Offset for pagination (0-based, default: 0)"),
-            limit: z.number().optional().describe("Limit for pagination (1-1000, default: 100)")
-        }),
+        name: "get_btc_eth_markets",
+        description: "Get detailed information about BTC and ETH markets optimized for scalping - includes prices, liquidity, funding rates, and market addresses for trading",
         async handler(data, ctx, agent) {
             try {
-                // Use official SDK method
-                const markets = await sdk.markets.getMarkets(data.offset, data.limit);
+                let memory = ctx.memory as GmxMemory;
                 
-                const memory = ctx.memory as GmxMemory;
+                // Use the formatted string function from queries
+                const marketsString = await get_btc_eth_markets_str(sdk);
                 
-                // Update memory with market data
-                if (markets.marketsData) {
-                    memory.markets = { ...memory.markets, ...markets.marketsData };
-                }
-                memory.currentTask = "🎯 Scanning markets for scalping setups";
-                memory.lastResult = `Retrieved ${markets.marketsAddresses?.length || 0} markets`;
+                // Update memory
+                memory = {
+                    ...memory,
+                    markets: marketsString,
+                    currentTask: "📊 Fetching BTC/ETH market data for scalping",
+                    lastResult: "Retrieved focused BTC/ETH market information"
+                };
 
                 return {
                     success: true,
-                    message: `Retrieved ${markets.marketsAddresses?.length || 0} markets`,
-                    markets: markets,
-                    pagination: {
-                        offset: data.offset || 0,
-                        limit: data.limit || 100
-                    }
+                    message: "Successfully retrieved BTC/ETH markets data",
+                    formattedData: marketsString
                 };
             } catch (error) {
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch markets list"
+                    message: "Failed to fetch BTC/ETH markets data"
                 };
             }
         }
     }),
 
-    // Daily Volumes (Official SDK Method)
+    // Daily Volumes - BTC/ETH focused
     action({
         name: "get_daily_volumes",
-        description: "Get daily volume data for markets using official SDK method",
+        description: "Get daily volume data for BTC and ETH markets - filtered for scalping focus",
         async handler(data, ctx, agent) {
             try {
-                // Use official SDK method - returns Record<string, bigint> | undefined
-                const volumes = await sdk.markets.getDailyVolumes();
+                let memory = ctx.memory as GmxMemory;
                 
-                // Check if volumes data exists (should be a Record, not array)
-                if (!volumes || typeof volumes !== 'object') {
-                    return {
-                        success: false,
-                        message: "No volume data available or invalid data format",
-                        volumes: [],
-                        rawData: volumes // For debugging
-                    };
-                }
-
-                // Convert Record<string, bigint> to array format
-                const formattedVolumes = Object.entries(volumes).map(([market, volumeBigInt]) => {
-                    try {
-                        return {
-                            market: market,
-                            volume: Number(volumeBigInt / BigInt(10 ** USD_DECIMALS)).toFixed(2)
-                        };
-                    } catch (err) {
-                        console.error("Error processing volume entry:", err, { market, volumeBigInt });
-                        return {
-                            market: market || 'Error',
-                            volume: '0.00'
-                        };
-                    }
-                });
-
-                const totalVolume = formattedVolumes.reduce((sum, vol) => sum + parseFloat(vol.volume), 0);
-
-                // Store volumes in memory
-                const memory = ctx.memory as GmxMemory;
-                memory.volumes = formattedVolumes.reduce((acc, vol) => {
-                    acc[vol.market] = vol;
-                    return acc;
-                }, {} as Record<string, { market: string; volume: string }>);
-                memory.currentTask = "📊 Analyzing volume for liquidity conditions";
-                memory.lastResult = `Retrieved daily volumes for ${formattedVolumes.length} markets (total: $${totalVolume.toFixed(2)})`;
+                // Use the formatted string function from queries
+                const volumesString = await get_daily_volumes_str(sdk);
+                
+                // Update memory
+                memory = {
+                    ...memory,
+                    volumes: volumesString,
+                    currentTask: "📊 Analyzing BTC/ETH volume for liquidity conditions",
+                    lastResult: "Retrieved daily volumes for BTC/ETH markets"
+                };
 
                 return {
                     success: true,
-                    message: `Retrieved daily volumes for ${formattedVolumes.length} markets`,
-                    volumes: formattedVolumes,
-                    totalVolume: totalVolume.toFixed(2),
-                    rawDataType: typeof volumes,
-                    marketCount: formattedVolumes.length
+                    message: "Successfully retrieved BTC/ETH daily volumes",
+                    formattedData: volumesString
                 };
             } catch (error) {
                 return {
@@ -298,24 +93,29 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }
     }),
 
-    // Tokens
+    // Tokens Data - BTC/ETH/USD focused
     action({
         name: "get_tokens_data",
-        description: "Get data for available tokens on GMX",
+        description: "Get token data filtered for BTC/ETH/USD tokens - includes balances, prices, and addresses",
         async handler(data, ctx, agent) {
             try {
-                const tokensData = await sdk.tokens.getTokensData().catch(error => {
-                    console.error("Failed to fetch tokens data:", error);
-                    throw new Error(`GMX SDK getTokensData failed: ${error.message || error}`);
-                });
+                let memory = ctx.memory as GmxMemory;
                 
-                if (!tokensData || typeof tokensData !== 'object') {
-                    throw new Error("Invalid tokens data received from GMX SDK");
-                }
+                // Use the formatted string function from queries
+                const tokensString = await get_tokens_data_str(sdk);
+                
+                // Update memory
+                memory = {
+                    ...memory,
+                    tokens: tokensString,
+                    currentTask: "🪙 Fetching BTC/ETH/USD token data",
+                    lastResult: "Retrieved filtered token information"
+                };
+
                 return {
                     success: true,
-                    message: `Successfully fetched data for ${Object.keys(tokensData).length} tokens`,
-                    tokensData
+                    message: "Successfully retrieved BTC/ETH/USD tokens data",
+                    formattedData: tokensString
                 };
             } catch (error) {
                 return {
@@ -333,32 +133,21 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive portfolio balance including token balances, position values, and total portfolio worth. No parameters required - uses SDK account context automatically.",
         async handler(data, ctx, agent) {
             try {
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Use the formatted string function from queries
                 const portfolioString = await get_portfolio_balance_str(sdk);
                 
                 // Extract portfolio information from formatted string for memory
                 const totalValueMatch = portfolioString.match(/Total Value: \$([0-9.,]+)/);
-                const tokenValueMatch = portfolioString.match(/Tokens: \$([0-9.,]+)/);
-                const positionValueMatch = portfolioString.match(/Positions: \$([0-9.,]+)/);
-                const totalPnlMatch = portfolioString.match(/Total PnL: \$(-?[0-9.,]+)/);
-                
                 const totalValue = totalValueMatch ? parseFloat(totalValueMatch[1].replace(/,/g, '')) : 0;
-                const tokenValue = tokenValueMatch ? parseFloat(tokenValueMatch[1].replace(/,/g, '')) : 0;
-                const positionValue = positionValueMatch ? parseFloat(positionValueMatch[1].replace(/,/g, '')) : 0;
-                const totalPnl = totalPnlMatch ? parseFloat(totalPnlMatch[1].replace(/,/g, '')) : 0;
                 
-                memory.portfolioBalance = {
-                    totalValue: totalValue,
-                    tokenValue: tokenValue,
-                    positionValue: positionValue,
-                    totalPnl: totalPnl,
-                    lastUpdated: new Date().toISOString()
+                memory = {
+                    ...memory,
+                    portfolioBalance: portfolioString,
+                    currentTask: "💰 Portfolio balance retrieved successfully",
+                    lastResult: `Total portfolio value: $${totalValue.toFixed(2)}`
                 };
-                
-                memory.currentTask = "💰 Portfolio balance retrieved successfully";
-                memory.lastResult = `Total portfolio value: $${totalValue.toFixed(2)}`;
 
                 return {
                     success: true,
@@ -381,14 +170,18 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
         async handler(data, ctx, agent) {
             try {
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Use the formatted string function from queries
                 const positionsString = await get_positions_str(sdk);
                 
                 // Update memory
-                memory.currentTask = "📈 Positions retrieved successfully";
-                memory.lastResult = "Current positions analyzed";
+                memory = {
+                    ...memory,
+                    positions: positionsString,
+                    currentTask: "📈 Positions retrieved successfully",
+                    lastResult: "Current positions analyzed"
+                };
 
                 return {
                     success: true,
@@ -400,172 +193,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to get positions"
-                };
-            }
-        }
-    }),
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 💹 ORDERS & TRADES
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    // Orders Information (Official SDK Method)
-    action({
-        name: "get_orders",
-        description: "Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices",
-        async handler(data, ctx, agent) {
-            try {
-                // Get tokens data with balances and prices
-                const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
-                    throw new Error(`Failed to get tokens data: ${error.message || error}`);
-                });
-                
-                // Get markets and positions data
-                const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    throw new Error(`Failed to get markets data: ${error.message || error}`);
-                });
-                
-                if (!tokensData || !marketsInfoData) {
-                    throw new Error("Failed to get required market and token data");
-                }
-
-                // Get positions info for portfolio value calculation
-                const positionsResult = await sdk.positions.getPositionsInfo({
-                    marketsInfoData,
-                    tokensData,
-                    showPnlInLeverage: false
-                }).catch(error => {
-                    throw new Error(`Failed to get positions info: ${error.message || error}`);
-                });
-
-                const memory = ctx.memory as GmxMemory;
-                
-                // Calculate token balances in USD
-                const tokenBalances: Array<{
-                    symbol: string;
-                    address: string;
-                    balance: string;
-                    usdValue: string;
-                    price: string;
-                }> = [];
-                
-                let totalTokenValueUsd = 0;
-                
-                Object.values(tokensData).forEach(token => {
-                    if (token.balance && token.balance > 0n) {
-                        const balanceDecimal = bigIntToDecimal(token.balance, token.decimals);
-                        const price = token.prices?.minPrice ? 
-                            bigIntToDecimal(token.prices.minPrice, USD_DECIMALS) : 0;
-                        const usdValue = balanceDecimal * price;
-                        
-                        totalTokenValueUsd += usdValue;
-                        
-                        tokenBalances.push({
-                            symbol: token.symbol,
-                            address: token.address,
-                            balance: formatTokenAmount(token.balance, token.decimals, 6),
-                            usdValue: formatUsdAmount(convertToUsd(token.balance, token.decimals, token.prices?.minPrice || 0n) || 0n, 2),
-                            price: formatUsdAmount(token.prices?.minPrice || 0n, 6)
-                        });
-                    }
-                });
-
-                // Calculate position values
-                const positionValues: Array<{
-                    marketName: string;
-                    side: string;
-                    sizeUsd: string;
-                    collateralUsd: string;
-                    pnl: string;
-                    netValue: string;
-                    leverage: string;
-                }> = [];
-                
-                let totalPositionValueUsd = 0;
-                let totalPositionPnl = 0;
-                
-                if (positionsResult.positionsInfoData) {
-                    Object.values(positionsResult.positionsInfoData).forEach(position => {
-                        const marketInfo = marketsInfoData[position.marketAddress];
-                        if (!marketInfo) return;
-                        
-                        const netValueDecimal = bigIntToDecimal(position.netValue || 0n, USD_DECIMALS);
-                        const pnlDecimal = bigIntToDecimal(position.pnl || 0n, USD_DECIMALS);
-                        
-                        totalPositionValueUsd += netValueDecimal;
-                        totalPositionPnl += pnlDecimal;
-                        
-                        positionValues.push({
-                            marketName: marketInfo.name,
-                            side: position.isLong ? 'LONG' : 'SHORT',
-                            sizeUsd: formatUsdAmount(position.sizeInUsd || 0n, 2),
-                            collateralUsd: formatUsdAmount(position.collateralUsd || 0n, 2),
-                            pnl: formatUsdAmount(position.pnl || 0n, 2),
-                            netValue: formatUsdAmount(position.netValue || 0n, 2),
-                            leverage: position.leverage ? 
-                                `${(Number(position.leverage) / 10000).toFixed(2)}x` : '0x'
-                        });
-                    });
-                }
-
-                // Calculate total portfolio value
-                const totalPortfolioValue = totalTokenValueUsd + totalPositionValueUsd;
-                
-                // Sort token balances by USD value (highest first)
-                tokenBalances.sort((a, b) => 
-                    parseFloat(b.usdValue.replace(/[$,]/g, '')) - parseFloat(a.usdValue.replace(/[$,]/g, ''))
-                );
-
-                // Calculate portfolio allocation
-                const tokenAllocation = totalPortfolioValue > 0 ? 
-                    (totalTokenValueUsd / totalPortfolioValue) * 100 : 0;
-                const positionAllocation = totalPortfolioValue > 0 ? 
-                    (totalPositionValueUsd / totalPortfolioValue) * 100 : 0;
-
-                // Update memory with portfolio data
-                memory.portfolioBalance = {
-                    totalValue: totalPortfolioValue,
-                    tokenValue: totalTokenValueUsd,
-                    positionValue: totalPositionValueUsd,
-                    totalPnl: totalPositionPnl,
-                    lastUpdated: new Date().toISOString()
-                };
-                memory.currentTask = "💰 Calculating portfolio worth";
-                memory.lastResult = `Portfolio value: $${totalPortfolioValue.toFixed(2)} (${tokenBalances.length} tokens, ${positionValues.length} positions)`;
-
-                return {
-                    success: true,
-                    message: `Portfolio balance calculated successfully`,
-                    portfolio: {
-                        summary: {
-                            totalValue: `$${totalPortfolioValue.toFixed(2)}`,
-                            tokenValue: `$${totalTokenValueUsd.toFixed(2)}`,
-                            positionValue: `$${totalPositionValueUsd.toFixed(2)}`,
-                            totalPnl: `$${totalPositionPnl.toFixed(2)}`,
-                            allocation: {
-                                tokens: `${tokenAllocation.toFixed(1)}%`,
-                                positions: `${positionAllocation.toFixed(1)}%`
-                            }
-                        },
-                        tokens: {
-                            count: tokenBalances.length,
-                            totalValue: `$${totalTokenValueUsd.toFixed(2)}`,
-                            balances: tokenBalances
-                        },
-                        positions: {
-                            count: positionValues.length,
-                            totalValue: `$${totalPositionValueUsd.toFixed(2)}`,
-                            totalPnl: `$${totalPositionPnl.toFixed(2)}`,
-                            positions: positionValues
-                        },
-                        timestamp: new Date().toISOString()
-                    }
-                };
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to get portfolio balance"
                 };
             }
         }
@@ -594,7 +221,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     tokensData
                 });
                 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Extract orders data from structured result
                 const rawOrders = ordersResult.ordersInfoData ? Object.values(ordersResult.ordersInfoData) : [];
@@ -759,9 +386,12 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const readyToExecute = enhancedOrders.filter(order => order.executionStatus === 'Ready to Execute').length;
                 
                 // Update memory with enhanced orders
-                memory.orders = enhancedOrders;
-                memory.currentTask = "📋 Reviewing pending scalp orders";
-                memory.lastResult = `Retrieved ${enhancedOrders.length} orders with comprehensive analysis`;
+                memory = {
+                    ...memory,
+                    orders: enhancedOrders,
+                    currentTask: "📋 Reviewing pending scalp orders",
+                    lastResult: `Retrieved ${enhancedOrders.length} orders with comprehensive analysis`
+                };
 
                 return {
                     success: true,
@@ -1141,15 +771,17 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const riskAdjustedReturn = returnStdDev > 0 ? avgReturn / returnStdDev : 0;
                 
                 // Update memory with comprehensive data
-                const memory = ctx.memory as GmxMemory;
-                memory.trades = simplifiedTrades;
-                memory.totalPnl = tradeMetrics.totalPnl;
-                memory.winRate = winRate;
-                memory.averageProfit = averageProfit;
-                memory.averageLoss = averageLoss;
-                memory.currentTask = "🏆 Analyzing competition performance metrics";
-                memory.lastResult = `Retrieved trading history with ${simplifiedTrades.length} trades, total PnL: ${tradeMetrics.totalPnl.toFixed(2)}, win rate: ${winRate}%`;
-                
+                let memory = ctx.memory as GmxMemory;
+                memory = {
+                    ...memory,
+                    trades: simplifiedTrades,
+                    totalPnl: tradeMetrics.totalPnl,
+                    winRate: winRate,
+                    averageProfit: averageProfit,
+                    averageLoss: averageLoss,
+                    currentTask: "🏆 Analyzing competition performance metrics",
+                    lastResult: `Retrieved trading history with ${simplifiedTrades.length} trades, total PnL: ${tradeMetrics.totalPnl.toFixed(2)}, win rate: ${winRate}%`
+                }
                 return {
                     success: true,
                     message: `Retrieved ${simplifiedTrades.length} trades with comprehensive analytics from ${new Date((data.fromTxTimestamp || lastYear) * 1000).toLocaleDateString()} to ${new Date((data.toTxTimestamp || now) * 1000).toLocaleDateString()}`,
@@ -1223,19 +855,22 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
 
                 const leaderboard = await response.json();
                 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Slice to get only the top 5 miners
                 const limitedLeaderboard = Array.isArray(leaderboard) ? leaderboard.slice(0, 5) : leaderboard;
                 
                 // Update memory with leaderboard data
-                memory.synthLeaderboard = {
-                    miners: limitedLeaderboard,
-                    lastUpdated: new Date().toISOString(),
-                    topMinerIds: limitedLeaderboard.map((miner: any) => miner.uid || miner.id).filter(Boolean)
+                memory = {
+                    ...memory,
+                    synthLeaderboard: {
+                        miners: limitedLeaderboard,
+                        lastUpdated: new Date().toISOString(),
+                        topMinerIds: limitedLeaderboard.map((miner: any) => miner.uid || miner.id).filter(Boolean)
+                    },
+                    currentTask: "🤖 Fetching top AI miners for predictions",
+                    lastResult: `Retrieved Synth leaderboard with ${limitedLeaderboard.length || 0} miners`
                 };
-                memory.currentTask = "🤖 Fetching top AI miners for predictions";
-                memory.lastResult = `Retrieved Synth leaderboard with ${limitedLeaderboard.length || 0} miners`;
 
                 return {
                     success: true,
@@ -1290,7 +925,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 // Based on API structure: predictions[0].prediction contains array of prediction values
                 const predictionData = predictions[0].prediction[0];
 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
 
                 // Update memory with latest prediction data - ensure synthPredictions exists
                 if (!memory.synthPredictions) {
@@ -1306,8 +941,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     minerId: data.miner
                 };
                 
-                memory.currentTask = "🎯 Processing AI signals for entry opportunities";
-                memory.lastResult = `Retrieved ${predictionData.length} ${data.asset} predictions from miner ${data.miner}`;
+                memory = {
+                    ...memory,
+                    currentTask: "🎯 Processing AI signals for entry opportunities",
+                    lastResult: `Retrieved ${predictionData.length} ${data.asset} predictions from miner ${data.miner}`
+                };
 
                 return {
                     success: true,
@@ -1361,11 +999,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 // Use SDK's internal cancelOrders method (no manual wallet client needed)
                 const result = await sdk.orders.cancelOrders(data.orderKeys);
 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Update memory with cancellation info
-                memory.currentTask = "❌ Cancelling stale scalp orders";
-                memory.lastResult = `Cancelled ${data.orderKeys.length} order(s)`;
+                memory = {
+                    ...memory,
+                    currentTask: "❌ Cancelling stale scalp orders",
+                    lastResult: `Cancelled ${data.orderKeys.length} order(s)`
+                };
 
                 return {
                     success: true,
@@ -1392,17 +1033,12 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "open_long_position",
         description: "Open a long position using GMX SDK helper function with simplified parameters",
         schema: z.object({
-            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
-            sizeAmount: z.string().optional().describe("Position size in BigInt string format with USD_DECIMALS (30) precision (e.g. '5000000000000000000000000000000000' for $5000 position). Use this for size-based position sizing."),
             marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
             payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
             collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
             leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
-            limitPrice: z.string().optional().describe("Limit price in BigInt string with USD_DECIMALS (30) precision for limit orders (optional). If provided, creates a limit order instead of market order."),
-            referralCodeForTxn: z.string().optional().describe("Referral code for transaction (optional)"),
-        }).refine((data) => data.payAmount || data.sizeAmount, {
-            message: "Either payAmount or sizeAmount must be provided"
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1452,12 +1088,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 if (data.leverage) {
                     helperParams.leverage = BigInt(data.leverage);
                 }
-                if (data.limitPrice) {
-                    helperParams.limitPrice = BigInt(data.limitPrice);
-                }
-                if (data.referralCodeForTxn) {
-                    helperParams.referralCodeForTxn = data.referralCodeForTxn;
-                }
+
 
                 // Use the simplified helper function with enhanced error handling
                 const result = await sdk.orders.long(helperParams).catch(error => {
@@ -1479,13 +1110,16 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error(errorMessage);
                 });
 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Update memory with order info
                 const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                 const isLimitOrder = !!data.limitPrice;
-                memory.currentTask = "🚀 Executing LONG scalp entry";
-                memory.lastResult = `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`;
+                memory = {
+                    ...memory,
+                    currentTask: "🚀 Executing LONG scalp entry",
+                    lastResult: `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
+                }
 
                 return {
                     success: true,
@@ -1495,11 +1129,9 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                         direction: 'LONG',
                         orderType: isLimitOrder ? 'Limit' : 'Market',
                         payAmount: data.payAmount || null,
-                        sizeAmount: data.sizeAmount || null,
                         payToken: data.payTokenAddress,
                         collateralToken: data.collateralTokenAddress,
                         leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                        limitPrice: data.limitPrice || null,
                         slippage: `${(data.allowedSlippageBps || 100) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
@@ -1519,17 +1151,12 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "open_short_position", 
         description: "Open a short position using GMX SDK helper function with simplified parameters",
         schema: z.object({
-            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
-            sizeAmount: z.string().optional().describe("Position size in BigInt string format with USD_DECIMALS (30) precision (e.g. '5000000000000000000000000000000000' for $5000 position). Use this for size-based position sizing."),
             marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
             payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
             collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
             leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
-            limitPrice: z.string().optional().describe("Limit price in BigInt string with USD_DECIMALS (30) precision for limit orders (optional). If provided, creates a limit order instead of market order."),
-            referralCodeForTxn: z.string().optional().describe("Referral code for transaction (optional)"),
-        }).refine((data) => data.payAmount || data.sizeAmount, {
-            message: "Either payAmount or sizeAmount must be provided"
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1581,6 +1208,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     helperParams.referralCodeForTxn = data.referralCodeForTxn;
                 }
 
+
                 // Use the simplified helper function with enhanced error handling
                 const result = await sdk.orders.short(helperParams).catch(error => {
                     // Enhanced error parsing for short positions
@@ -1609,13 +1237,16 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error(errorMessage);
                 });
 
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Update memory with order info
                 const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                 const isLimitOrder = !!data.limitPrice;
-                memory.currentTask = "📉 Executing SHORT scalp entry";
-                memory.lastResult = `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`;
+                memory = {
+                    ...memory,
+                    currentTask: "📉 Executing SHORT scalp entry",
+                    lastResult: `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
+                }
 
                 return {
                     success: true,
@@ -1650,13 +1281,13 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Close an existing long position fully or partially. Use get_positions first to find the position details.",
         schema: z.object({
             marketAddress: z.string().describe("Market token address from get_positions response - must be the exact marketAddress field"),
-            sizeAmount: z.string().describe("Position size to close in USD as BigInt string (30 decimals). For full close, use the sizeInUsd from get_positions raw data. For partial close, use a smaller amount."),
+            sizeAmount: z.string().describe("Position size to close in USD as BigInt string (30 decimals). For full close, use the total position size value (30 decimals). For partial close, use a smaller amount (30 decimals)."),
             receiveTokenAddress: z.string().describe("Token address to receive proceeds in (typically USDC: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 or the collateral token)"),
             allowedSlippageBps: z.number().optional().describe("Allowed slippage in basis points (default: 100 = 1%)")
         }),
         async handler(data, ctx, agent) {
             try {
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Get required market and token data
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
@@ -1721,31 +1352,29 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const closeRatio = (sizeToClose * 10000n) / longPosition.sizeInUsd;
                 const collateralDeltaAmount = (longPosition.collateralAmount * closeRatio) / 10000n;
                 
-                // Create decrease order parameters
-                const decreaseParams = {
-                    account: sdk.config.account,
-                    marketAddress: data.marketAddress,
-                    initialCollateralAddress: longPosition.collateralTokenAddress,
-                    receiveTokenAddress: data.receiveTokenAddress,
+                // Prepare decrease amounts for execution fee calculation
+                const decreaseAmounts = {
                     sizeDeltaUsd: sizeToClose,
                     sizeDeltaInTokens: sizeInTokens,
+                    collateralDeltaAmount: collateralDeltaAmount,
                     acceptablePrice,
-                    initialCollateralDeltaAmount: collateralDeltaAmount,
-                    minOutputUsd: 0n, // Can be calculated based on expected output
-                    isLong: true,
-                    decreasePositionSwapType: 0, // No swap
-                    orderType: 2, // MarketDecrease
-                    executionFee: await sdk.orders.getExecutionFee(),
-                    allowedSlippage: Number(slippageBps),
-                    referralCode: undefined,
-                    skipSimulation: false,
-                    indexToken: marketInfo.indexTokenAddress,
-                    tokensData,
-                    swapPath: []
+                    triggerPrice: undefined, // Market order
+                    decreaseSwapType: 0, // No swap
+                    triggerOrderType: undefined // Market order
                 };
-                
-                // Create the decrease order transaction
-                const result = await sdk.orders.createDecreaseOrderTxn(decreaseParams).catch(error => {
+
+                // Use the SDK's createDecreaseOrder method (like the SDK's own implementation)
+                const result = await sdk.orders.createDecreaseOrder({
+                    marketsInfoData,
+                    tokensData,
+                    marketInfo,
+                    decreaseAmounts,
+                    collateralToken,
+                    allowedSlippage: Number(slippageBps),
+                    isLong: true,
+                    referralCode: undefined,
+                    isTrigger: false // Market order
+                }).catch(error => {
                     let errorMessage = "Failed to close long position";
                     
                     if (error?.message?.includes("insufficient")) {
@@ -1766,8 +1395,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const isFullClose = closePercentage >= 99.9;
                 
                 // Update memory
-                memory.currentTask = "📉 Closing LONG position";
-                memory.lastResult = `${isFullClose ? 'Fully' : 'Partially'} closed long position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`;
+                memory = {
+                    ...memory,
+                    currentTask: "📉 Closing LONG position",
+                    lastResult: `${isFullClose ? 'Fully' : 'Partially'} closed long position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`
+                };
                 
                 return {
                     success: true,
@@ -1811,7 +1443,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }),
         async handler(data, ctx, agent) {
             try {
-                const memory = ctx.memory as GmxMemory;
+                let memory = ctx.memory as GmxMemory;
                 
                 // Get required market and token data
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
@@ -1876,31 +1508,29 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const closeRatio = (sizeToClose * 10000n) / shortPosition.sizeInUsd;
                 const collateralDeltaAmount = (shortPosition.collateralAmount * closeRatio) / 10000n;
                 
-                // Create decrease order parameters
-                const decreaseParams = {
-                    account: sdk.config.account,
-                    marketAddress: data.marketAddress,
-                    initialCollateralAddress: shortPosition.collateralTokenAddress,
-                    receiveTokenAddress: data.receiveTokenAddress,
+                // Prepare decrease amounts for execution fee calculation
+                const decreaseAmounts = {
                     sizeDeltaUsd: sizeToClose,
                     sizeDeltaInTokens: sizeInTokens,
+                    collateralDeltaAmount: collateralDeltaAmount,
                     acceptablePrice,
-                    initialCollateralDeltaAmount: collateralDeltaAmount,
-                    minOutputUsd: 0n, // Can be calculated based on expected output
-                    isLong: false,
-                    decreasePositionSwapType: 0, // No swap
-                    orderType: 2, // MarketDecrease
-                    executionFee: await sdk.orders.getExecutionFee(),
-                    allowedSlippage: Number(slippageBps),
-                    referralCode: undefined,
-                    skipSimulation: false,
-                    indexToken: marketInfo.indexTokenAddress,
-                    tokensData,
-                    swapPath: []
+                    triggerPrice: undefined, // Market order
+                    decreaseSwapType: 0, // No swap
+                    triggerOrderType: undefined // Market order
                 };
-                
-                // Create the decrease order transaction
-                const result = await sdk.orders.createDecreaseOrderTxn(decreaseParams).catch(error => {
+
+                // Use the SDK's createDecreaseOrder method (like the SDK's own implementation)
+                const result = await sdk.orders.createDecreaseOrder({
+                    marketsInfoData,
+                    tokensData,
+                    marketInfo,
+                    decreaseAmounts,
+                    collateralToken,
+                    allowedSlippage: Number(slippageBps),
+                    isLong: false,
+                    referralCode: undefined,
+                    isTrigger: false // Market order
+                }).catch(error => {
                     let errorMessage = "Failed to close short position";
                     
                     if (error?.message?.includes("insufficient")) {
@@ -1921,8 +1551,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 const isFullClose = closePercentage >= 99.9;
                 
                 // Update memory
-                memory.currentTask = "📈 Closing SHORT position";
-                memory.lastResult = `${isFullClose ? 'Fully' : 'Partially'} closed short position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`;
+                memory = {
+                    ...memory,
+                    currentTask: "📈 Closing SHORT position",
+                    lastResult: `${isFullClose ? 'Fully' : 'Partially'} closed short position in ${marketInfo.name} (${closePercentage.toFixed(1)}%)`
+                };
                 
                 return {
                     success: true,

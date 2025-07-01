@@ -8,14 +8,11 @@
 
 export interface GmxMemory {
     // Core trading data
-    positions: any[];
+    positions: string;
     orders: any[];
-    markets: Record<string, any>;
-    tokens: Record<string, any>;
-    volumes: Record<string, {
-        market: string;
-        volume: string;
-    }>;
+    markets: string;
+    tokens: string;
+    volumes: string;
     
     // Trading performance
     trades: any[];
@@ -25,13 +22,7 @@ export interface GmxMemory {
     averageLoss: number;
     
     // Portfolio balance
-    portfolioBalance?: {
-        totalValue: number;
-        tokenValue: number;
-        positionValue: number;
-        totalPnl: number;
-        lastUpdated: string;
-    };
+    portfolioBalance?: string;
     
     // Current state
     currentTask: string | null;

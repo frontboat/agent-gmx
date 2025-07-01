@@ -428,3 +428,324 @@ export const get_positions_str = async (sdk: GmxSdk) => {
     
     return output;
 };
+
+// Get market data for specific BTC and ETH markets - returns formatted string
+export const get_btc_eth_markets_str = async (sdk: GmxSdk) => {
+    try {
+        // Get all markets data
+        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+            throw new Error(`Failed to get markets data: ${error.message || error}`);
+        });
+        
+        if (!marketsInfoData || !tokensData) {
+            throw new Error("Failed to get market and token data");
+        }
+        
+        // Define the specific markets we want - look for BTC and ETH USD pairs
+        const filteredMarkets: any[] = [];
+        
+        Object.entries(marketsInfoData).forEach(([marketTokenAddress, marketInfo]: [string, any]) => {
+            // Only get the main BTC/USD [BTC-USDC] and ETH/USD [WETH-USDC] markets
+            const isBtcUsdcMarket = marketInfo.name === 'BTC/USD [BTC-USDC]';
+            const isEthWethUsdcMarket = marketInfo.name === 'ETH/USD [WETH-USDC]';
+            
+            if ((isBtcUsdcMarket || isEthWethUsdcMarket) && !marketInfo.isSpotOnly) {
+                const indexToken = tokensData[marketInfo.indexTokenAddress];
+                const longToken = tokensData[marketInfo.longTokenAddress];
+                const shortToken = tokensData[marketInfo.shortTokenAddress];
+                
+                if (!indexToken || !longToken || !shortToken) return;
+                
+                // Calculate market metrics
+                const indexPrice = indexToken.prices?.maxPrice || 0n;
+                const indexPriceMin = indexToken.prices?.minPrice || 0n;
+                const midPrice = (indexPrice + indexPriceMin) / 2n;
+                
+                // Calculate pool value
+                const longPoolAmount = marketInfo.longPoolAmount || 0n;
+                const shortPoolAmount = marketInfo.shortPoolAmount || 0n;
+                
+                const longPoolValue = convertToUsd(
+                    longPoolAmount,
+                    longToken.decimals,
+                    longToken.prices?.minPrice || 0n
+                );
+                
+                const shortPoolValue = convertToUsd(
+                    shortPoolAmount,
+                    shortToken.decimals,
+                    shortToken.prices?.minPrice || 0n
+                );
+                
+                const totalPoolValue = (longPoolValue || 0n) + (shortPoolValue || 0n);
+                
+                // Calculate utilization
+                const longInterestUsd = marketInfo.longInterestUsd || 0n;
+                const shortInterestUsd = marketInfo.shortInterestUsd || 0n;
+                
+                const utilizationLong = totalPoolValue > 0n ? 
+                    Number((longInterestUsd * 10000n) / totalPoolValue) / 100 : 0;
+                const utilizationShort = totalPoolValue > 0n ? 
+                    Number((shortInterestUsd * 10000n) / totalPoolValue) / 100 : 0;
+                
+                // Format the enhanced market data
+                filteredMarkets.push({
+                    marketTokenAddress,  // Use correct field name from SDK
+                    name: marketInfo.name,
+                    indexToken: indexToken.symbol,
+                    isDisabled: marketInfo.isDisabled || false,
+                    
+                    // Prices
+                    indexPrice: formatUsdAmount(midPrice, 2),
+                    spread: formatUsdAmount(indexPrice - indexPriceMin, 4),
+                    
+                    // Pool info
+                    totalPoolValue: formatUsdAmount(totalPoolValue, 0),
+                    
+                    // Interest and utilization
+                    longInterestUsd: formatUsdAmount(longInterestUsd, 0),
+                    shortInterestUsd: formatUsdAmount(shortInterestUsd, 0),
+                    utilizationLong: utilizationLong.toFixed(2) + '%',
+                    utilizationShort: utilizationShort.toFixed(2) + '%',
+                    
+                    // Funding rates (convert from per second to per hour)
+                    fundingRateLong: marketInfo.fundingFactorPerSecond ? 
+                        (Number(marketInfo.fundingFactorPerSecond) * 3600 * 1e-30).toFixed(6) + '%/hr' : '0%/hr',
+                    borrowingRateLong: marketInfo.borrowingFactorPerSecond ? 
+                        (Number(marketInfo.borrowingFactorPerSecond) * 3600 * 1e-30).toFixed(6) + '%/hr' : '0%/hr',
+                    
+                    // Raw data for agent usage
+                    raw: {
+                        marketTokenAddress,
+                        indexPrice: midPrice.toString(),
+                        totalPoolValue: totalPoolValue.toString()
+                    }
+                });
+            }
+        });
+        
+        // Sort by BTC first, then ETH
+        filteredMarkets.sort((a, b) => {
+            if (a.indexToken.includes('BTC') && !b.indexToken.includes('BTC')) return -1;
+            if (!a.indexToken.includes('BTC') && b.indexToken.includes('BTC')) return 1;
+            return 0;
+        });
+        
+        // Format as string output
+        let output = '📊 BTC/ETH Markets Overview\n';
+        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        
+        if (filteredMarkets.length === 0) {
+            output += 'No BTC or ETH markets found.\n';
+            return output;
+        }
+        
+        // Summary section
+        const btcMarkets = filteredMarkets.filter(m => m.indexToken.includes('BTC'));
+        const ethMarkets = filteredMarkets.filter(m => m.indexToken.includes('ETH'));
+        
+        output += `Found ${filteredMarkets.length} markets: ${btcMarkets.length} BTC, ${ethMarkets.length} ETH\n\n`;
+        
+        // Market details
+        filteredMarkets.forEach((market, index) => {
+            const statusIcon = market.isDisabled ? '🔴' : '🟢';
+            output += `${index + 1}. ${statusIcon} ${market.name}\n`;
+            output += `   Market Address: ${market.marketTokenAddress}\n`;
+            output += `   Price: ${market.indexPrice} | Spread: ${market.spread}\n`;
+            output += `   Pool Value: ${market.totalPoolValue}\n`;
+            output += `   Long Interest: ${market.longInterestUsd} (${market.utilizationLong})\n`;
+            output += `   Short Interest: ${market.shortInterestUsd} (${market.utilizationShort})\n`;
+            output += `   Funding Rate: ${market.fundingRateLong} | Borrowing: ${market.borrowingRateLong}\n`;
+            
+            if (index < filteredMarkets.length - 1) output += '\n';
+        });
+        
+        return output;
+    } catch (error) {
+        throw new Error(`Failed to get BTC/ETH markets data: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
+
+// Get tokens data filtered for BTC/ETH/USD/USDC - returns formatted string
+export const get_tokens_data_str = async (sdk: GmxSdk) => {
+    try {
+        // Get all tokens data - destructure tokensData from the response
+        const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+            throw new Error(`Failed to get tokens data: ${error.message || error}`);
+        });
+        
+        if (!tokensData || typeof tokensData !== 'object') {
+            throw new Error("Failed to get tokens data");
+        }
+        
+        // Define target tokens for scalping
+        const targetTokens = ['BTC', 'ETH', 'WBTC', 'WETH', 'USDC', 'USDT', 'USD'];
+        
+        // Filter and enhance token data
+        const filteredTokens: any[] = [];
+        
+        Object.entries(tokensData).forEach(([tokenAddress, tokenInfo]: [string, any]) => {
+            if (tokenInfo && tokenInfo.symbol) {
+                // Check if this token matches our target symbols
+                const isTargetToken = targetTokens.some(target => 
+                    tokenInfo.symbol.includes(target) || tokenInfo.symbol === target
+                );
+                
+                if (isTargetToken) {
+                    // Calculate balance in USD
+                    const balance = tokenInfo.balance ? bigIntToDecimal(tokenInfo.balance, tokenInfo.decimals) : 0;
+                    const price = tokenInfo.prices?.minPrice ? 
+                        bigIntToDecimal(tokenInfo.prices.minPrice, USD_DECIMALS) : 0;
+                    const balanceUsd = balance * price;
+                    
+                    filteredTokens.push({
+                        symbol: tokenInfo.symbol,
+                        name: tokenInfo.name || tokenInfo.symbol,
+                        address: tokenAddress,
+                        decimals: tokenInfo.decimals,
+                        
+                        // Balance info
+                        balance: balance.toFixed(6),
+                        balanceUsd: balanceUsd.toFixed(2),
+                        
+                        // Price info
+                        priceUsd: price.toFixed(6),
+                        
+                        // Raw data
+                        raw: {
+                            address: tokenAddress,
+                            balance: tokenInfo.balance?.toString() || '0',
+                            minPrice: tokenInfo.prices?.minPrice?.toString() || '0',
+                            maxPrice: tokenInfo.prices?.maxPrice?.toString() || '0'
+                        }
+                    });
+                }
+            }
+        });
+        
+        // Sort by balance USD value (highest first)
+        filteredTokens.sort((a, b) => parseFloat(b.balanceUsd) - parseFloat(a.balanceUsd));
+        
+        // Format as string output
+        let output = '🪙 Tokens Overview\n';
+        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        
+        if (filteredTokens.length === 0) {
+            output += 'No relevant tokens found.\n';
+            return output;
+        }
+        
+        // Summary section
+        const totalBalanceUsd = filteredTokens.reduce((sum, token) => sum + parseFloat(token.balanceUsd), 0);
+        const tokensWithBalance = filteredTokens.filter(token => parseFloat(token.balance) > 0);
+        
+        output += `Found ${filteredTokens.length} tokens (${tokensWithBalance.length} with balance)\n`;
+        output += `Total Balance: $${totalBalanceUsd.toFixed(2)}\n\n`;
+        
+        // Token details
+        filteredTokens.forEach((token, index) => {
+            const balanceIcon = parseFloat(token.balance) > 0 ? '💰' : '🔘';
+            output += `${index + 1}. ${balanceIcon} ${token.symbol} (${token.name})\n`;
+            output += `   Address: ${token.address}\n`;
+            output += `   Balance: ${token.balance} (~$${token.balanceUsd})\n`;
+            output += `   Price: $${token.priceUsd}\n`;
+            output += `   Decimals: ${token.decimals}\n`;
+            
+            if (index < filteredTokens.length - 1) output += '\n';
+        });
+        
+        return output;
+    } catch (error) {
+        throw new Error(`Failed to get tokens data: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
+
+// Get daily volumes filtered for BTC/ETH markets - returns formatted string
+export const get_daily_volumes_str = async (sdk: GmxSdk) => {
+    try {
+        // Get daily volumes data
+        const volumes = await sdk.markets.getDailyVolumes();
+        
+        if (!volumes || typeof volumes !== 'object') {
+            throw new Error("No volume data available");
+        }
+        
+        // Get markets info to map addresses to names
+        const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+            throw new Error(`Failed to get markets data: ${error.message || error}`);
+        });
+        
+        if (!marketsInfoData) {
+            throw new Error("Failed to get markets info for volume mapping");
+        }
+        
+        // Filter and enhance volume data for BTC/ETH markets
+        const filteredVolumes: any[] = [];
+        
+        Object.entries(volumes).forEach(([marketAddress, volumeBigInt]) => {
+            const marketInfo = marketsInfoData[marketAddress];
+            
+            if (marketInfo && marketInfo.name) {
+                // Only get the main BTC/USD [BTC-USDC] and ETH/USD [WETH-USDC] markets
+                const isBtcUsdcMarket = marketInfo.name === 'BTC/USD [BTC-USDC]';
+                const isEthWethUsdcMarket = marketInfo.name === 'ETH/USD [WETH-USDC]';
+                
+                if ((isBtcUsdcMarket || isEthWethUsdcMarket) && !marketInfo.isSpotOnly) {
+                    const volumeUsd = bigIntToDecimal(volumeBigInt, USD_DECIMALS);
+                    
+                    filteredVolumes.push({
+                        marketAddress,
+                        name: marketInfo.name,
+                        indexToken: marketInfo.indexToken?.symbol || 'Unknown',
+                        volumeUsd: volumeUsd.toFixed(0),
+                        volumeFormatted: formatUsdAmount(volumeBigInt, 0),
+                        
+                        // Raw data
+                        raw: {
+                            marketAddress,
+                            volumeUsd: volumeBigInt.toString()
+                        }
+                    });
+                }
+            }
+        });
+        
+        // Sort by volume (highest first)
+        filteredVolumes.sort((a, b) => parseFloat(b.volumeUsd) - parseFloat(a.volumeUsd));
+        
+        // Format as string output
+        let output = '📈 Daily Volume Overview\n';
+        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        
+        if (filteredVolumes.length === 0) {
+            output += 'No BTC or ETH volume data found.\n';
+            return output;
+        }
+        
+        // Summary section
+        const totalVolume = filteredVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
+        const btcVolumes = filteredVolumes.filter(v => v.indexToken.includes('BTC'));
+        const ethVolumes = filteredVolumes.filter(v => v.indexToken.includes('ETH'));
+        
+        const btcTotalVolume = btcVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
+        const ethTotalVolume = ethVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
+        
+        output += `Total Volume: $${totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })}\n`;
+        output += `BTC Markets: $${btcTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${btcVolumes.length} markets)\n`;
+        output += `ETH Markets: $${ethTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${ethVolumes.length} markets)\n\n`;
+        
+        // Volume details
+        filteredVolumes.forEach((volume, index) => {
+            const tokenIcon = volume.indexToken.includes('BTC') ? '₿' : '⟠';
+            output += `${index + 1}. ${tokenIcon} ${volume.name}\n`;
+            output += `   Market Address: ${volume.marketAddress}\n`;
+            output += `   24h Volume: ${volume.volumeFormatted}\n`;
+            
+            if (index < filteredVolumes.length - 1) output += '\n';
+        });
+        
+        return output;
+    } catch (error) {
+        throw new Error(`Failed to get daily volumes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};

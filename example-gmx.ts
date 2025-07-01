@@ -46,7 +46,7 @@ import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
-import { get_portfolio_balance_str, get_positions_str } from "./queries";
+import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str } from "./queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -174,9 +174,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
   #### 📊 Portfolio & Market Intelligence
   - get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. NO
   PARAMETERS.
-  - get_markets_info: Get detailed market and token information including prices, volumes, interest rates, and token balances. Returns marketAddress for each market in     
-   topMarketsByInterest and allMarkets arrays. NO PARAMETERS.
-  - get_markets_list: Get paginated list of available markets. OPTIONAL: offset (default 0), limit (default 100).
+  - get_btc_eth_markets: Get detailed BTC and ETH market information optimized for scalping including prices, liquidity, funding rates, and market addresses for trading. NO PARAMETERS.
   - get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis. NO PARAMETERS.
   - get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens. NO PARAMETERS.
 
@@ -191,9 +189,9 @@ My goal is to maximize total return through rapid, precise scalping trades.
   - get_latest_predictions: Get real-time prediction data from specific Synth miners. REQUIRED: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
 
   #### ⚡ Trading Execution
-  - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, limitPrice, allowedSlippageBps, referralCodeForTxn, sizeAmount (30 decimals).
+  - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
   - open_short_position: Open short position. Same parameters as open_long_position.
-  - close_long_position: Close existing long position fully or partially. REQUIRED: marketAddress (from get_positions), sizeAmount (30 decimals - use raw.sizeInUsd for full close), receiveTokenAddress (USDC). OPTIONAL: allowedSlippageBps.
+  - close_long_position: Close existing long position fully or partially. REQUIRED: marketAddress (from get_positions), sizeAmount (30 decimals), receiveTokenAddress (USDC token address). OPTIONAL: allowedSlippageBps.
   - close_short_position: Close existing short position fully or partially. Same parameters as close_long_position.
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
@@ -219,28 +217,26 @@ My goal is to maximize total return through rapid, precise scalping trades.
     - **Used for**: sizeAmount (open positions), limitPrice
     
 **CRITICAL - How to Call Different Action Types**:
-1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, "", or any parameters
-   - get_portfolio_balance (CORRECT: call as get_portfolio_balance with NO parentheses or data)
-   - get_synth_leaderboard (CORRECT: call as get_synth_leaderboard with NO parentheses or data)
-   - get_markets_info (CORRECT: call as get_markets_info with NO parentheses or data)
-   - get_daily_volumes (CORRECT: call as get_daily_volumes with NO parentheses or data)
-   - get_tokens_data (CORRECT: call as get_tokens_data with NO parentheses or data)
-   - get_positions (CORRECT: call as get_positions with NO parentheses or data)
-   - get_orders (CORRECT: call as get_orders with NO parentheses or data)
+1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
+   - get_portfolio_balance
+   - get_synth_leaderboard
+   - get_btc_eth_markets
+   - get_daily_volumes
+   - get_tokens_data
+   - get_positions
+   - get_orders
 
 2. **Actions with OPTIONAL parameters**: MUST provide empty object {} if not specifying values
-   - get_markets_list({}) - uses default values
-   - get_markets_list({"offset": 0, "limit": 10}) - with specific values
    - get_trade_history({}) - uses defaults for all optional parameters
    - get_trade_history({"pageSize": 50, "pageIndex": 0}) - with specific pagination
 
 3. **Actions with REQUIRED parameters**: MUST provide all required fields
    - get_latest_predictions({"asset": "BTC", "miner": 123}) or get_latest_predictions({"asset": "ETH", "miner": 123})
    - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100})
-   - close_long_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"})
-   - close_short_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
+   - close_long_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
+   - close_short_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
 
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
@@ -255,10 +251,10 @@ My goal is to maximize total return through rapid, precise scalping trades.
  - the trend has reversed strongly against my position
  - or the position is against the trend and is profitable
  - or the position is strongly against the trend and is not profitable
-- When closing positions, first use get_positions to find the exact marketAddress and raw.sizeInUsd values
-- For full position close, use the entire raw.sizeInUsd value from get_positions
-- For partial close, use a smaller sizeAmount than raw.sizeInUsd
-- Always specify receiveTokenAddress as USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831)
+- When closing positions, first use get_positions to find the exact marketAddress and total size value
+- For full position close, use the total size value from get_positions
+- For partial close, use a smaller sizeAmount than total size value
+- Always specify receiveTokenAddress as USDC token address
 
 **CRITICAL : NEVER end a scalping cycle with an analysis, it needs to end with either a trade execution OR an explicit "No trade" decision with reasoning**
 
@@ -292,24 +288,27 @@ When analyzing positions from get_positions action:
 
 ## Trading Rules
 
-**Position Opening**: ONLY use payAmount
+**Position Opening**: ONLY use payAmount for opening orders
 - payAmount: USDC amount with 6 decimals as string (e.g. "100000000" for 100 USDC)
 
+**Position Closing**: ONLY use sizeAmount for closing orders
+- sizeAmount: USDC amount with 30 decimals as string (e.g. "1000000000000000000000000000000000" for 100 USDC)
+
 **Required Parameters**:
-- marketAddress: Market token address (from get_markets_info response - use marketAddress field from allMarkets or topMarketsByInterest arrays)
-- payTokenAddress: Token I'm paying with (USDC)
-- collateralTokenAddress: Token for collateral (USDC)
+- marketAddress: Market token address (from get_btc_eth_markets response - use marketTokenAddress field from the formatted output)
+- payTokenAddress: Token I'm paying with (USDC token address)
+- collateralTokenAddress: Token for collateral (USDC token address)
 
 **IMPORTANT**: To get the correct marketAddress for trading:
-1. Call get_markets_info first
-2. Look in either allMarkets array or topMarketsByInterest array
-3. Find my desired market by name (examples: "BTC/USD [BTC-USDC]", "ETH/USD [ETH-USDC]")
-4. Use the marketAddress field from that market object
+1. Call get_btc_eth_markets first
+2. Look in the formatted output for the market you want to trade
+3. Find your desired market by name (examples: "BTC/USD [BTC-USDC]", "ETH/USD [ETH-USDC]")
+4. Copy the Market Address field exactly as shown in the output
 
 **IMPORTANT - Collateral Token Rules**:
 - NEVER use synthetic tokens (BTC, ETH index tokens) as collateral
-- ALWAYS use  USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831) as collateral
-- For BTC/USD and ETH/USD positions: use USDC as both payTokenAddress AND collateralTokenAddress
+- ALWAYS use  USDC token address as collateral
+- For BTC/USD and ETH/USD positions: use USDC token address as both payTokenAddress AND collateralTokenAddress
 
 **Optional Parameters**:
 - leverage: Basis points as string (e.g. "50000" for 5x)
@@ -318,18 +317,10 @@ When analyzing positions from get_positions action:
 
 ### 💰 Position Sizing
 - ALWAYS fetch portfolio balance using get_portfolio_balance first
-- **Max Position**: use up to 5% of portfolio per trade
+- **Max Position**: use up to 5% of portfolio per trade depending on the confidence level
 - **Example**: If portfolio = $132.75, max position = $6.64
-- **ALWAYS USE payAmount in USDC**: "6640000" (for 6.64 USDC with 6 decimals)
 - **Dynamic Sizing**: Always recalculate based on current portfolio value
-- **Max Leverage**: Use up to 5x leverage
-
-**CRITICAL - Adding to Existing Positions**:
-- **Total position size (existing + new) MUST NOT exceed 10% of portfolio value**
-- **Check existing position size BEFORE adding**: Call get_positions first
-- **Calculate allowed addition**: maxTotalSize = portfolio * 0.10 - existingPositionSize
-- **Only add if**: existingPositionSize < (portfolio * 0.10)
-- **Example**: Portfolio=$1000, existing BTC position=$80, max addition=$20 (to reach $100 total)
+- **Max Leverage**: Use up to 5x leverage depending on the confidence level
 
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)
@@ -348,7 +339,7 @@ When analyzing positions from get_positions action:
 
 **"Synthetic tokens are not supported"**:
 - NEVER use BTC (0x47904963fc8b2340414262125aF798B9655E58Cd) as collateralTokenAddress
-- Use USDC (0xaf88d065e77c8cC2239327C5EDb3A432268e5831) as both pay and collateral
+- Use USDC token address as both pay and collateral
 `
 ;
 
@@ -359,11 +350,14 @@ When analyzing positions from get_positions action:
 
 const gmxContext = context({
     type: "gmx-trading-agent",
-    maxSteps: 100,
+    maxSteps: 50,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
         positions: z.string().describe("The agent's positions"),
         portfolio: z.string().describe("The agent's portfolio"),
+        markets: z.string().describe("The agent's markets"),
+        tokens: z.string().describe("The agent's tokens"),
+        volumes: z.string().describe("The agent's volumes"),
     }),
 
     key({ id }) {
@@ -375,6 +369,9 @@ const gmxContext = context({
             instructions:state.args.instructions,
             positions:state.args.positions,
             portfolio:state.args.portfolio,
+            markets:state.args.markets,
+            tokens:state.args.tokens,
+            volumes:state.args.volumes,
           };
       },
 
@@ -383,6 +380,9 @@ const gmxContext = context({
             instructions: memory.instructions,
             positions: memory.positions,
             portfolio: memory.portfolio,
+            markets: memory.markets,
+            tokens: memory.tokens,
+            volumes: memory.volumes,
           });
     },
     }).setInputs({
@@ -394,16 +394,22 @@ const gmxContext = context({
                 const interval = setInterval(async () => {
                     const portfolio = await get_portfolio_balance_str(sdk);
                     const positions = await get_positions_str(sdk);
+                    const markets = await get_btc_eth_markets_str(sdk);
+                    const tokens = await get_tokens_data_str(sdk);
+                    const volumes = await get_daily_volumes_str(sdk);
                     let context = {
                         type: "gmx-trading-agent",
-                        maxSteps: 100,
+                        maxSteps: 50,
                         instructions: vega_template,
                         positions: positions,
-                        portfolio: portfolio
+                        portfolio: portfolio,
+                        markets: markets,
+                        tokens: tokens,
+                        volumes: volumes,
                     };
-                    let text = "Scalping cycle initiated";
+                    let text = "Scalping cycle initiated. If you encounter any errors, please output the error message and the full logs then stop at once.";
                     await send(gmxContext, context, {text});
-                }, 300000); // 5 minutes
+                }, 200000); // 5 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
                 return () => {
@@ -445,7 +451,7 @@ console.log("✅ Memory stores initialized!");
 const agent = createDreams({
     model: openrouter("google/gemini-2.5-flash-preview-05-20"),
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
-    extensions: [discord, gmx], // Add GMX extension
+    extensions: [gmx], // Add GMX extension
     memory: {
         store: mongoMemoryStore,
         vector: createChromaVectorStore("agent", "http://localhost:8000"),
@@ -459,7 +465,10 @@ console.log("✅ Agent created successfully!");
 await agent.start({
     instructions: vega_template,
     positions: await get_positions_str(sdk),
-    portfolio: await get_portfolio_balance_str(sdk)
+    portfolio: await get_portfolio_balance_str(sdk),
+    markets: await get_btc_eth_markets_str(sdk),
+    tokens: await get_tokens_data_str(sdk),
+    volumes: await get_daily_volumes_str(sdk),
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

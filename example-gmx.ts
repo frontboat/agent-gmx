@@ -232,10 +232,10 @@ My goal is to maximize total return through rapid, precise scalping trades.
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
 - Query the latest predictions for BOTH BTC and ETH from all top miners, one miner id at a time
-- Analyze trends for BOTH BTC and ETH using the synth miners predictions
+- Analyze trends over the next 24h for BOTH BTC and ETH using the synth miners predictions
 - Check existing positions for both BTC and ETH markets
 - If the trend is not clear, dont open new positions.
-- Otherwise consider opening scalping positions on BOTH BTC and ETH based on their individual trends
+- Otherwise consider opening scalping positions on BOTH BTC and ETH based on their individual trends (at least 1% price action)
 - Don't close profitable positions in the right direction, but you can add to them.
 - When adding to positions, trade size divided by leverage must not exceed 50% of portfolio value
 - Close positions when :
@@ -272,7 +272,7 @@ When analyzing positions from get_positions action:
 - Memory is for context only - use live action results for all trading decisions
 
 ### 🛡️ Risk Management
-- Constantly evaluate trend strength against opened positions direction
+- Constantly evaluate trend strength in % against opened positions direction
 - Portfolio Limits: Never exceed maximum position size
 
 ## Trading Rules

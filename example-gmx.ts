@@ -234,11 +234,11 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - If I don't have enough ETH, I need to swap some USDC to ETH.
 - I query the synth leaderboard to find the top miners
 - I query the latest predictions for BOTH BTC and ETH from all top miners, one miner id at a time
-- I analyze synth miner predictions for BTC and ETH 24h price movement percentages
+- I analyze synth miner predictions for BTC and ETH price movement percentages
 - I check existing positions for both BTC and ETH markets
-- If the trend is not clear, or price action is less than 1% over 24h, I dont open new positions.
-- Otherwise I consider opening scalping positions following the trend and targetting the 24h price on BOTH BTC and ETH, based on their individual trends
-- I don't close profitable positions in the right direction, but I can add to them.
+- If the trend is not clear, or price action is less than 1%, I dont open new positions.
+- Otherwise I consider opening positions following the trend and targetting a specific price action windows on BOTH BTC and ETH, based on their individual trends
+- I don't close profitable positions in the right direction unlessI have a great take profit opportunity, but I can add to them.
 - When adding to positions, trade size must not exceed 50% of portfolio value
 - I close positions when :
  - I have a great take profit opportunity

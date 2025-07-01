@@ -22,4 +22,4 @@ touch "$LOCKFILE"
 
 # Run the GMX agent script
 cd /data/agent-gmx
-bun run start
+bun run example-gmx.ts

@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH="/home/djizus/.bun/bin:$PATH"
 
 # Lock file path
 LOCKFILE="/tmp/agent-gmx.lock"

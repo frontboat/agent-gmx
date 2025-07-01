@@ -297,16 +297,15 @@ When analyzing positions from get_positions action:
 - receiveTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" // USDC
 
 **Optional Parameters**:
-- leverage: Basis points as string (e.g. "50000" for 5x)
+- leverage: Basis points as string (e.g. "30000" for 3x)
 - allowedSlippageBps: Default 100 (1%)
-- allowedSlippage: Default 100 (1%)
 
 ### 💰 Position Sizing
 - ALWAYS fetch portfolio balance using get_portfolio_balance first
-- **Max Position**: use up to 5% of portfolio per trade depending on the confidence level
-- **Example**: If portfolio = $132.75, max position = $6.64
+- **Max Position**: use up to 10% of portfolio per trade depending on the confidence level
+- **Example**: If portfolio = $100, max position = $10
 - **Dynamic Sizing**: Always recalculate based on current portfolio value
-- **Max Leverage**: Use up to 5x leverage depending on the confidence level
+- **Max Leverage**: Use up to 3x leverage depending on the confidence level
 
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)

@@ -337,6 +337,7 @@ What are the raw parameters that were used to call the action? Then stop at once
 const gmxContext = context({
     type: "gmx-trading-agent",
     maxSteps: 50,
+    maxWorkingMemorySize: 10,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
         positions: z.string().describe("The agent's positions"),
@@ -429,7 +430,6 @@ const mongoMemoryStore = await createMongoMemoryStore({
     uri: env.MONGODB_STRING,
     dbName: "vega_trading_agent", 
     collectionName: "gmx_memory",
-    maxWorkingMemorySize: 5
 });
 
 console.log("✅ Memory stores initialized!");

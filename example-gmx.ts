@@ -244,7 +244,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
 - If the trend is not clear, dont open new positions.
 - Otherwise consider opening scalping positions on BOTH BTC and ETH based on their individual trends
 - Don't close profitable positions in the right direction, but you can add to them.
-- When adding to positions, trade size divided by leverage must not exceed 10% of portfolio value
+- When adding to positions, trade size divided by leverage must not exceed 50% of portfolio value
 - Close positions when :
  - the trend has reversed strongly against my position
  - or the position is against the trend and is profitable
@@ -401,7 +401,7 @@ const gmxContext = context({
                     };
                     let text = "Scalping cycle initiated. If you encounter any errors, please output the error message and the full logs then stop at once.";
                     await send(gmxContext, context, {text});
-                }, 200000); // 5 minutes
+                }, 300000); // 5 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
                 return () => {

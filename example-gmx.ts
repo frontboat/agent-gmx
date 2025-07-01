@@ -196,8 +196,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
 
   #### 📋 Parameter Format Requirements
   - **Decimal String Values**: All amounts must be BigInt strings (converted to BigInt internally)
-    - USDC amounts: 6 decimals (e.g., "1000000" = 1 USDC)
-    - USD position sizes: 30 decimals (e.g., "1000000000000000000000000000000000" = $1000)
+    - USDC amounts: 6 decimals (e.g., "10000000" = 10 USDC)
     - Leverage: basis points (e.g., "50000" = 5x, "10000" = 1x, "200000" = 20x)
     - Prices: 30 decimals
   - **Slippage Parameters**: 
@@ -208,12 +207,6 @@ My goal is to maximize total return through rapid, precise scalping trades.
     - 1 USDC = "1000000"
     - 100 USDC = "100000000" 
     - 6.64 USDC = "6640000"
-    
-    **USD Values (30 decimals)**:
-    - $1 = "1000000000000000000000000000000000"
-    - $100 = "100000000000000000000000000000000000"
-    - $6.64 = "6640000000000000000000000000000000"
-    - **Used for**: limitPrice (if needed for limit orders)
     
 **CRITICAL - How to Call Different Action Types**:
 1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
@@ -232,8 +225,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
 3. **Actions with REQUIRED parameters**: MUST provide all required fields
    - get_latest_predictions({"asset": "BTC", "miner": 123}) or get_latest_predictions({"asset": "ETH", "miner": 123})
    - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "5000"})
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "5000"})
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
 
 ### Scalping cycle
@@ -299,7 +292,7 @@ When analyzing positions from get_positions action:
 **IMPORTANT - Pay and Collateral Token Rules**:
 - Pay attention to the payTokenAddress and collateralTokenAddress fields (receiveTokenAddress is the same as collateralTokenAddress).
 - They are the addresses of ERC20 tokens that you are paying for and receiving, respectively.
-- ETH/USD [WETH-USDC] market has synthetic ETH token in indexTokenAddress so you need to pass WETH address instead of ETH.
+- We should use USDC token for both payTokenAddress and collateralTokenAddress and receiveTokenAddress.
 
 **Full example**:
 - marketAddress: "0x70d95587d40A2caf56bd97485aB3Eec10Bee6336", // ETH/USD [WETH-USDC]
@@ -322,6 +315,7 @@ When analyzing positions from get_positions action:
 ### ⚡ Execution Protocol
 1. **Sequential Only**: Execute trades ONE AT A TIME (never parallel)
 2. **Wait Between**: 2 second pause between actions to avoid nonce errors
+3. Make sure to have at least 5$ worth of ETH in the wallet to pay for gas fees. Swap some USDC to ETH if needed.
 
 ### 🔧 Troubleshooting Common Errors
 **"Execute order simulation failed"**:
@@ -399,9 +393,9 @@ const gmxContext = context({
                         tokens: tokens,
                         volumes: volumes,
                     };
-                    let text = "Scalping cycle initiated. If you encounter any errors, please output the error message and the full logs then stop at once.";
+                    let text = "Scalping cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 300000); // 5 minutes
+                }, 120000); // 5 minutes
 
                 console.log("✅ Scalping cycle subscription setup complete");
                 return () => {
@@ -434,21 +428,23 @@ console.log("🗄️ Setting up MongoDB persistent memory...");
 const mongoMemoryStore = await createMongoMemoryStore({
     uri: env.MONGODB_STRING,
     dbName: "vega_trading_agent", 
-    collectionName: "gmx_memory"
+    collectionName: "gmx_memory",
+    maxWorkingMemorySize: 5
 });
 
 console.log("✅ Memory stores initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("google/gemini-2.5-flash-preview-05-20"),
-    logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
+    model: openrouter("google/gemini-2.5-flash-preview-05-20"), //google/gemini-2.5-flash-preview-05-20
+    logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: {
         store: mongoMemoryStore,
         vector: createChromaVectorStore("agent", "http://localhost:8000"),
         vectorModel: openrouter("google/gemini-2.0-flash-001"),
     },
+    streaming: false,
 });
 
 console.log("✅ Agent created successfully!");

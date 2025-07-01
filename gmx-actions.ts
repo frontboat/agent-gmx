@@ -17,6 +17,7 @@ import {
     getTradeActionDescription
 } from './utils';
 import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str } from './queries';
+import { debugLog, debugError, getLogFilePath } from './logger';
 
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -1042,32 +1043,47 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }),
         async handler(data, ctx, agent) {
             try {
+                debugLog('OPEN_LONG', 'Starting long position open', { input: data });
+                
                 // Get market and token data for proper fee calculation
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                    const errorMsg = `Failed to get market data: ${error.message || error}`;
+                    debugError('OPEN_LONG', error, { stage: 'getMarketsInfo' });
+                    throw new Error(errorMsg);
                 });
                 
                 if (!marketsInfoData || !tokensData) {
+                    debugError('OPEN_LONG', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
                     throw new Error("Invalid market data received");
                 }
                 
                 // Validate market exists
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) {
+                    debugError('OPEN_LONG', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                     throw new Error(`Market not found: ${data.marketAddress}`);
                 }
+                
+                debugLog('OPEN_LONG', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
                 
                 // Validate tokens exist
                 const payToken = tokensData[data.payTokenAddress];
                 const collateralToken = tokensData[data.collateralTokenAddress];
                 
                 if (!payToken) {
+                    debugError('OPEN_LONG', `Pay token not found: ${data.payTokenAddress}`, { availableTokens: Object.keys(tokensData) });
                     throw new Error(`Pay token not found: ${data.payTokenAddress}`);
                 }
                 
                 if (!collateralToken) {
+                    debugError('OPEN_LONG', `Collateral token not found: ${data.collateralTokenAddress}`, { availableTokens: Object.keys(tokensData) });
                     throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
                 }
+                
+                debugLog('OPEN_LONG', 'Tokens validated', { 
+                    payToken: payToken.symbol, 
+                    collateralToken: collateralToken.symbol 
+                });
                 
                 // Prepare parameters for helper function
                 const helperParams: any = {
@@ -1083,13 +1099,18 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     helperParams.leverage = BigInt(data.leverage);
                 }
 
-                console.log(helperParams);
+                debugLog('OPEN_LONG', 'Helper params prepared', helperParams);
 
                 // Use the simplified helper function with enhanced error handling
                 const result = await sdk.orders.long(helperParams).catch(error => {
-                    // Enhanced error parsing for trading operations
-                    let errorMessage = "Failed to open long position";
-                    throw new Error(errorMessage);
+                    debugError('OPEN_LONG', error, { 
+                        helperParams, 
+                        stage: 'sdk.orders.long',
+                        errorInfo: error.info,
+                        errorData: error.data,
+                        fullError: error
+                    });
+                    throw new Error(`Failed to open long position: ${error.message || error}`);
                 });
 
                 let memory = ctx.memory as GmxMemory;
@@ -1103,7 +1124,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
                 }
 
-                return {
+                const successResult = {
                     success: true,
                     message: `Successfully opened long ${isLimitOrder ? 'limit' : 'market'} position`,
                     orderDetails: {
@@ -1118,12 +1139,21 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     },
                     transactionHash: result?.transactionHash || null
                 };
+                
+                debugLog('OPEN_LONG', 'Long position opened successfully', successResult);
+                debugLog('OPEN_LONG', `Log file location: ${getLogFilePath()}`);
+                
+                return successResult;
             } catch (error) {
-                return {
+                const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to open long position"
                 };
+                
+                debugError('OPEN_LONG', 'Failed to open long position', errorResult);
+                
+                return errorResult;
             }
         }
     }),
@@ -1142,50 +1172,72 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }),
         async handler(data, ctx, agent) {
             try {
+                debugLog('OPEN_SHORT', 'Starting short position open', { input: data });
+                
                 // Get market and token data for validation and proper error handling
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                    const errorMsg = `Failed to get market data: ${error.message || error}`;
+                    debugError('OPEN_SHORT', error, { stage: 'getMarketsInfo' });
+                    throw new Error(errorMsg);
                 });
                 
                 if (!marketsInfoData || !tokensData) {
+                    debugError('OPEN_SHORT', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
                     throw new Error("Invalid market data received");
                 }
                 
                 // Validate market and tokens exist
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) {
+                    debugError('OPEN_SHORT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                     throw new Error(`Market not found: ${data.marketAddress}`);
                 }
+                
+                debugLog('OPEN_SHORT', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
                 
                 const payToken = tokensData[data.payTokenAddress];
                 const collateralToken = tokensData[data.collateralTokenAddress];
                 
                 if (!payToken || !collateralToken) {
+                    debugError('OPEN_SHORT', 'Invalid token addresses provided', { 
+                        payTokenFound: !!payToken, 
+                        collateralTokenFound: !!collateralToken,
+                        availableTokens: Object.keys(tokensData)
+                    });
                     throw new Error("Invalid token addresses provided");
                 }
                 
+                debugLog('OPEN_SHORT', 'Tokens validated', { 
+                    payToken: payToken.symbol, 
+                    collateralToken: collateralToken.symbol 
+                });
+                
+                // Helper function to safely convert string to BigInt (removes 'n' suffix if present)
+                const safeBigInt = (value: string): bigint => {
+                    const cleanValue = value.endsWith('n') ? value.slice(0, -1) : value;
+                    return BigInt(cleanValue);
+                };
+
                 // Prepare parameters for helper function
                 const helperParams: any = {
                     marketAddress: data.marketAddress,
                     payTokenAddress: data.payTokenAddress,
                     collateralTokenAddress: data.collateralTokenAddress,
                     allowedSlippageBps: data.allowedSlippageBps || 100,
-                    payAmount: BigInt(data.payAmount),
+                    payAmount: safeBigInt(data.payAmount),
                 };
 
                 // Add optional parameters (SDK expects BigInt objects)
                 if (data.leverage) {
-                    helperParams.leverage = BigInt(data.leverage);
+                    helperParams.leverage = safeBigInt(data.leverage);
                 }
 
-                console.log(helperParams);
+                debugLog('OPEN_SHORT', 'Helper params prepared', helperParams);
 
                 // Use the simplified helper function with enhanced error handling
                 const result = await sdk.orders.short(helperParams).catch(error => {
-                    // Enhanced error parsing for short positions
-                    let errorMessage = "Failed to open short position";
-                    
-                    throw new Error(errorMessage);
+                    debugError('OPEN_SHORT', error, { helperParams, stage: 'sdk.orders.short' });
+                    throw new Error(`Failed to open short position: ${error.message || error}`);
                 });
 
                 let memory = ctx.memory as GmxMemory;
@@ -1199,7 +1251,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
                 }
 
-                return {
+                const successResult = {
                     success: true,
                     message: `Successfully opened short ${isLimitOrder ? 'limit' : 'market'} position`,
                     orderDetails: {
@@ -1214,12 +1266,21 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     },
                     transactionHash: result?.transactionHash || null
                 };
+                
+                debugLog('OPEN_SHORT', 'Short position opened successfully', successResult);
+                debugLog('OPEN_SHORT', `Log file location: ${getLogFilePath()}`);
+                
+                return successResult;
             } catch (error) {
-                return {
+                const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to open short position"
                 };
+                
+                debugError('OPEN_SHORT', 'Failed to open short position', errorResult);
+                
+                return errorResult;
             }
         }
     }),
@@ -1236,19 +1297,28 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         async handler(data, ctx, agent) {
             try {
                 let memory = ctx.memory as GmxMemory;
+                
+                debugLog('CLOSE_POSITION', 'Starting position close', { input: data });
                                
                 // Get required market and token data
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                    debugError('CLOSE_POSITION', error, { stage: 'getMarketsInfo' });
+                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                });
                 
                 if (!marketsInfoData || !tokensData) {
+                    debugError('CLOSE_POSITION', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
                     throw new Error("Failed to get market and token data");
                 }
                 
                 // Validate market exists
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) {
+                    debugError('CLOSE_POSITION', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                     throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
                 }
+                
+                debugLog('CLOSE_POSITION', 'Market found', { marketName: marketInfo.name });
                                 
                 // Get current positions to find the position to close
                 const positionsResult = await sdk.positions.getPositions({
@@ -1306,8 +1376,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     markPrice - (markPrice * BigInt(slippageBps) / 10000n) :
                     markPrice + (markPrice * BigInt(slippageBps) / 10000n);
                 
-                console.log(`[CLOSE_POSITION] Mark price: ${markPrice.toString()}`);
-                console.log(`[CLOSE_POSITION] Acceptable price: ${acceptablePrice.toString()}`);
+                debugLog('CLOSE_POSITION', 'Price calculations', {
+                    markPrice: markPrice.toString(),
+                    acceptablePrice: acceptablePrice.toString(),
+                    slippageBps
+                });
                 
                 // Calculate collateral USD value
                 const collateralPrice = collateralToken.prices?.minPrice || 0n;
@@ -1316,6 +1389,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     collateralToken.decimals,
                     collateralPrice
                 ) || 0n;
+                
+                debugLog('CLOSE_POSITION', 'Collateral USD value calculated', { collateralDeltaUsd: collateralDeltaUsd.toString() });
                                 
                 // Create complete DecreasePositionAmounts object with ALL required fields
                 const decreaseAmounts = {
@@ -1360,6 +1435,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     // Swap configuration
                     decreaseSwapType: 0, // No swap by default
                 };
+                
+                debugLog('CLOSE_POSITION', 'DecreaseAmounts prepared', { 
+                    fieldCount: Object.keys(decreaseAmounts).length,
+                    decreaseAmounts 
+                });
                                 
                 // Use the SDK's createDecreaseOrder method
                 const result = await sdk.orders.createDecreaseOrder({
@@ -1373,10 +1453,27 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     referralCode: undefined,
                     isTrigger: false // Market order
                 }).catch(error => {
-                    console.error(`[CLOSE_POSITION] SDK Error:`, error);
-                    let errorMessage = `Failed to close ${direction.toLowerCase()} position`;                    
+                    debugError('CLOSE_POSITION', error, { 
+                        stage: 'createDecreaseOrder',
+                        direction,
+                        decreaseAmounts
+                    });
+                    let errorMessage = `Failed to close ${direction.toLowerCase()} position`;
+                    
+                    if (error?.message?.includes("insufficient")) {
+                        errorMessage = "Insufficient liquidity or invalid parameters";
+                    } else if (error?.message?.includes("slippage")) {
+                        errorMessage = "Slippage tolerance exceeded";
+                    } else if (error?.message?.includes("fee")) {
+                        errorMessage = "Insufficient funds for execution fee";
+                    } else if (error?.message) {
+                        errorMessage = error.message;
+                    }
+                    
                     throw new Error(errorMessage);
                 });
+                
+                debugLog('CLOSE_POSITION', 'Transaction successful', { transactionHash: result?.transactionHash || 'No hash returned' });
                                
                 // Update memory
                 memory = {
@@ -1385,7 +1482,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Fully closed ${direction.toLowerCase()} position in ${marketInfo.name} (100%)`
                 };
                 
-                return {
+                const successResult = {
                     success: true,
                     message: `Successfully fully closed ${direction.toLowerCase()} position`,
                     closeDetails: {
@@ -1401,12 +1498,22 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     },
                     transactionHash: result?.transactionHash || null
                 };
+                
+                debugLog('CLOSE_POSITION', 'Position closed successfully', successResult);
+                debugLog('CLOSE_POSITION', `Log file location: ${getLogFilePath()}`);
+                
+                return successResult;
             } catch (error) {
-                return {
+                const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to close position"
                 };
+                
+                debugError('CLOSE_POSITION', 'Failed to close position', errorResult);
+                debugLog('CLOSE_POSITION', `Log file location: ${getLogFilePath()}`);
+                
+                return errorResult;
             }
         }
     }),

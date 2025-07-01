@@ -191,8 +191,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
   #### ⚡ Trading Execution
   - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
   - open_short_position: Open short position. Same parameters as open_long_position.
-  - close_long_position: Close existing long position fully or partially. REQUIRED: marketAddress (from get_positions), sizeAmount (30 decimals), receiveTokenAddress (USDC token address). OPTIONAL: allowedSlippageBps.
-  - close_short_position: Close existing short position fully or partially. Same parameters as close_long_position.
+  - close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
   #### 📋 Parameter Format Requirements
@@ -210,11 +209,11 @@ My goal is to maximize total return through rapid, precise scalping trades.
     - 100 USDC = "100000000" 
     - 6.64 USDC = "6640000"
     
-    **USD Position Sizes (30 decimals)**:
+    **USD Values (30 decimals)**:
     - $1 = "1000000000000000000000000000000000"
     - $100 = "100000000000000000000000000000000000"
     - $6.64 = "6640000000000000000000000000000000"
-    - **Used for**: sizeAmount (open positions), limitPrice
+    - **Used for**: limitPrice (if needed for limit orders)
     
 **CRITICAL - How to Call Different Action Types**:
 1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
@@ -235,8 +234,7 @@ My goal is to maximize total return through rapid, precise scalping trades.
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
    - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"})
-   - close_long_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
-   - close_short_position({"marketAddress": "0x...", "sizeAmount": "1000000000000000000000000000000000", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
+   - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
 
 ### Scalping cycle
 - Query the synth leaderboard to find the top miners
@@ -251,10 +249,8 @@ My goal is to maximize total return through rapid, precise scalping trades.
  - the trend has reversed strongly against my position
  - or the position is against the trend and is profitable
  - or the position is strongly against the trend and is not profitable
-- When closing positions, first use get_positions to find the exact marketAddress and total size value
-- For full position close, use the total size value from get_positions
-- For partial close, use a smaller sizeAmount than total size value
-- Always specify receiveTokenAddress as USDC token address
+- When closing positions, first use get_positions to find the exact marketAddress  
+- Positions are automatically closed in full - no need to specify size amounts
 
 **CRITICAL : NEVER end a scalping cycle with an analysis, it needs to end with either a trade execution OR an explicit "No trade" decision with reasoning**
 
@@ -288,27 +284,28 @@ When analyzing positions from get_positions action:
 
 ## Trading Rules
 
-**Position Opening**: ONLY use payAmount for opening orders
+**Position Opening**:
 - payAmount: USDC amount with 6 decimals as string (e.g. "100000000" for 100 USDC)
 
-**Position Closing**: ONLY use sizeAmount for closing orders
-- sizeAmount: USDC amount with 30 decimals as string (e.g. "1000000000000000000000000000000000" for 100 USDC)
-
-**Required Parameters**:
-- marketAddress: Market token address (from get_btc_eth_markets response - use marketTokenAddress field from the formatted output)
-- payTokenAddress: Token I'm paying with (USDC token address)
-- collateralTokenAddress: Token for collateral (USDC token address)
+**Position Closing**:
+- Automatically closes full position - no size parameters needed
 
 **IMPORTANT**: To get the correct marketAddress for trading:
 1. Call get_btc_eth_markets first
 2. Look in the formatted output for the market you want to trade
-3. Find your desired market by name (examples: "BTC/USD [BTC-USDC]", "ETH/USD [ETH-USDC]")
+3. Find your desired market by name (examples: "BTC/USD [BTC-USDC]", "ETH/USD [WETH-USDC]")
 4. Copy the Market Address field exactly as shown in the output
 
-**IMPORTANT - Collateral Token Rules**:
-- NEVER use synthetic tokens (BTC, ETH index tokens) as collateral
-- ALWAYS use  USDC token address as collateral
-- For BTC/USD and ETH/USD positions: use USDC token address as both payTokenAddress AND collateralTokenAddress
+**IMPORTANT - Pay and Collateral Token Rules**:
+- Pay attention to the payTokenAddress and collateralTokenAddress fields (receiveTokenAddress is the same as collateralTokenAddress).
+- They are the addresses of ERC20 tokens that you are paying for and receiving, respectively.
+- ETH/USD [WETH-USDC] market has synthetic ETH token in indexTokenAddress so you need to pass WETH address instead of ETH.
+
+**Full example**:
+- marketAddress: "0x70d95587d40A2caf56bd97485aB3Eec10Bee6336", // ETH/USD [WETH-USDC]
+- payTokenAddress: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", // WETH
+- collateralTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", // USDC
+- receiveTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" // USDC
 
 **Optional Parameters**:
 - leverage: Basis points as string (e.g. "50000" for 5x)
@@ -330,16 +327,11 @@ When analyzing positions from get_positions action:
 **"Execute order simulation failed"**:
 - Check position size
 - Ensure sufficient balance in payTokenAddress
-- Use USDC as collateral, NEVER synthetic tokens (BTC/ETH index tokens)
-- **Nonce Too Low Error**: If I see "nonce too low" error, it means I'm sending transactions too quickly. Wait 3-5 seconds and retry the transaction
-- **Execute Order Simulation Failed**:
- - Check that you ONLY use payAmount, sizeAmount is not allowed
- - payAmount: USDC amount with 6 decimals as string (e.g. "100000000" for 100 USDC)
- - Increase slippage: Use allowedSlippageBps: 200 (2%) or 300 (3%)
 
-**"Synthetic tokens are not supported"**:
-- NEVER use BTC (0x47904963fc8b2340414262125aF798B9655E58Cd) as collateralTokenAddress
-- Use USDC token address as both pay and collateral
+**"Nonce Too Low Error"**: If I see "nonce too low" error, it means I'm sending transactions too quickly. Wait 3-5 seconds and retry the transaction
+
+**"Execute Order Simulation Failed"**:
+What are the raw parameters that were used to call the action? Then stop at once.
 `
 ;
 

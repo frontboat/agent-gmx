@@ -1,0 +1,208 @@
+    // Close Position (Universal - handles both long and short)
+    action({
+        name: "close_position",
+        description: "Fully close an existing position (long or short) automatically. Detects position direction and closes the entire position.",
+        schema: z.object({
+            marketAddress: z.string().describe("Market token address from get_positions response - must be the exact marketAddress field"),
+            receiveTokenAddress: z.string().describe("Token address to receive proceeds in (typically USDC: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 or the collateral token)"),
+            allowedSlippageBps: z.number().optional().describe("Allowed slippage in basis points (default: 100 = 1%)")
+        }),
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                console.log(`[CLOSE_POSITION] Starting position close for market: ${data.marketAddress}`);
+                
+                // Get required market and token data
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
+                
+                if (!marketsInfoData || !tokensData) {
+                    throw new Error("Failed to get market and token data");
+                }
+                
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) {
+                    throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
+                }
+                
+                console.log(`[CLOSE_POSITION] Market found: ${marketInfo.name}`);
+                
+                // Get current positions to find the position to close
+                const positionsResult = await sdk.positions.getPositions({
+                    marketsData: marketsInfoData,
+                    tokensData: tokensData,
+                    start: 0,
+                    end: 1000,
+                });
+                
+                // Find ANY position for this market (long or short)
+                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
+                const position = positions.find((pos: any) => 
+                    pos.marketAddress === data.marketAddress
+                );
+                
+                if (!position) {
+                    throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                }
+                
+                const isLong = position.isLong;
+                const direction = isLong ? 'LONG' : 'SHORT';
+                console.log(`[CLOSE_POSITION] Found ${direction} position to close`);
+                console.log(`[CLOSE_POSITION] Position size: ${position.sizeInUsd.toString()} USD`);
+                console.log(`[CLOSE_POSITION] Position tokens: ${position.sizeInTokens.toString()}`);
+                console.log(`[CLOSE_POSITION] Collateral amount: ${position.collateralAmount.toString()}`);
+                
+                // Validate receive token
+                const receiveToken = tokensData[data.receiveTokenAddress];
+                if (!receiveToken) {
+                    throw new Error(`Invalid receive token address: ${data.receiveTokenAddress}`);
+                }
+                
+                // Get index token data
+                const indexToken = tokensData[marketInfo.indexTokenAddress];
+                const collateralToken = tokensData[position.collateralTokenAddress];
+                
+                if (!indexToken || !collateralToken) {
+                    throw new Error("Failed to get token data for position");
+                }
+                
+                console.log(`[CLOSE_POSITION] Index token: ${indexToken.symbol}`);
+                console.log(`[CLOSE_POSITION] Collateral token: ${collateralToken.symbol}`);
+                
+                // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
+                const slippageBps = data.allowedSlippageBps || 100;
+                
+                // Calculate acceptable price with slippage based on position direction
+                const markPrice = isLong ? 
+                    (indexToken.prices?.maxPrice || 0n) : 
+                    (indexToken.prices?.minPrice || 0n);
+                    
+                // For longs: subtract slippage (willing to accept lower price)
+                // For shorts: add slippage (willing to accept higher price)
+                const acceptablePrice = isLong ? 
+                    markPrice - (markPrice * BigInt(slippageBps) / 10000n) :
+                    markPrice + (markPrice * BigInt(slippageBps) / 10000n);
+                
+                console.log(`[CLOSE_POSITION] Mark price: ${markPrice.toString()}`);
+                console.log(`[CLOSE_POSITION] Acceptable price: ${acceptablePrice.toString()}`);
+                
+                // Calculate collateral USD value
+                const collateralPrice = collateralToken.prices?.minPrice || 0n;
+                const collateralDeltaUsd = convertToUsd(
+                    position.collateralAmount,
+                    collateralToken.decimals,
+                    collateralPrice
+                ) || 0n;
+                
+                console.log(`[CLOSE_POSITION] Collateral USD value: ${collateralDeltaUsd.toString()}`);
+                
+                // Create complete DecreasePositionAmounts object with ALL required fields
+                const decreaseAmounts = {
+                    // Core position data
+                    isFullClose: true,
+                    sizeDeltaUsd: position.sizeInUsd,
+                    sizeDeltaInTokens: position.sizeInTokens,
+                    collateralDeltaUsd: collateralDeltaUsd,
+                    collateralDeltaAmount: position.collateralAmount,
+                    
+                    // Price fields
+                    indexPrice: markPrice,
+                    collateralPrice: collateralPrice,
+                    acceptablePrice: acceptablePrice,
+                    acceptablePriceDeltaBps: BigInt(slippageBps),
+                    recommendedAcceptablePriceDeltaBps: BigInt(slippageBps),
+                    
+                    // PnL fields (estimated - SDK will calculate final values)
+                    estimatedPnl: 0n,
+                    estimatedPnlPercentage: 0n,
+                    realizedPnl: 0n,
+                    realizedPnlPercentage: 0n,
+                    
+                    // Fee fields (estimated - SDK will calculate)
+                    positionFeeUsd: 0n,
+                    uiFeeUsd: 0n,
+                    swapUiFeeUsd: 0n,
+                    feeDiscountUsd: 0n,
+                    borrowingFeeUsd: 0n,
+                    fundingFeeUsd: 0n,
+                    swapProfitFeeUsd: 0n,
+                    positionPriceImpactDeltaUsd: 0n,
+                    priceImpactDiffUsd: 0n,
+                    payedRemainingCollateralAmount: 0n,
+                    
+                    // Output fields (estimated)
+                    payedOutputUsd: 0n,
+                    payedRemainingCollateralUsd: 0n,
+                    receiveTokenAmount: 0n,
+                    receiveUsd: 0n,
+                    
+                    // Swap configuration
+                    decreaseSwapType: 0, // No swap by default
+                };
+                
+                console.log(`[CLOSE_POSITION] DecreaseAmounts prepared with ${Object.keys(decreaseAmounts).length} fields`);
+                
+                // Use the SDK's createDecreaseOrder method
+                const result = await sdk.orders.createDecreaseOrder({
+                    marketsInfoData,
+                    tokensData,
+                    marketInfo,
+                    decreaseAmounts,
+                    collateralToken,
+                    allowedSlippage: slippageBps,
+                    isLong: isLong,
+                    referralCode: undefined,
+                    isTrigger: false // Market order
+                }).catch(error => {
+                    console.error(`[CLOSE_POSITION] SDK Error:`, error);
+                    let errorMessage = `Failed to close ${direction.toLowerCase()} position`;
+                    
+                    if (error?.message?.includes("insufficient")) {
+                        errorMessage = "Insufficient liquidity or invalid parameters";
+                    } else if (error?.message?.includes("slippage")) {
+                        errorMessage = "Slippage tolerance exceeded";
+                    } else if (error?.message?.includes("fee")) {
+                        errorMessage = "Insufficient funds for execution fee";
+                    } else if (error?.message) {
+                        errorMessage = error.message;
+                    }
+                    
+                    throw new Error(errorMessage);
+                });
+                
+                console.log(`[CLOSE_POSITION] Transaction successful:`, result?.transactionHash || 'No hash returned');
+                
+                // Update memory
+                memory = {
+                    ...memory,
+                    currentTask: `📉 Closing ${direction} position`,
+                    lastResult: `Fully closed ${direction.toLowerCase()} position in ${marketInfo.name} (100%)`
+                };
+                
+                return {
+                    success: true,
+                    message: `Successfully fully closed ${direction.toLowerCase()} position`,
+                    closeDetails: {
+                        market: marketInfo.name,
+                        direction: direction,
+                        closeType: 'Full',
+                        sizeClosedUsd: formatUsdAmount(position.sizeInUsd, 2),
+                        sizeClosedTokens: formatTokenAmount(position.sizeInTokens, indexToken.decimals, 6),
+                        collateralReturned: formatTokenAmount(position.collateralAmount, collateralToken.decimals, 6),
+                        receiveToken: receiveToken.symbol,
+                        closePercentage: `100%`,
+                        slippage: `${slippageBps / 100}%`
+                    },
+                    transactionHash: result?.transactionHash || null
+                };
+            } catch (error) {
+                console.error(`[CLOSE_POSITION] Handler Error:`, error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to close position"
+                };
+            }
+        }
+    }),

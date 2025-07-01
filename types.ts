@@ -9,7 +9,7 @@
 export interface GmxMemory {
     // Core trading data
     positions: string;
-    orders: any[];
+    orders: string;
     markets: string;
     tokens: string;
     volumes: string;
@@ -27,16 +27,7 @@ export interface GmxMemory {
     // Current state
     currentTask: string | null;
     lastResult: string | null;
-    
-    // Risk configuration
-    maxPositionSize: number;
-    minPositionSize: number;
-    maxLeverage: number;
-    slippageTolerance: number;
-    
-    // Trading strategy
-    activeStrategies: string[];
-    
+
     // Synth intelligence data
     synthLeaderboard: {
         miners: any[];

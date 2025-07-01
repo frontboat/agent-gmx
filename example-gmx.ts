@@ -2,26 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  * 🌟 VEGA - GMX TRADING AGENT
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
- * A sophisticated AI trading assistant specializing in GMX perpetual futures
- * Built with the Daydreams framework and powered by advanced personality modeling
- * 
- * ✨ Features:
- * • Full GMX protocol integration with real-time trading
- * • Advanced risk management with data-driven decision making
- * • Multi-platform support (CLI + Discord)
- * • Comprehensive market analysis and position tracking
- * • Obsessive risk-conscious personality (10/10 risk management)
- * 
- * 🚀 Quick Start:
- * 1. Configure environment variables (see .env.example)
- * 2. Ensure wallet has sufficient funds for trading
- * 3. Run: `bun run examples/gmx/example-gmx.ts`
- * 
- * ⚠️  IMPORTANT: Ensure token approvals are set via app.gmx.io before trading
- * 
- * ═══════════════════════════════════════════════════════════════════════════════
- */
+  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 📦 IMPORTS
@@ -46,7 +27,7 @@ import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
-import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str } from "./queries";
+import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str } from "./queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -164,17 +145,17 @@ if (env.GMX_WALLET_ADDRESS) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const vega_template = 
-`I am Vega, an Elite GMX scalping specialist competing for top rankings.
+`I am Vega, an Elite GMX trading specialist competing for top rankings.
 
-I am competing in a GMX scalping competition. Every trade counts toward my ranking. 
-My goal is to maximize total return through rapid, precise scalping trades.
+I am competing in a month long GMX trading competition. Every trade counts toward my ranking. 
+My goal is to maximize total return through rapid, precise trading trades.
 
 ### Available actions :
 
   #### 📊 Portfolio & Market Intelligence
   - get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. NO
   PARAMETERS.
-  - get_btc_eth_markets: Get detailed BTC and ETH market information optimized for scalping including prices, liquidity, funding rates, and market addresses for trading. NO PARAMETERS.
+  - get_btc_eth_markets: Get detailed BTC and ETH market information optimized for trading including prices, liquidity, funding rates, and market addresses for trading. NO PARAMETERS.
   - get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis. NO PARAMETERS.
   - get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens. NO PARAMETERS.
 
@@ -189,18 +170,27 @@ My goal is to maximize total return through rapid, precise scalping trades.
   - get_latest_predictions: Get real-time prediction data from specific Synth miners. REQUIRED: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
 
   #### ⚡ Trading Execution
-  - open_long_position: Open long position. REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
-  - open_short_position: Open short position. Same parameters as open_long_position.
+  - open_long_position: Open long position (market or limit order). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps, limitPrice (30 decimals).
+  - open_short_position: Open short position (market or limit order). Same parameters as open_long_position.
   - close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
+
+  #### 🛡️ Risk Management
+  - set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
+  - set_stop_loss: Set stop loss order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
 
   #### 📋 Parameter Format Requirements
   - **Decimal String Values**: All amounts must be BigInt strings (converted to BigInt internally)
     - USDC amounts: 6 decimals (e.g., "10000000" = 10 USDC)
     - Leverage: basis points (e.g., "50000" = 5x, "10000" = 1x, "200000" = 20x)
-    - Prices: 30 decimals
+    - Limit prices: 30 decimals (e.g., "65000000000000000000000000000000000" = $65,000)
   - **Slippage Parameters**: 
     - Trading actions: use allowedSlippageBps as number (e.g., 100 = 1%, 200 = 2%)
+  - **Order Types**:
+    - Market Order: omit limitPrice parameter (immediate execution at current market price)
+    - Limit Order: include limitPrice parameter (executes when market reaches specified price)
+    - Take Profit: triggerPrice above current for LONG, below current for SHORT
+    - Stop Loss: triggerPrice below current for LONG, above current for SHORT
 
     ### 🔢 Decimal Conversion Rules
     **USDC (6 decimals)**:
@@ -225,30 +215,33 @@ My goal is to maximize total return through rapid, precise scalping trades.
 3. **Actions with REQUIRED parameters**: MUST provide all required fields
    - get_latest_predictions({"asset": "BTC", "miner": 123}) or get_latest_predictions({"asset": "ETH", "miner": 123})
    - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "5000"})
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "5000"})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "limitPrice": "65000000000000000000000000000000000"}) // Limit order at $65,000
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "limitPrice": "63000000000000000000000000000000000"}) // Limit order at $63,000
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
+   - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000000"}) // Take profit at $67,000
+   - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000000"}) // Stop loss at $63,000
 
-### Scalping cycle
-- Check my portfolio balance and make sure I have enough ETH to pay for gas fees (more than 5$).
-- If I don't have enough ETH, I need to swap some USDC to ETH.
+### Trading Cycle
+- Check my portfolio balance and make sure I have enough ETH to pay for gas fees (more than 5$)
+- If I don't have enough ETH, I need to swap some USDC to ETH
 - I query the synth leaderboard to find the top miners
 - I query the latest predictions for BOTH BTC and ETH from all top miners, one miner id at a time
-- I analyze synth miner predictions for BTC and ETH price movement percentages
+- I analyze synth miner predictions for BTC and ETH price movement (in %)
 - I check existing positions for both BTC and ETH markets
-- If the trend is not clear, or price action is less than 1%, I dont open new positions.
-- Otherwise I consider opening positions following the trend and targetting a specific price action windows on BOTH BTC and ETH, based on their individual trends
-- I don't close profitable positions in the right direction unlessI have a great take profit opportunity, but I can add to them.
-- When adding to positions, trade size must not exceed 50% of portfolio value
-- I close positions when :
- - I have a great take profit opportunity
- - the trend has reversed strongly against my position
- - or the position is against the trend and is profitable
- - or the position is strongly against the trend and is not profitable
+- Don't overtrade, only trade when the trend is clear and the price action is significant (>1%).
+- I consider opening positions targetting a specific price action on BOTH BTC and ETH, based on their individual trends
+- **Order Type Strategy**:
+  - Use MARKET orders for immediate execution
+  - Use LIMIT orders to capture better entry prices
+- **Risk Management Strategy**:
+  - ALWAYS set take profit orders, find the best price action for the position
+  - ALWAYS set stop loss orders, find the best price action for the position
 - When closing positions, I first use get_positions to find the exact marketAddress  
 - Positions are automatically closed in full - no need to specify size amounts
 
-**CRITICAL : I NEVER end a scalping cycle with an analysis, it needs to end with either a trade execution OR an explicit "No trade" decision with reasoning**
+**CRITICAL : I NEVER end a trading cycle with an analysis, it needs to end with either a trade execution OR an explicit "No trade" decision with reasoning**
 
 **How to Determine Position Direction and Size**:
 When analyzing positions from get_positions action:
@@ -299,7 +292,7 @@ When analyzing positions from get_positions action:
 
 **Full example**:
 - marketAddress: "0x70d95587d40A2caf56bd97485aB3Eec10Bee6336", // ETH/USD [WETH-USDC]
-- payTokenAddress: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", // WETH
+- payTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", // USDC
 - collateralTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", // USDC
 - receiveTokenAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" // USDC
 
@@ -347,6 +340,7 @@ const gmxContext = context({
         markets: z.string().describe("The agent's markets"),
         tokens: z.string().describe("The agent's tokens"),
         volumes: z.string().describe("The agent's volumes"),
+        orders: z.string().describe("The agent's pending orders"),
     }),
 
     key({ id }) {
@@ -361,6 +355,7 @@ const gmxContext = context({
             markets:state.args.markets,
             tokens:state.args.tokens,
             volumes:state.args.volumes,
+            orders:state.args.orders,
           };
       },
 
@@ -372,10 +367,11 @@ const gmxContext = context({
             markets: memory.markets,
             tokens: memory.tokens,
             volumes: memory.volumes,
+            orders: memory.orders,
           });
     },
     }).setInputs({
-        "gmx:scalping-cycle": input({  
+        "gmx:trading-cycle": input({  
             schema: z.object({
                 text: z.string(),
           }),
@@ -386,6 +382,7 @@ const gmxContext = context({
                     const markets = await get_btc_eth_markets_str(sdk);
                     const tokens = await get_tokens_data_str(sdk);
                     const volumes = await get_daily_volumes_str(sdk);
+                    const orders = await get_orders_str(sdk);
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 50,
@@ -395,14 +392,15 @@ const gmxContext = context({
                         markets: markets,
                         tokens: tokens,
                         volumes: volumes,
+                        orders: orders,
                     };
-                    let text = "Scalping cycle initiated";
+                    let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 300000); // 5 minutes
+                }, 3600000); // 1 hour
 
-                console.log("✅ Scalping cycle subscription setup complete");
+                console.log("✅ Trading cycle subscription setup complete");
                 return () => {
-                    console.log("🛑 Scalping cycle subscription cleanup");
+                    console.log("🛑 Trading cycle subscription cleanup");
                     clearInterval(interval);
                 };
             }
@@ -438,7 +436,7 @@ console.log("✅ Memory stores initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("google/gemini-2.5-flash-preview-05-20"), //google/gemini-2.5-flash-preview-05-20
+    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: {

@@ -100,13 +100,6 @@ export function debugError(category: string, error: any, context?: any) {
     fs.appendFileSync(logFilePath, fileEntry);
 }
 
-/**
- * Get the current log file path
- */
-export function getLogFilePath(): string {
-    return logFilePath;
-}
-
 // Export the path for reference
 export { logFilePath };
 

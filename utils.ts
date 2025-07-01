@@ -193,7 +193,15 @@ export const calculatePositionNetValue = (params: {
     return collateralUsd - pendingFeesUsd - closingFeeUsd + pnl;
 };
 
-export function getTradeActionDescription(eventName: string, orderType: number, isLong: boolean): string {
+// Enhanced version that can identify take profits when price context is available
+export function getTradeActionDescriptionEnhanced(
+    eventName: string, 
+    orderType: number, 
+    isLong: boolean,
+    triggerPrice?: number,
+    currentPrice?: number,
+    entryPrice?: number
+): string {
     let action = '';
     
     switch (eventName) {
@@ -212,7 +220,23 @@ export function getTradeActionDescription(eventName: string, orderType: number, 
         case 2: orderTypeStr = `Market ${isLong ? 'Long' : 'Short'} Increase`; break;
         case 3: orderTypeStr = `Limit ${isLong ? 'Long' : 'Short'} Increase`; break;
         case 4: orderTypeStr = `Market ${isLong ? 'Long' : 'Short'} Decrease`; break;
-        case 5: orderTypeStr = `Limit ${isLong ? 'Long' : 'Short'} Decrease`; break;
+        case 5: {
+            // For Limit Decrease orders, try to identify if it's a take profit
+            if (triggerPrice && currentPrice) {
+                const isTakeProfit = isLong ? 
+                    triggerPrice > currentPrice : // Long take profit: sell above current price
+                    triggerPrice < currentPrice;  // Short take profit: buy below current price
+                
+                if (isTakeProfit) {
+                    orderTypeStr = `Take Profit ${isLong ? 'Long' : 'Short'}`;
+                } else {
+                    orderTypeStr = `Limit ${isLong ? 'Long' : 'Short'} Decrease`;
+                }
+            } else {
+                orderTypeStr = `Limit ${isLong ? 'Long' : 'Short'} Decrease/Take Profit`;
+            }
+            break;
+        }
         case 6: orderTypeStr = `Stop Loss ${isLong ? 'Long' : 'Short'} Decrease`; break;
         case 7: orderTypeStr = 'Liquidation'; break;
         case 8: orderTypeStr = `Stop ${isLong ? 'Long' : 'Short'} Increase`; break;

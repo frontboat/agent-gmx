@@ -1,4 +1,4 @@
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS } from "./utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced } from "./utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./utils";
 import { GmxSdk } from "@gmx-io/sdk";
 
@@ -747,5 +747,109 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
         return output;
     } catch (error) {
         throw new Error(`Failed to get daily volumes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
+
+export const get_orders_str = async (sdk: GmxSdk) => {
+    try {
+        // Get required market and token data first
+        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
+        
+        if (!marketsInfoData || !tokensData) {
+            throw new Error("Failed to get market and token data");
+        }
+
+        // Use official SDK method with required parameters
+        const ordersResult = await sdk.orders.getOrders({
+            marketsInfoData,
+            tokensData
+        });
+        
+        // Extract orders data from structured result
+        const rawOrders = ordersResult.ordersInfoData ? Object.values(ordersResult.ordersInfoData) : [];
+        
+        if (rawOrders.length === 0) {
+            return "📋 No pending orders found.";
+        }
+        
+        // Build formatted string
+        let ordersString = `📋 PENDING ORDERS (${rawOrders.length} total)\n`;
+        ordersString += "═".repeat(60) + "\n\n";
+        
+        let totalOrderValue = 0;
+        let highRiskCount = 0;
+        
+        rawOrders.forEach((order: any, index: number) => {
+            try {
+                const marketInfo = marketsInfoData[order.marketAddress];
+                const indexToken = tokensData[marketInfo?.indexTokenAddress];
+                const collateralToken = tokensData[order.collateralTokenAddress];
+                
+                if (!marketInfo || !indexToken || !collateralToken) {
+                    ordersString += `Order #${index + 1}: [Data Missing]\n\n`;
+                    return;
+                }
+                
+                // Get current mark price
+                const markPrice = indexToken.prices?.maxPrice || 0n;
+                const markPriceUsd = bigIntToDecimal(markPrice, USD_DECIMALS);
+                
+                // Calculate order metrics
+                const orderValueUsd = bigIntToDecimal(order.sizeInUsd || 0n, USD_DECIMALS);
+                totalOrderValue += orderValueUsd;
+                
+                const triggerPrice = order.triggerPrice || 0n;
+                const triggerPriceUsd = bigIntToDecimal(triggerPrice, USD_DECIMALS);
+                
+                const collateralValue = bigIntToDecimal(
+                    order.initialCollateralDeltaAmount || 0n, 
+                    collateralToken.decimals
+                );
+                
+                const leverage = collateralValue > 0 ? orderValueUsd / collateralValue : 0;
+                if (leverage > 10) highRiskCount++;
+                
+                // Calculate order age
+                const createdAt = order.createdAtTime ? Number(order.createdAtTime) : 0;
+                const orderAgeHours = createdAt > 0 ? (Date.now() / 1000 - createdAt) / 3600 : 0;
+                
+                // Determine execution status
+                let executionStatus = "⏳ Pending";
+                if (order.isLong !== undefined) {
+                    if (order.isLong && markPriceUsd >= triggerPriceUsd) {
+                        executionStatus = "✅ Ready to Execute";
+                    } else if (!order.isLong && markPriceUsd <= triggerPriceUsd) {
+                        executionStatus = "✅ Ready to Execute";
+                    }
+                }
+                
+                // Format order info
+                ordersString += `📌 Order #${index + 1} - ${marketInfo.name}\n`;
+                ordersString += `├─ Type: ${order.isLong ? "🟢 LONG" : "🔴 SHORT"} ${getTradeActionDescriptionEnhanced('OrderCreated', order.orderType, order.isLong || false, triggerPriceUsd, markPriceUsd)}\n`;
+                ordersString += `├─ Size: $${orderValueUsd.toFixed(2)} @ ${leverage.toFixed(2)}x leverage\n`;
+                ordersString += `├─ Trigger: $${triggerPriceUsd.toFixed(2)} (Current: $${markPriceUsd.toFixed(2)})\n`;
+                ordersString += `├─ Collateral: ${collateralValue.toFixed(6)} ${collateralToken.symbol}\n`;
+                ordersString += `├─ Status: ${executionStatus}\n`;
+                ordersString += `├─ Age: ${orderAgeHours.toFixed(1)} hours\n`;
+                ordersString += `└─ Order Key: ${order.key}\n\n`;
+                
+            } catch (error) {
+                ordersString += `Order #${index + 1}: [Processing Error]\n\n`;
+            }
+        });
+        
+        // Add summary
+        ordersString += "═".repeat(60) + "\n";
+        ordersString += "📊 SUMMARY\n";
+        ordersString += `├─ Total Orders: ${rawOrders.length}\n`;
+        ordersString += `├─ Total Value: $${totalOrderValue.toFixed(2)}\n`;
+        ordersString += `├─ High Risk Orders: ${highRiskCount}\n`;
+        ordersString += `└─ Average Size: $${(totalOrderValue / rawOrders.length).toFixed(2)}\n`;
+        
+        return ordersString;
+        
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        return `❌ Error fetching orders: ${errorMsg}`;
     }
 };

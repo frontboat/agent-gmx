@@ -14,11 +14,10 @@ import {
     convertToUsd,
     convertToTokenAmount,
     calculateLiquidationPrice,
-    getTradeActionDescription
+    getTradeActionDescriptionEnhanced
 } from './utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str } from './queries';
-import { debugLog, debugError, getLogFilePath } from './logger';
-
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str } from './queries';
+import { debugLog, debugError } from './logger';
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
     return [
@@ -26,10 +25,10 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // 📈 READ METHODS - MARKET DATA
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    // BTC/ETH Markets Info - Focused on scalping markets
+    // BTC/ETH Markets Info - Focused on trading markets
     action({
         name: "get_btc_eth_markets",
-        description: "Get detailed information about BTC and ETH markets optimized for scalping - includes prices, liquidity, funding rates, and market addresses for trading",
+        description: "Get detailed information about BTC and ETH markets optimized for trading - includes prices, liquidity, funding rates, and market addresses for trading",
         async handler(data, ctx, agent) {
             try {
                 let memory = ctx.memory as GmxMemory;
@@ -41,7 +40,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 memory = {
                     ...memory,
                     markets: marketsString,
-                    currentTask: "📊 Fetching BTC/ETH market data for scalping",
+                    currentTask: "📊 Fetching BTC/ETH market data for trading",
                     lastResult: "Retrieved focused BTC/ETH market information"
                 };
 
@@ -63,7 +62,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Daily Volumes - BTC/ETH focused
     action({
         name: "get_daily_volumes",
-        description: "Get daily volume data for BTC and ETH markets - filtered for scalping focus",
+        description: "Get daily volume data for BTC and ETH markets - filtered for trading focus",
         async handler(data, ctx, agent) {
             try {
                 let memory = ctx.memory as GmxMemory;
@@ -209,207 +208,23 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
         async handler(data, ctx, agent) {
             try {
-                // Get required market and token data first
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
-                
-                if (!marketsInfoData || !tokensData) {
-                    throw new Error("Failed to get market and token data");
-                }
-
-                // Use official SDK method with required parameters
-                const ordersResult = await sdk.orders.getOrders({
-                    marketsInfoData,
-                    tokensData
-                });
+                // Get formatted orders string using the query function
+                const ordersString = await get_orders_str(sdk);
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Extract orders data from structured result
-                const rawOrders = ordersResult.ordersInfoData ? Object.values(ordersResult.ordersInfoData) : [];
-                
-                // Enhanced orders with comprehensive calculations
-                const enhancedOrders = rawOrders.map(order => {
-                    try {
-                        const marketInfo = marketsInfoData[order.marketAddress];
-                        const indexToken = tokensData[marketInfo?.indexTokenAddress];
-                        const collateralToken = tokensData[order.collateralTokenAddress];
-                        
-                        if (!marketInfo || !indexToken || !collateralToken) {
-                            return order; // Return original if data missing
-                        }
-                        
-                        // Get current mark price
-                        const markPrice = indexToken.prices?.maxPrice || 0n;
-                        
-                        // Calculate order value in USD
-                        const orderValueUsd = bigIntToDecimal(order.sizeInUsd || 0n, USD_DECIMALS);
-                        
-                        // Calculate trigger price difference from mark price
-                        const triggerPrice = order.triggerPrice || 0n;
-                        const triggerPriceUsd = bigIntToDecimal(triggerPrice, USD_DECIMALS);
-                        const markPriceUsd = bigIntToDecimal(markPrice, USD_DECIMALS);
-                        
-                        const priceDifference = markPriceUsd - triggerPriceUsd;
-                        const priceDifferencePercent = triggerPriceUsd > 0 ? (priceDifference / triggerPriceUsd) * 100 : 0;
-                        
-                        // Calculate collateral value
-                        const collateralValue = bigIntToDecimal(
-                            order.initialCollateralDeltaAmount || 0n, 
-                            collateralToken.decimals
-                        );
-                        
-                        // Calculate potential leverage (size / collateral)
-                        const potentialLeverage = collateralValue > 0 ? orderValueUsd / collateralValue : 0;
-                        
-                        // Calculate order age
-                        const createdAt = order.createdAtTime ? Number(order.createdAtTime) : 0;
-                        const orderAge = createdAt > 0 ? Date.now() / 1000 - createdAt : 0;
-                        const orderAgeHours = orderAge / 3600;
-                        
-                        // Determine order status and execution probability
-                        let executionStatus = "Pending";
-                        let executionProbability = 0;
-                        
-                        if (order.isLong !== undefined) {
-                            if (order.isLong) {
-                                // Long order - executes when price goes up to trigger
-                                if (markPriceUsd >= triggerPriceUsd) {
-                                    executionStatus = "Ready to Execute";
-                                    executionProbability = 100;
-                                } else {
-                                    const distanceToTrigger = (triggerPriceUsd - markPriceUsd) / markPriceUsd * 100;
-                                    executionProbability = Math.max(0, 100 - distanceToTrigger * 10);
-                                }
-                            } else {
-                                // Short order - executes when price goes down to trigger
-                                if (markPriceUsd <= triggerPriceUsd) {
-                                    executionStatus = "Ready to Execute";
-                                    executionProbability = 100;
-                                } else {
-                                    const distanceToTrigger = (markPriceUsd - triggerPriceUsd) / markPriceUsd * 100;
-                                    executionProbability = Math.max(0, 100 - distanceToTrigger * 10);
-                                }
-                            }
-                        }
-                        
-                        // Calculate potential liquidation price if order executes
-                        let potentialLiquidationPrice = null;
-                        if (order.sizeInUsd && order.initialCollateralDeltaAmount && marketInfo.minCollateralFactor) {
-                            try {
-                                const sizeInTokens = convertToTokenAmount(
-                                    order.sizeInUsd,
-                                    indexToken.decimals,
-                                    markPrice
-                                );
-                                
-                                const liquidationPriceRaw = calculateLiquidationPrice({
-                                    sizeInUsd: order.sizeInUsd,
-                                    sizeInTokens: sizeInTokens || 0n,
-                                    collateralAmount: order.initialCollateralDeltaAmount,
-                                    collateralUsd: convertToUsd(
-                                        order.initialCollateralDeltaAmount,
-                                        collateralToken.decimals,
-                                        collateralToken.prices?.maxPrice || 0n
-                                    ) || 0n,
-                                    markPrice,
-                                    indexTokenDecimals: indexToken.decimals,
-                                    collateralTokenDecimals: collateralToken.decimals,
-                                    isLong: order.isLong || false,
-                                    minCollateralFactor: marketInfo.minCollateralFactor,
-                                    pendingBorrowingFeesUsd: 0n,
-                                    pendingFundingFeesUsd: 0n,
-                                    isSameCollateralAsIndex: order.collateralTokenAddress === marketInfo.indexTokenAddress
-                                });
-                                
-                                if (liquidationPriceRaw) {
-                                    potentialLiquidationPrice = bigIntToDecimal(liquidationPriceRaw, USD_DECIMALS);
-                                }
-                            } catch (error) {
-                                console.warn("Failed to calculate liquidation price for order:", error);
-                            }
-                        }
-                        
-                        // Calculate risk metrics
-                        const riskLevel = potentialLeverage > 10 ? "High" : 
-                                        potentialLeverage > 5 ? "Medium" : "Low";
-                        
-                        // Enhanced order data
-                        return {
-                            ...order,
-                            // Market context
-                            marketName: marketInfo.name,
-                            indexTokenSymbol: indexToken.symbol,
-                            collateralTokenSymbol: collateralToken.symbol,
-                            
-                            // Price analysis
-                            currentPrice: markPriceUsd.toFixed(6),
-                            triggerPrice: triggerPriceUsd.toFixed(6),
-                            priceDifference: priceDifference.toFixed(6),
-                            priceDifferencePercent: priceDifferencePercent.toFixed(2) + '%',
-                            
-                            // Order metrics
-                            orderValueUsd: orderValueUsd.toFixed(2),
-                            collateralValueUsd: collateralValue.toFixed(6),
-                            potentialLeverage: potentialLeverage.toFixed(2) + 'x',
-                            
-                            // Execution analysis
-                            executionStatus,
-                            executionProbability: executionProbability.toFixed(1) + '%',
-                            orderAge: orderAgeHours.toFixed(1) + ' hours',
-                            
-                            // Risk analysis
-                            riskLevel,
-                            potentialLiquidationPrice: potentialLiquidationPrice ? 
-                                potentialLiquidationPrice.toFixed(6) : 'N/A',
-                            
-                            // Order type description
-                            orderTypeDescription: getTradeActionDescription('OrderCreated', order.orderType, order.isLong || false),
-                            
-                            // Calculate distance to liquidation if executed
-                            liquidationDistance: potentialLiquidationPrice && markPriceUsd > 0 ? 
-                                (Math.abs(markPriceUsd - potentialLiquidationPrice) / markPriceUsd * 100).toFixed(2) + '%' : 'N/A'
-                        };
-                    } catch (error) {
-                        console.warn("Error enhancing order data:", error);
-                        return order; // Return original order if enhancement fails
-                    }
-                });
-                
-                // Calculate portfolio summary for orders
-                const totalOrderValue = enhancedOrders.reduce((sum, order) => 
-                    sum + parseFloat(order.orderValueUsd || '0'), 0);
-                
-                const averageLeverage = enhancedOrders.length > 0 ? 
-                    enhancedOrders.reduce((sum, order) => 
-                        sum + parseFloat(order.potentialLeverage?.replace('x', '') || '0'), 0) / enhancedOrders.length : 0;
-                
-                const highRiskOrders = enhancedOrders.filter(order => order.riskLevel === 'High').length;
-                const readyToExecute = enhancedOrders.filter(order => order.executionStatus === 'Ready to Execute').length;
-                
-                // Update memory with enhanced orders
+                // Update memory with the result
                 memory = {
                     ...memory,
-                    orders: enhancedOrders,
-                    currentTask: "📋 Reviewing pending scalp orders",
-                    lastResult: `Retrieved ${enhancedOrders.length} orders with comprehensive analysis`
+                    orders: ordersString,
+                    currentTask: "📋 Reviewing pending orders",
+                    lastResult: ordersString
                 };
 
                 return {
                     success: true,
-                    message: `Retrieved ${enhancedOrders.length} orders with comprehensive analysis`,
-                    orders: enhancedOrders,
-                    summary: {
-                        totalOrders: enhancedOrders.length,
-                        totalOrderValue: '$' + totalOrderValue.toFixed(2),
-                        averageLeverage: averageLeverage.toFixed(2) + 'x',
-                        highRiskOrders,
-                        readyToExecute,
-                        orderTypes: enhancedOrders.reduce((acc, order) => {
-                            const type = order.orderTypeDescription || 'Unknown';
-                            acc[type] = (acc[type] || 0) + 1;
-                            return acc;
-                        }, {} as Record<string, number>)
-                    }
+                    message: ordersString,
+                    ordersString: ordersString
                 };
             } catch (error) {
                 return {
@@ -690,7 +505,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                                 },
                                 liquidationPrice: liquidationPrice ? '$' + liquidationPrice.toFixed(6) : 'N/A',
                                 distanceToLiquidation: distanceToLiquidation ? distanceToLiquidation.toFixed(2) + '%' : 'N/A',
-                                action: getTradeActionDescription(trade.eventName, trade.orderType, isLong),
+                                action: getTradeActionDescriptionEnhanced(trade.eventName, trade.orderType, isLong),
                                 riskLevel: leverage > 10 ? 'High' : leverage > 5 ? 'Medium' : 'Low'
                             });
                         } 
@@ -737,7 +552,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                                 expectedAmountOut: expectedAmountOut.toFixed(6),
                                 swapEfficiency: swapEfficiency.toFixed(2) + '%',
                                 priceImpact: (100 - swapEfficiency).toFixed(2) + '%',
-                                action: getTradeActionDescription(trade.eventName, trade.orderType, false)
+                                action: getTradeActionDescriptionEnhanced(trade.eventName, trade.orderType, false)
                             });
                         }
                     } catch (err) {
@@ -1005,7 +820,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 // Update memory with cancellation info
                 memory = {
                     ...memory,
-                    currentTask: "❌ Cancelling stale scalp orders",
+                    currentTask: "❌ Cancelling stale orders",
                     lastResult: `Cancelled ${data.orderKeys.length} order(s)`
                 };
 
@@ -1029,261 +844,270 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }
     }),
 
-    // Helper: Open Long Position (Simplified)
-    action({
-        name: "open_long_position",
-        description: "Open a long position using GMX SDK helper function with simplified parameters",
-        schema: z.object({
-            marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
-            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
-            payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
-            collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
-            leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
-        }),
-        async handler(data, ctx, agent) {
-            try {
-                debugLog('OPEN_LONG', 'Starting long position open', { input: data });
-                
-                // Get market and token data for proper fee calculation
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    const errorMsg = `Failed to get market data: ${error.message || error}`;
-                    debugError('OPEN_LONG', error, { stage: 'getMarketsInfo' });
-                    throw new Error(errorMsg);
-                });
-                
-                if (!marketsInfoData || !tokensData) {
-                    debugError('OPEN_LONG', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
-                    throw new Error("Invalid market data received");
-                }
-                
-                // Validate market exists
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (!marketInfo) {
-                    debugError('OPEN_LONG', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
-                    throw new Error(`Market not found: ${data.marketAddress}`);
-                }
-                
-                debugLog('OPEN_LONG', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
-                
-                // Validate tokens exist
-                const payToken = tokensData[data.payTokenAddress];
-                const collateralToken = tokensData[data.collateralTokenAddress];
-                
-                if (!payToken) {
-                    debugError('OPEN_LONG', `Pay token not found: ${data.payTokenAddress}`, { availableTokens: Object.keys(tokensData) });
-                    throw new Error(`Pay token not found: ${data.payTokenAddress}`);
-                }
-                
-                if (!collateralToken) {
-                    debugError('OPEN_LONG', `Collateral token not found: ${data.collateralTokenAddress}`, { availableTokens: Object.keys(tokensData) });
-                    throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
-                }
-                
-                debugLog('OPEN_LONG', 'Tokens validated', { 
-                    payToken: payToken.symbol, 
-                    collateralToken: collateralToken.symbol 
-                });
-                
-                // Prepare parameters for helper function
-                const helperParams: any = {
-                    payAmount: BigInt(data.payAmount),
-                    marketAddress: data.marketAddress,
-                    payTokenAddress: data.payTokenAddress,
-                    collateralTokenAddress: data.collateralTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps || 100,
-                };
-
-                // Add optional parameters (SDK expects BigInt objects)
-                if (data.leverage) {
-                    helperParams.leverage = BigInt(data.leverage);
-                }
-
-                debugLog('OPEN_LONG', 'Helper params prepared', helperParams);
-
-                // Use the simplified helper function with enhanced error handling
-                const result = await sdk.orders.long(helperParams).catch(error => {
-                    debugError('OPEN_LONG', error, { 
-                        helperParams, 
-                        stage: 'sdk.orders.long',
-                        errorInfo: error.info,
-                        errorData: error.data,
-                        fullError: error
+        // Helper: Open Long Position (Simplified)
+        action({
+            name: "open_long_position",
+            description: "Open a long position using GMX SDK helper function with simplified parameters. Supports both market orders (immediate execution) and limit orders (execute when price reaches specified level).",
+            schema: z.object({
+                marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+                payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
+                payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+                collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+                allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+                leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
+                limitPrice: z.string().optional().describe("Limit price for the order in BigInt string with 30-decimal precision (e.g. '65000000000000000000000000000000000' for $65,000). If provided, creates a limit order instead of market order."),
+            }),
+            async handler(data, ctx, agent) {
+                try {
+                    debugLog('OPEN_LONG', 'Starting long position open', { input: data });
+                    
+                    // Get market and token data for proper fee calculation
+                    const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                        const errorMsg = `Failed to get market data: ${error.message || error}`;
+                        debugError('OPEN_LONG', error, { stage: 'getMarketsInfo' });
+                        throw new Error(errorMsg);
                     });
-                    throw new Error(`Failed to open long position: ${error.message || error}`);
-                });
-
-                let memory = ctx.memory as GmxMemory;
-                
-                // Update memory with order info
-                const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
-                const isLimitOrder = false; // Market orders only (no limitPrice in schema)
-                memory = {
-                    ...memory,
-                    currentTask: "🚀 Executing LONG scalp entry",
-                    lastResult: `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
-                }
-
-                const successResult = {
-                    success: true,
-                    message: `Successfully opened long ${isLimitOrder ? 'limit' : 'market'} position`,
-                    orderDetails: {
-                        marketAddress: data.marketAddress,
-                        direction: 'LONG',
-                        orderType: isLimitOrder ? 'Limit' : 'Market',
-                        payAmount: data.payAmount || null,
-                        payToken: data.payTokenAddress,
-                        collateralToken: data.collateralTokenAddress,
-                        leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
-                    },
-                    transactionHash: result?.transactionHash || null
-                };
-                
-                debugLog('OPEN_LONG', 'Long position opened successfully', successResult);
-                debugLog('OPEN_LONG', `Log file location: ${getLogFilePath()}`);
-                
-                return successResult;
-            } catch (error) {
-                const errorResult = {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to open long position"
-                };
-                
-                debugError('OPEN_LONG', 'Failed to open long position', errorResult);
-                
-                return errorResult;
-            }
-        }
-    }),
-
-    // Helper: Open Short Position (Simplified)
-    action({
-        name: "open_short_position", 
-        description: "Open a short position using GMX SDK helper function with simplified parameters",
-        schema: z.object({
-            marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
-            payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
-            payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
-            collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
-            leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
-        }),
-        async handler(data, ctx, agent) {
-            try {
-                debugLog('OPEN_SHORT', 'Starting short position open', { input: data });
-                
-                // Get market and token data for validation and proper error handling
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    const errorMsg = `Failed to get market data: ${error.message || error}`;
-                    debugError('OPEN_SHORT', error, { stage: 'getMarketsInfo' });
-                    throw new Error(errorMsg);
-                });
-                
-                if (!marketsInfoData || !tokensData) {
-                    debugError('OPEN_SHORT', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
-                    throw new Error("Invalid market data received");
-                }
-                
-                // Validate market and tokens exist
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (!marketInfo) {
-                    debugError('OPEN_SHORT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
-                    throw new Error(`Market not found: ${data.marketAddress}`);
-                }
-                
-                debugLog('OPEN_SHORT', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
-                
-                const payToken = tokensData[data.payTokenAddress];
-                const collateralToken = tokensData[data.collateralTokenAddress];
-                
-                if (!payToken || !collateralToken) {
-                    debugError('OPEN_SHORT', 'Invalid token addresses provided', { 
-                        payTokenFound: !!payToken, 
-                        collateralTokenFound: !!collateralToken,
-                        availableTokens: Object.keys(tokensData)
+                    
+                    if (!marketsInfoData || !tokensData) {
+                        debugError('OPEN_LONG', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
+                        throw new Error("Invalid market data received");
+                    }
+                    
+                    // Validate market exists
+                    const marketInfo = marketsInfoData[data.marketAddress];
+                    if (!marketInfo) {
+                        debugError('OPEN_LONG', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
+                        throw new Error(`Market not found: ${data.marketAddress}`);
+                    }
+                    
+                    debugLog('OPEN_LONG', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
+                    
+                    // Validate tokens exist
+                    const payToken = tokensData[data.payTokenAddress];
+                    const collateralToken = tokensData[data.collateralTokenAddress];
+                    
+                    if (!payToken) {
+                        debugError('OPEN_LONG', `Pay token not found: ${data.payTokenAddress}`, { availableTokens: Object.keys(tokensData) });
+                        throw new Error(`Pay token not found: ${data.payTokenAddress}`);
+                    }
+                    
+                    if (!collateralToken) {
+                        debugError('OPEN_LONG', `Collateral token not found: ${data.collateralTokenAddress}`, { availableTokens: Object.keys(tokensData) });
+                        throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
+                    }
+                    
+                    debugLog('OPEN_LONG', 'Tokens validated', { 
+                        payToken: payToken.symbol, 
+                        collateralToken: collateralToken.symbol 
                     });
-                    throw new Error("Invalid token addresses provided");
-                }
-                
-                debugLog('OPEN_SHORT', 'Tokens validated', { 
-                    payToken: payToken.symbol, 
-                    collateralToken: collateralToken.symbol 
-                });
-                
-                // Helper function to safely convert string to BigInt (removes 'n' suffix if present)
-                const safeBigInt = (value: string): bigint => {
-                    const cleanValue = value.endsWith('n') ? value.slice(0, -1) : value;
-                    return BigInt(cleanValue);
-                };
-
-                // Prepare parameters for helper function
-                const helperParams: any = {
-                    marketAddress: data.marketAddress,
-                    payTokenAddress: data.payTokenAddress,
-                    collateralTokenAddress: data.collateralTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps || 100,
-                    payAmount: safeBigInt(data.payAmount),
-                };
-
-                // Add optional parameters (SDK expects BigInt objects)
-                if (data.leverage) {
-                    helperParams.leverage = safeBigInt(data.leverage);
-                }
-
-                debugLog('OPEN_SHORT', 'Helper params prepared', helperParams);
-
-                // Use the simplified helper function with enhanced error handling
-                const result = await sdk.orders.short(helperParams).catch(error => {
-                    debugError('OPEN_SHORT', error, { helperParams, stage: 'sdk.orders.short' });
-                    throw new Error(`Failed to open short position: ${error.message || error}`);
-                });
-
-                let memory = ctx.memory as GmxMemory;
-                
-                // Update memory with order info
-                const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
-                const isLimitOrder = false; // Market orders only (no limitPrice in schema)
-                memory = {
-                    ...memory,
-                    currentTask: "📉 Executing SHORT scalp entry",
-                    lastResult: `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}`
-                }
-
-                const successResult = {
-                    success: true,
-                    message: `Successfully opened short ${isLimitOrder ? 'limit' : 'market'} position`,
-                    orderDetails: {
+                    
+                    // Prepare parameters for helper function
+                    const helperParams: any = {
+                        payAmount: BigInt(data.payAmount),
                         marketAddress: data.marketAddress,
-                        direction: 'SHORT',
-                        orderType: isLimitOrder ? 'Limit' : 'Market',
-                        payAmount: data.payAmount || null,
-                        payToken: data.payTokenAddress,
-                        collateralToken: data.collateralTokenAddress,
-                        leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`
-                    },
-                    transactionHash: result?.transactionHash || null
-                };
-                
-                debugLog('OPEN_SHORT', 'Short position opened successfully', successResult);
-                debugLog('OPEN_SHORT', `Log file location: ${getLogFilePath()}`);
-                
-                return successResult;
-            } catch (error) {
-                const errorResult = {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to open short position"
-                };
-                
-                debugError('OPEN_SHORT', 'Failed to open short position', errorResult);
-                
-                return errorResult;
+                        payTokenAddress: data.payTokenAddress,
+                        collateralTokenAddress: data.collateralTokenAddress,
+                        allowedSlippageBps: data.allowedSlippageBps || 100,
+                    };
+    
+                    // Add optional parameters (SDK expects BigInt objects)
+                    if (data.leverage) {
+                        helperParams.leverage = BigInt(data.leverage);
+                    }
+                    
+                    if (data.limitPrice) {
+                        helperParams.limitPrice = BigInt(data.limitPrice);
+                    }
+    
+                    debugLog('OPEN_LONG', 'Helper params prepared', helperParams);
+    
+                    // Use the simplified helper function with enhanced error handling
+                    const result = await sdk.orders.long(helperParams).catch(error => {
+                        debugError('OPEN_LONG', error, { 
+                            helperParams, 
+                            stage: 'sdk.orders.long',
+                            errorInfo: error.info,
+                            errorData: error.data,
+                            fullError: error
+                        });
+                        throw new Error(`Failed to open long position: ${error.message || error}`);
+                    });
+    
+                    let memory = ctx.memory as GmxMemory;
+                    
+                    // Update memory with order info
+                    const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
+                    const isLimitOrder = !!data.limitPrice; // Limit order if limitPrice provided
+                    memory = {
+                        ...memory,
+                        currentTask: "🚀 Executing LONG entry",
+                        lastResult: `Opened long ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}${isLimitOrder ? ` at $${(Number(data.limitPrice) / 1e30).toFixed(2)}` : ''}`
+                    }
+    
+                    const successResult = {
+                        success: true,
+                        message: `Successfully opened long ${isLimitOrder ? 'limit' : 'market'} position`,
+                        orderDetails: {
+                            marketAddress: data.marketAddress,
+                            direction: 'LONG',
+                            orderType: isLimitOrder ? 'Limit' : 'Market',
+                            payAmount: data.payAmount || null,
+                            payToken: data.payTokenAddress,
+                            collateralToken: data.collateralTokenAddress,
+                            leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
+                            slippage: `${(data.allowedSlippageBps || 100) / 100}%`
+                        },
+                        transactionHash: result?.transactionHash || null
+                    };
+                    
+                    debugLog('OPEN_LONG', 'Long position opened successfully', successResult);
+                    
+                    return successResult;
+                } catch (error) {
+                    const errorResult = {
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error),
+                        message: "Failed to open long position"
+                    };
+                    
+                    debugError('OPEN_LONG', 'Failed to open long position', errorResult);
+                    
+                    return errorResult;
+                }
             }
-        }
-    }),
+        }),
+    
+        // Helper: Open Short Position (Simplified)
+        action({
+            name: "open_short_position", 
+            description: "Open a short position using GMX SDK helper function with simplified parameters. Supports both market orders (immediate execution) and limit orders (execute when price reaches specified level).",
+            schema: z.object({
+                marketAddress: z.string().describe("Market token address from getMarketsInfo response (e.g. '0x70d95587d40A2caf56bd97485aB3Eec10Bee6336' for ETH/USD market)"),
+                payAmount: z.string().optional().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
+                payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+                collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+                allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+                leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
+                limitPrice: z.string().optional().describe("Limit price for the order in BigInt string with 30-decimal precision (e.g. '63000000000000000000000000000000000' for $63,000). If provided, creates a limit order instead of market order."),
+            }),
+            async handler(data, ctx, agent) {
+                try {
+                    debugLog('OPEN_SHORT', 'Starting short position open', { input: data });
+                    
+                    // Get market and token data for validation and proper error handling
+                    const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                        const errorMsg = `Failed to get market data: ${error.message || error}`;
+                        debugError('OPEN_SHORT', error, { stage: 'getMarketsInfo' });
+                        throw new Error(errorMsg);
+                    });
+                    
+                    if (!marketsInfoData || !tokensData) {
+                        debugError('OPEN_SHORT', 'Invalid market data received', { marketsInfoData: !!marketsInfoData, tokensData: !!tokensData });
+                        throw new Error("Invalid market data received");
+                    }
+                    
+                    // Validate market and tokens exist
+                    const marketInfo = marketsInfoData[data.marketAddress];
+                    if (!marketInfo) {
+                        debugError('OPEN_SHORT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
+                        throw new Error(`Market not found: ${data.marketAddress}`);
+                    }
+                    
+                    debugLog('OPEN_SHORT', 'Market validated', { marketName: marketInfo.name, marketAddress: data.marketAddress });
+                    
+                    const payToken = tokensData[data.payTokenAddress];
+                    const collateralToken = tokensData[data.collateralTokenAddress];
+                    
+                    if (!payToken || !collateralToken) {
+                        debugError('OPEN_SHORT', 'Invalid token addresses provided', { 
+                            payTokenFound: !!payToken, 
+                            collateralTokenFound: !!collateralToken,
+                            availableTokens: Object.keys(tokensData)
+                        });
+                        throw new Error("Invalid token addresses provided");
+                    }
+                    
+                    debugLog('OPEN_SHORT', 'Tokens validated', { 
+                        payToken: payToken.symbol, 
+                        collateralToken: collateralToken.symbol 
+                    });
+                    
+                    // Helper function to safely convert string to BigInt (removes 'n' suffix if present)
+                    const safeBigInt = (value: string): bigint => {
+                        const cleanValue = value.endsWith('n') ? value.slice(0, -1) : value;
+                        return BigInt(cleanValue);
+                    };
+    
+                    // Prepare parameters for helper function
+                    const helperParams: any = {
+                        marketAddress: data.marketAddress,
+                        payTokenAddress: data.payTokenAddress,
+                        collateralTokenAddress: data.collateralTokenAddress,
+                        allowedSlippageBps: data.allowedSlippageBps || 100,
+                        payAmount: safeBigInt(data.payAmount),
+                    };
+    
+                    // Add optional parameters (SDK expects BigInt objects)
+                    if (data.leverage) {
+                        helperParams.leverage = safeBigInt(data.leverage);
+                    }
+                    
+                    if (data.limitPrice) {
+                        helperParams.limitPrice = safeBigInt(data.limitPrice);
+                    }
+    
+                    debugLog('OPEN_SHORT', 'Helper params prepared', helperParams);
+    
+                    // Use the simplified helper function with enhanced error handling
+                    const result = await sdk.orders.short(helperParams).catch(error => {
+                        debugError('OPEN_SHORT', error, { helperParams, stage: 'sdk.orders.short' });
+                        throw new Error(`Failed to open short position: ${error.message || error}`);
+                    });
+    
+                    let memory = ctx.memory as GmxMemory;
+                    
+                    // Update memory with order info
+                    const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
+                    const isLimitOrder = !!data.limitPrice; // Limit order if limitPrice provided
+                    memory = {
+                        ...memory,
+                        currentTask: "📉 Executing SHORT entry",
+                        lastResult: `Opened short ${isLimitOrder ? 'limit' : 'market'} position${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''}${isLimitOrder ? ` at $${(Number(data.limitPrice) / 1e30).toFixed(2)}` : ''}`
+                    }
+    
+                    const successResult = {
+                        success: true,
+                        message: `Successfully opened short ${isLimitOrder ? 'limit' : 'market'} position`,
+                        orderDetails: {
+                            marketAddress: data.marketAddress,
+                            direction: 'SHORT',
+                            orderType: isLimitOrder ? 'Limit' : 'Market',
+                            payAmount: data.payAmount || null,
+                            payToken: data.payTokenAddress,
+                            collateralToken: data.collateralTokenAddress,
+                            leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
+                            slippage: `${(data.allowedSlippageBps || 100) / 100}%`
+                        },
+                        transactionHash: result?.transactionHash || null
+                    };
+                    
+                    debugLog('OPEN_SHORT', 'Short position opened successfully', successResult);
+                    
+                    return successResult;
+                } catch (error) {
+                    const errorResult = {
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error),
+                        message: "Failed to open short position"
+                    };
+                    
+                    debugError('OPEN_SHORT', 'Failed to open short position', errorResult);
+                    
+                    return errorResult;
+                }
+            }
+        }),
+    
 
     // Close Position (Universal - handles both long and short)
     action({
@@ -1299,7 +1123,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 let memory = ctx.memory as GmxMemory;
                 
                 debugLog('CLOSE_POSITION', 'Starting position close', { input: data });
-                               
+
                 // Get required market and token data
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
                     debugError('CLOSE_POSITION', error, { stage: 'getMarketsInfo' });
@@ -1317,9 +1141,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     debugError('CLOSE_POSITION', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                     throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
                 }
-                
-                debugLog('CLOSE_POSITION', 'Market found', { marketName: marketInfo.name });
-                                
+                                                
                 // Get current positions to find the position to close
                 const positionsResult = await sdk.positions.getPositions({
                     marketsData: marketsInfoData,
@@ -1358,10 +1180,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 if (!indexToken || !collateralToken) {
                     throw new Error("Failed to get token data for position");
                 }
-                
-                console.log(`[CLOSE_POSITION] Index token: ${indexToken.symbol}`);
-                console.log(`[CLOSE_POSITION] Collateral token: ${collateralToken.symbol}`);
-                
+                               
                 // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
                 const slippageBps = data.allowedSlippageBps || 100;
                 
@@ -1376,12 +1195,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     markPrice - (markPrice * BigInt(slippageBps) / 10000n) :
                     markPrice + (markPrice * BigInt(slippageBps) / 10000n);
                 
-                debugLog('CLOSE_POSITION', 'Price calculations', {
-                    markPrice: markPrice.toString(),
-                    acceptablePrice: acceptablePrice.toString(),
-                    slippageBps
-                });
-                
                 // Calculate collateral USD value
                 const collateralPrice = collateralToken.prices?.minPrice || 0n;
                 const collateralDeltaUsd = convertToUsd(
@@ -1389,9 +1202,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     collateralToken.decimals,
                     collateralPrice
                 ) || 0n;
-                
-                debugLog('CLOSE_POSITION', 'Collateral USD value calculated', { collateralDeltaUsd: collateralDeltaUsd.toString() });
-                                
+                                                
                 // Create complete DecreasePositionAmounts object with ALL required fields
                 const decreaseAmounts = {
                     // Core position data
@@ -1500,7 +1311,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 };
                 
                 debugLog('CLOSE_POSITION', 'Position closed successfully', successResult);
-                debugLog('CLOSE_POSITION', `Log file location: ${getLogFilePath()}`);
                 
                 return successResult;
             } catch (error) {
@@ -1510,13 +1320,395 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     message: "Failed to close position"
                 };
                 
-                debugError('CLOSE_POSITION', 'Failed to close position', errorResult);
-                debugLog('CLOSE_POSITION', `Log file location: ${getLogFilePath()}`);
-                
+                debugError('CLOSE_POSITION', 'Failed to close position', errorResult);                
                 return errorResult;
             }
         }
     }),
 
-    ];
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🛡️ RISK MANAGEMENT - TAKE PROFIT & STOP LOSS
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    // Set Take Profit Order
+    action({
+        name: "set_take_profit",
+        description: "Set a take profit order for an existing position. Creates a LimitDecrease order that executes when price reaches profit target.",
+        schema: z.object({
+            marketAddress: z.string().describe("Market address of the position (from get_positions response)"),
+            triggerPrice: z.string().describe("Price at which to take profit in BigInt string with 30-decimal precision (e.g. '67000000000000000000000000000000000' for $67,000)"),
+            sizeDeltaUsd: z.string().optional().describe("Position size to close in USD with 30-decimal precision. If not provided, closes entire position."),
+            allowedSlippageBps: z.number().optional().default(50).describe("Allowed slippage in basis points (50 = 0.5%, default)")
+        }),
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('SET_TAKE_PROFIT', 'Starting take profit order creation', { input: data });
+
+                // Get market and token data
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                    debugError('SET_TAKE_PROFIT', error, { stage: 'getMarketsInfo' });
+                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                });
+                
+                if (!marketsInfoData || !tokensData) {
+                    debugError('SET_TAKE_PROFIT', 'Invalid market data received');
+                    throw new Error("Failed to get market and token data");
+                }
+                
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) {
+                    debugError('SET_TAKE_PROFIT', `Market not found: ${data.marketAddress}`);
+                    throw new Error(`Market not found: ${data.marketAddress}`);
+                }
+                
+                // Get current positions to find the position
+                const positionsResult = await sdk.positions.getPositions({
+                    marketsData: marketsInfoData,
+                    tokensData: tokensData,
+                    start: 0,
+                    end: 1000,
+                });
+                
+                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
+                const position = positions.find((pos: any) => pos.marketAddress === data.marketAddress);
+                
+                if (!position) {
+                    throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                }
+                
+                const isLong = position.isLong;
+                const direction = isLong ? 'LONG' : 'SHORT';
+                
+                // Validate trigger price direction
+                const currentPrice = isLong ? 
+                    bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS) :
+                    bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS);
+                    
+                const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
+                
+                // For long positions: take profit should be above current price
+                // For short positions: take profit should be below current price
+                if (isLong && triggerPriceDecimal <= currentPrice) {
+                    throw new Error(`Take profit price $${triggerPriceDecimal.toFixed(2)} must be ABOVE current price $${currentPrice.toFixed(2)} for LONG positions`);
+                }
+                if (!isLong && triggerPriceDecimal >= currentPrice) {
+                    throw new Error(`Take profit price $${triggerPriceDecimal.toFixed(2)} must be BELOW current price $${currentPrice.toFixed(2)} for SHORT positions`);
+                }
+                
+                // Determine position size to close
+                const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
+                
+                // Get collateral token
+                const collateralToken = tokensData[position.collateralTokenAddress];
+                if (!collateralToken) {
+                    throw new Error("Failed to get collateral token data");
+                }
+                
+                // Create comprehensive DecreaseAmounts object for take profit
+                const decreaseAmounts = {
+                    // Core position data
+                    isFullClose: !data.sizeDeltaUsd, // Full close if no specific size provided
+                    sizeDeltaUsd: positionSizeUsd,
+                    sizeDeltaInTokens: data.sizeDeltaUsd ? 
+                        (position.sizeInTokens * BigInt(data.sizeDeltaUsd)) / position.sizeInUsd :
+                        position.sizeInTokens,
+                    collateralDeltaUsd: 0n, // Let SDK calculate
+                    collateralDeltaAmount: 0n, // Let SDK calculate
+                    
+                    // Price fields
+                    indexPrice: position.markPrice || 0n,
+                    collateralPrice: collateralToken.prices?.minPrice || 0n,
+                    acceptablePrice: BigInt(data.triggerPrice),
+                    acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
+                    recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
+                    
+                    // PnL fields (SDK will calculate)
+                    estimatedPnl: 0n,
+                    estimatedPnlPercentage: 0n,
+                    realizedPnl: 0n,
+                    realizedPnlPercentage: 0n,
+                    
+                    // Fee fields (SDK will calculate)
+                    positionFeeUsd: 0n,
+                    uiFeeUsd: 0n,
+                    swapUiFeeUsd: 0n,
+                    feeDiscountUsd: 0n,
+                    borrowingFeeUsd: 0n,
+                    fundingFeeUsd: 0n,
+                    swapProfitFeeUsd: 0n,
+                    positionPriceImpactDeltaUsd: 0n,
+                    priceImpactDiffUsd: 0n,
+                    payedRemainingCollateralAmount: 0n,
+                    
+                    // Output fields
+                    payedOutputUsd: 0n,
+                    payedRemainingCollateralUsd: 0n,
+                    receiveTokenAmount: 0n,
+                    receiveUsd: 0n,
+                    
+                    // Order specific
+                    triggerOrderType: 5, // LimitDecrease
+                    decreaseSwapType: 0, // NoSwap
+                };
+                
+                debugLog('SET_TAKE_PROFIT', 'Creating take profit order', { 
+                    direction,
+                    triggerPrice: triggerPriceDecimal,
+                    currentPrice,
+                    positionSize: formatUsdAmount(positionSizeUsd, 2)
+                });
+                
+                // Create the take profit order
+                const result = await sdk.orders.createDecreaseOrder({
+                    marketsInfoData,
+                    tokensData,
+                    marketInfo,
+                    decreaseAmounts,
+                    collateralToken,
+                    allowedSlippage: data.allowedSlippageBps || 50,
+                    isLong: isLong,
+                    referralCode: undefined,
+                    isTrigger: true // This is a trigger order
+                }).catch(error => {
+                    debugError('SET_TAKE_PROFIT', error, { 
+                        direction,
+                        triggerPrice: triggerPriceDecimal,
+                        decreaseAmounts 
+                    });
+                    throw new Error(`Failed to create take profit order: ${error.message || error}`);
+                });
+                
+                // Update memory
+                memory = {
+                    ...memory,
+                    currentTask: `🎯 Setting take profit for ${direction} position`,
+                    lastResult: `Take profit set at $${triggerPriceDecimal.toFixed(2)} for ${direction} position in ${marketInfo.name}`
+                };
+                
+                const successResult = {
+                    success: true,
+                    message: `Successfully set take profit order for ${direction} position`,
+                    orderDetails: {
+                        market: marketInfo.name,
+                        direction: direction,
+                        orderType: 'Take Profit (LimitDecrease)',
+                        triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                        currentPrice: `$${currentPrice.toFixed(2)}`,
+                        sizeDeltaUsd: formatUsdAmount(positionSizeUsd, 2),
+                        profitTarget: isLong ? 
+                            `+${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%` :
+                            `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`,
+                        slippage: `${(data.allowedSlippageBps || 50) / 100}%`
+                    },
+                    transactionHash: result?.transactionHash || null
+                };
+                
+                debugLog('SET_TAKE_PROFIT', 'Take profit order created successfully', successResult);
+                
+                return successResult;
+            } catch (error) {
+                const errorResult = {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to set take profit order"
+                };
+                
+                debugError('SET_TAKE_PROFIT', 'Failed to set take profit', errorResult);
+                return errorResult;
+            }
+        }
+    }),
+
+    // Set Stop Loss Order
+    action({
+        name: "set_stop_loss",
+        description: "Set a stop loss order for an existing position. Creates a StopLossDecrease order that executes when price reaches stop loss level.",
+        schema: z.object({
+            marketAddress: z.string().describe("Market address of the position (from get_positions response)"),
+            triggerPrice: z.string().describe("Price at which to stop loss in BigInt string with 30-decimal precision (e.g. '63000000000000000000000000000000000' for $63,000)"),
+            sizeDeltaUsd: z.string().optional().describe("Position size to close in USD with 30-decimal precision. If not provided, closes entire position."),
+            allowedSlippageBps: z.number().optional().default(50).describe("Allowed slippage in basis points (50 = 0.5%, default)")
+        }),
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('SET_STOP_LOSS', 'Starting stop loss order creation', { input: data });
+
+                // Get market and token data
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                    debugError('SET_STOP_LOSS', error, { stage: 'getMarketsInfo' });
+                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                });
+                
+                if (!marketsInfoData || !tokensData) {
+                    debugError('SET_STOP_LOSS', 'Invalid market data received');
+                    throw new Error("Failed to get market and token data");
+                }
+                
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) {
+                    debugError('SET_STOP_LOSS', `Market not found: ${data.marketAddress}`);
+                    throw new Error(`Market not found: ${data.marketAddress}`);
+                }
+                
+                // Get current positions to find the position
+                const positionsResult = await sdk.positions.getPositions({
+                    marketsData: marketsInfoData,
+                    tokensData: tokensData,
+                    start: 0,
+                    end: 1000,
+                });
+                
+                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
+                const position = positions.find((pos: any) => pos.marketAddress === data.marketAddress);
+                
+                if (!position) {
+                    throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                }
+                
+                const isLong = position.isLong;
+                const direction = isLong ? 'LONG' : 'SHORT';
+                
+                // Validate trigger price direction
+                const currentPrice = bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS);
+                const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
+                
+                // For long positions: stop loss should be below current price
+                // For short positions: stop loss should be above current price
+                if (isLong && triggerPriceDecimal >= currentPrice) {
+                    throw new Error(`Stop loss price $${triggerPriceDecimal.toFixed(2)} must be BELOW current price $${currentPrice.toFixed(2)} for LONG positions`);
+                }
+                if (!isLong && triggerPriceDecimal <= currentPrice) {
+                    throw new Error(`Stop loss price $${triggerPriceDecimal.toFixed(2)} must be ABOVE current price $${currentPrice.toFixed(2)} for SHORT positions`);
+                }
+                
+                // Determine position size to close
+                const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
+                
+                // Get collateral token
+                const collateralToken = tokensData[position.collateralTokenAddress];
+                if (!collateralToken) {
+                    throw new Error("Failed to get collateral token data");
+                }
+                
+                // Create comprehensive DecreaseAmounts object for stop loss
+                const decreaseAmounts = {
+                    // Core position data
+                    isFullClose: !data.sizeDeltaUsd, // Full close if no specific size provided
+                    sizeDeltaUsd: positionSizeUsd,
+                    sizeDeltaInTokens: data.sizeDeltaUsd ? 
+                        (position.sizeInTokens * BigInt(data.sizeDeltaUsd)) / position.sizeInUsd :
+                        position.sizeInTokens,
+                    collateralDeltaUsd: 0n, // Let SDK calculate
+                    collateralDeltaAmount: 0n, // Let SDK calculate
+                    
+                    // Price fields
+                    indexPrice: position.markPrice || 0n,
+                    collateralPrice: collateralToken.prices?.minPrice || 0n,
+                    acceptablePrice: BigInt(data.triggerPrice),
+                    acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
+                    recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
+                    
+                    // PnL fields (SDK will calculate)
+                    estimatedPnl: 0n,
+                    estimatedPnlPercentage: 0n,
+                    realizedPnl: 0n,
+                    realizedPnlPercentage: 0n,
+                    
+                    // Fee fields (SDK will calculate)
+                    positionFeeUsd: 0n,
+                    uiFeeUsd: 0n,
+                    swapUiFeeUsd: 0n,
+                    feeDiscountUsd: 0n,
+                    borrowingFeeUsd: 0n,
+                    fundingFeeUsd: 0n,
+                    swapProfitFeeUsd: 0n,
+                    positionPriceImpactDeltaUsd: 0n,
+                    priceImpactDiffUsd: 0n,
+                    payedRemainingCollateralAmount: 0n,
+                    
+                    // Output fields
+                    payedOutputUsd: 0n,
+                    payedRemainingCollateralUsd: 0n,
+                    receiveTokenAmount: 0n,
+                    receiveUsd: 0n,
+                    
+                    // Order specific
+                    triggerOrderType: 6, // StopLossDecrease
+                    decreaseSwapType: 0, // NoSwap
+                };
+                
+                debugLog('SET_STOP_LOSS', 'Creating stop loss order', { 
+                    direction,
+                    triggerPrice: triggerPriceDecimal,
+                    currentPrice,
+                    positionSize: formatUsdAmount(positionSizeUsd, 2)
+                });
+                
+                // Create the stop loss order
+                const result = await sdk.orders.createDecreaseOrder({
+                    marketsInfoData,
+                    tokensData,
+                    marketInfo,
+                    decreaseAmounts,
+                    collateralToken,
+                    allowedSlippage: data.allowedSlippageBps || 50,
+                    isLong: isLong,
+                    referralCode: undefined,
+                    isTrigger: true // This is a trigger order
+                }).catch(error => {
+                    debugError('SET_STOP_LOSS', error, { 
+                        direction,
+                        triggerPrice: triggerPriceDecimal,
+                        decreaseAmounts 
+                    });
+                    throw new Error(`Failed to create stop loss order: ${error.message || error}`);
+                });
+                
+                // Update memory
+                memory = {
+                    ...memory,
+                    currentTask: `🛡️ Setting stop loss for ${direction} position`,
+                    lastResult: `Stop loss set at $${triggerPriceDecimal.toFixed(2)} for ${direction} position in ${marketInfo.name}`
+                };
+                
+                const successResult = {
+                    success: true,
+                    message: `Successfully set stop loss order for ${direction} position`,
+                    orderDetails: {
+                        market: marketInfo.name,
+                        direction: direction,
+                        orderType: 'Stop Loss (StopLossDecrease)',
+                        triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                        currentPrice: `$${currentPrice.toFixed(2)}`,
+                        sizeDeltaUsd: formatUsdAmount(positionSizeUsd, 2),
+                        maxLoss: isLong ? 
+                            `-${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%` :
+                            `-${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%`,
+                        slippage: `${(data.allowedSlippageBps || 50) / 100}%`
+                    },
+                    transactionHash: result?.transactionHash || null
+                };
+                
+                debugLog('SET_STOP_LOSS', 'Stop loss order created successfully', successResult);
+                
+                return successResult;
+            } catch (error) {
+                const errorResult = {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to set stop loss order"
+                };
+                
+                debugError('SET_STOP_LOSS', 'Failed to set stop loss', errorResult);
+                return errorResult;
+            }
+        }
+    }),
+];
 }

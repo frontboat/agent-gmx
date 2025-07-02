@@ -1327,6 +1327,182 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     }),
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 💱 TOKEN SWAPS
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    // Swap Tokens
+    action({
+        name: "swap_tokens",
+        description: "Swap tokens using GMX's liquidity pools. Supports market swaps (immediate) and limit swaps (execute at specific price).",
+        schema: z.object({
+            fromTokenAddress: z.string().describe("ERC20 token address to swap from (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
+            toTokenAddress: z.string().describe("ERC20 token address to receive (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
+            fromAmount: z.string().optional().describe("Amount to swap in BigInt string using token's native decimals (e.g. '1000000000' for 1000 USDC with 6 decimals). Use either fromAmount OR toAmount."),
+            toAmount: z.string().optional().describe("Exact amount to receive in BigInt string using token's native decimals. Use either fromAmount OR toAmount."),
+            allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
+            triggerPrice: z.string().optional().describe("For limit swaps: price at which to execute swap in BigInt string with 30-decimal precision. Omit for market swaps.")
+        }),
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('SWAP_TOKENS', 'Starting token swap', { input: data });
+
+                // Validate that either fromAmount or toAmount is provided, but not both
+                if (!data.fromAmount && !data.toAmount) {
+                    throw new Error("Must provide either fromAmount OR toAmount");
+                }
+                if (data.fromAmount && data.toAmount) {
+                    throw new Error("Cannot provide both fromAmount and toAmount - choose one");
+                }
+
+                // Get market and token data for validation
+                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+                    debugError('SWAP_TOKENS', error, { stage: 'getMarketsInfo' });
+                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                });
+                
+                if (!marketsInfoData || !tokensData) {
+                    debugError('SWAP_TOKENS', 'Invalid market data received');
+                    throw new Error("Failed to get market and token data");
+                }
+
+                // Validate tokens exist
+                const fromToken = tokensData[data.fromTokenAddress];
+                const toToken = tokensData[data.toTokenAddress];
+                
+                if (!fromToken) {
+                    debugError('SWAP_TOKENS', `From token not found: ${data.fromTokenAddress}`, { availableTokens: Object.keys(tokensData) });
+                    throw new Error(`From token not found: ${data.fromTokenAddress}`);
+                }
+                
+                if (!toToken) {
+                    debugError('SWAP_TOKENS', `To token not found: ${data.toTokenAddress}`, { availableTokens: Object.keys(tokensData) });
+                    throw new Error(`To token not found: ${data.toTokenAddress}`);
+                }
+
+                // Check for synthetic tokens (not supported)
+                if (fromToken.isSynthetic) {
+                    throw new Error(`Synthetic tokens are not supported: ${fromToken.symbol}`);
+                }
+                if (toToken.isSynthetic) {
+                    throw new Error(`Synthetic tokens are not supported: ${toToken.symbol}`);
+                }
+
+                debugLog('SWAP_TOKENS', 'Tokens validated', { 
+                    fromToken: fromToken.symbol, 
+                    toToken: toToken.symbol 
+                });
+
+                // Prepare swap parameters
+                const swapParams: any = {
+                    fromTokenAddress: data.fromTokenAddress,
+                    toTokenAddress: data.toTokenAddress,
+                    allowedSlippageBps: data.allowedSlippageBps || 100,
+                };
+
+                // Add amount parameter (either fromAmount or toAmount)
+                if (data.fromAmount) {
+                    swapParams.fromAmount = BigInt(data.fromAmount);
+                } else if (data.toAmount) {
+                    swapParams.toAmount = BigInt(data.toAmount);
+                }
+
+                // Add triggerPrice for limit swaps if provided
+                if (data.triggerPrice) {
+                    swapParams.triggerPrice = BigInt(data.triggerPrice);
+                }
+
+                const isLimitOrder = !!data.triggerPrice;
+                const orderType = isLimitOrder ? 'Limit' : 'Market';
+
+                debugLog('SWAP_TOKENS', 'Swap params prepared', {
+                    ...swapParams,
+                    orderType,
+                    fromAmount: swapParams.fromAmount?.toString(),
+                    toAmount: swapParams.toAmount?.toString(),
+                    triggerPrice: swapParams.triggerPrice?.toString()
+                });
+
+                // Execute the swap using the SDK helper
+                const result = await sdk.orders.swap(swapParams).catch(error => {
+                    debugError('SWAP_TOKENS', error, { 
+                        swapParams,
+                        stage: 'sdk.orders.swap',
+                        errorInfo: error.info,
+                        errorData: error.data,
+                        fullError: error
+                    });
+                    
+                    let errorMessage = `Failed to execute swap: ${error.message || error}`;
+                    
+                    if (error?.message?.includes("insufficient")) {
+                        errorMessage = "Insufficient balance for swap";
+                    } else if (error?.message?.includes("slippage")) {
+                        errorMessage = "Slippage tolerance exceeded - try increasing allowedSlippageBps";
+                    } else if (error?.message?.includes("synthetic")) {
+                        errorMessage = "Synthetic tokens are not supported for swaps";
+                    }
+                    
+                    throw new Error(errorMessage);
+                });
+
+                // Calculate swap amounts for display
+                let swapAmountDisplay = '';
+                let receiveAmountDisplay = '';
+                
+                if (data.fromAmount) {
+                    swapAmountDisplay = formatTokenAmount(BigInt(data.fromAmount), fromToken.decimals, 6);
+                    // For market swaps, we can't know exact output until execution
+                    receiveAmountDisplay = isLimitOrder && data.triggerPrice ? 
+                        `~${(Number(data.fromAmount) / Math.pow(10, fromToken.decimals) * Number(data.triggerPrice) / 1e30).toFixed(6)}` :
+                        'Market rate';
+                } else if (data.toAmount) {
+                    receiveAmountDisplay = formatTokenAmount(BigInt(data.toAmount), toToken.decimals, 6);
+                    swapAmountDisplay = 'Market rate';
+                }
+
+                // Update memory
+                memory = {
+                    ...memory,
+                    currentTask: `💱 Swapping ${fromToken.symbol} to ${toToken.symbol}`,
+                    lastResult: `${orderType} swap initiated: ${swapAmountDisplay} ${fromToken.symbol} → ${receiveAmountDisplay} ${toToken.symbol}`
+                };
+
+                const successResult = {
+                    success: true,
+                    message: `Successfully initiated ${orderType.toLowerCase()} swap`,
+                    swapDetails: {
+                        orderType: orderType,
+                        fromToken: fromToken.symbol,
+                        toToken: toToken.symbol,
+                        fromAmount: swapAmountDisplay,
+                        toAmount: receiveAmountDisplay,
+                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`,
+                        triggerPrice: data.triggerPrice ? 
+                            `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : 
+                            undefined
+                    },
+                    transactionHash: result?.transactionHash || null
+                };
+
+                debugLog('SWAP_TOKENS', 'Swap initiated successfully', successResult);
+
+                return successResult;
+            } catch (error) {
+                const errorResult = {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to execute token swap"
+                };
+                
+                debugError('SWAP_TOKENS', 'Failed to execute swap', errorResult);
+                return errorResult;
+            }
+        }
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // 🛡️ RISK MANAGEMENT - TAKE PROFIT & STOP LOSS
     // ═══════════════════════════════════════════════════════════════════════════════
 

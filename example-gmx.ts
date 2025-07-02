@@ -175,6 +175,9 @@ My goal is to maximize total return through rapid, precise trading trades.
   - close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
+  #### 💱 Token Swaps
+  - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, either fromAmount OR toAmount. OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
+
   #### 🛡️ Risk Management
   - set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
   - set_stop_loss: Set stop loss order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
@@ -197,6 +200,12 @@ My goal is to maximize total return through rapid, precise trading trades.
     - 1 USDC = "1000000"
     - 100 USDC = "100000000" 
     - 6.64 USDC = "6640000"
+    
+    **ETH/WETH (18 decimals)**:
+    - 0.001 ETH = "1000000000000000"
+    - 0.01 ETH = "10000000000000000"
+    - 0.1 ETH = "100000000000000000"
+    - 1 ETH = "1000000000000000000"
     
 **CRITICAL - How to Call Different Action Types**:
 1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
@@ -222,22 +231,23 @@ My goal is to maximize total return through rapid, precise trading trades.
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 100})
    - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000000"}) // Take profit at $67,000
    - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000000"}) // Stop loss at $63,000
+   - swap_tokens({"fromTokenAddress": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // Swap WETH to receive exactly 50 USDC
 
 ### Trading Cycle
 - Check my portfolio balance and make sure I have enough ETH to pay for gas fees (more than 5$)
-- If I don't have enough ETH, I need to swap some USDC to ETH
+- If I don't have enough ETH, use swap_tokens to swap some USDC to ETH (e.g., swap 10 USDC for gas fees)
 - I query the synth leaderboard to find the top miners
 - I query the latest predictions for BOTH BTC and ETH from all top miners, one miner id at a time
 - I analyze synth miner predictions for BTC and ETH price movement (in %)
-- I check existing positions for both BTC and ETH markets
+- I check existing positions and existing orders for both BTC and ETH markets
 - Don't overtrade, only trade when the trend is clear and the price action is significant (>1%).
 - I consider opening positions targetting a specific price action on BOTH BTC and ETH, based on their individual trends
 - **Order Type Strategy**:
   - Use MARKET orders for immediate execution
   - Use LIMIT orders to capture better entry prices
 - **Risk Management Strategy**:
-  - ALWAYS set take profit orders, find the best price action for the position
-  - ALWAYS set stop loss orders, find the best price action for the position
+  - ALWAYS set ONE take profit order, find the best price action for the position
+  - ALWAYS set ONE stop loss order, find the best price action for the position
 - When closing positions, I first use get_positions to find the exact marketAddress  
 - Positions are automatically closed in full - no need to specify size amounts
 
@@ -395,7 +405,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 3600000); // 1 hour
+                }, 300000); // 1 hour
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

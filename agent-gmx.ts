@@ -36,7 +36,6 @@ console.log("🚀 Starting GMX Trading Agent...");
 
 const env = validateEnv(
     z.object({
-        ANTHROPIC_API_KEY: z.string(),
         OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
         GMX_NETWORK: z.enum(["arbitrum", "avalanche"]).default("arbitrum"),
         GMX_CHAIN_ID: z.string(),
@@ -46,8 +45,6 @@ const env = validateEnv(
         GMX_WALLET_ADDRESS: z.string(),
         GMX_PRIVATE_KEY: z.string(),
         SYNTH_API_KEY: z.string().min(1, "SYNTH_API_KEY is required for market intelligence"),
-        DISCORD_TOKEN: z.string().min(1, "DISCORD_TOKEN is required for Discord output"),
-        DISCORD_BOT_NAME: z.string().min(1, "DISCORD_BOT_NAME is required for Discord output"),
         MONGODB_STRING: z.string().min(1, "MONGODB_STRING is required for persistent memory"),
     })
 );

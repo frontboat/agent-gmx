@@ -2,15 +2,12 @@
   "name": "gmx-trading-agent",
   "version": "1.0.0",
   "description": "A standalone GMX trading agent built with Daydreams AI framework",
-  "main": "example-gmx.ts",
+  "main": "agent-gmx.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run example-gmx.ts",
-    "dev": "bun run example-gmx.ts",
-    "discord": "bun run gmx-discord-bot.ts",
-    "discord:dev": "bun run gmx-discord-bot.ts",
-    "test:discord": "bun run test-discord.ts"
+    "start": "bun run agent-gmx.ts",
+    "dev": "bun run agent-gmx.ts",
   },
   "devDependencies": {
     "@types/bun": "latest",

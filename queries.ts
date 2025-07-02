@@ -765,28 +765,30 @@ export const get_orders_str = async (sdk: GmxSdk) => {
             tokensData
         });
         
-        // Extract orders data from structured result
-        const rawOrders = ordersResult.ordersInfoData ? Object.values(ordersResult.ordersInfoData) : [];
+        // Extract orders data from structured result - use the enhanced OrderInfo objects
+        const ordersInfoData = ordersResult.ordersInfoData || {};
+        const orders = Object.values(ordersInfoData);
         
-        if (rawOrders.length === 0) {
+        if (orders.length === 0) {
             return "📋 No pending orders found.";
         }
         
         // Build formatted string
-        let ordersString = `📋 PENDING ORDERS (${rawOrders.length} total)\n`;
+        let ordersString = `📋 PENDING ORDERS (${orders.length} total)\n`;
         ordersString += "═".repeat(60) + "\n\n";
         
         let totalOrderValue = 0;
         let highRiskCount = 0;
         
-        rawOrders.forEach((order: any, index: number) => {
+        orders.forEach((order: any, index: number) => {
             try {
-                const marketInfo = marketsInfoData[order.marketAddress];
-                const indexToken = tokensData[marketInfo?.indexTokenAddress];
-                const collateralToken = tokensData[order.collateralTokenAddress];
+                // Use the enhanced order properties that SDK provides
+                const marketInfo = order.marketInfo;
+                const indexToken = order.indexToken;
+                const initialCollateralToken = order.initialCollateralToken;
                 
-                if (!marketInfo || !indexToken || !collateralToken) {
-                    ordersString += `Order #${index + 1}: [Data Missing]\n\n`;
+                if (!marketInfo || !indexToken || !initialCollateralToken) {
+                    ordersString += `Order #${index + 1}: [Data Missing - SDK Processing Error]\n\n`;
                     return;
                 }
                 
@@ -794,24 +796,23 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                 const markPrice = indexToken.prices?.maxPrice || 0n;
                 const markPriceUsd = bigIntToDecimal(markPrice, USD_DECIMALS);
                 
-                // Calculate order metrics
-                const orderValueUsd = bigIntToDecimal(order.sizeInUsd || 0n, USD_DECIMALS);
+                // Calculate order metrics using correct field names
+                const orderValueUsd = bigIntToDecimal(order.sizeDeltaUsd, USD_DECIMALS);
                 totalOrderValue += orderValueUsd;
                 
-                const triggerPrice = order.triggerPrice || 0n;
-                const triggerPriceUsd = bigIntToDecimal(triggerPrice, USD_DECIMALS);
+                const triggerPriceUsd = bigIntToDecimal(order.triggerPrice, USD_DECIMALS);
                 
                 const collateralValue = bigIntToDecimal(
-                    order.initialCollateralDeltaAmount || 0n, 
-                    collateralToken.decimals
+                    order.initialCollateralDeltaAmount, 
+                    initialCollateralToken.decimals
                 );
                 
                 const leverage = collateralValue > 0 ? orderValueUsd / collateralValue : 0;
                 if (leverage > 10) highRiskCount++;
                 
-                // Calculate order age
-                const createdAt = order.createdAtTime ? Number(order.createdAtTime) : 0;
-                const orderAgeHours = createdAt > 0 ? (Date.now() / 1000 - createdAt) / 3600 : 0;
+                // Calculate order age using correct field name
+                const updatedAt = Number(order.updatedAtTime) || 0;
+                const orderAgeHours = updatedAt > 0 ? (Date.now() / 1000 - updatedAt) / 3600 : 0;
                 
                 // Determine execution status
                 let executionStatus = "⏳ Pending";
@@ -823,28 +824,37 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                     }
                 }
                 
+                // Get order type description
+                const orderTypeText = getTradeActionDescriptionEnhanced(
+                    'OrderCreated', 
+                    order.orderType, 
+                    order.isLong || false, 
+                    triggerPriceUsd, 
+                    markPriceUsd
+                );
+                
                 // Format order info
                 ordersString += `📌 Order #${index + 1} - ${marketInfo.name}\n`;
-                ordersString += `├─ Type: ${order.isLong ? "🟢 LONG" : "🔴 SHORT"} ${getTradeActionDescriptionEnhanced('OrderCreated', order.orderType, order.isLong || false, triggerPriceUsd, markPriceUsd)}\n`;
+                ordersString += `├─ Type: ${order.isLong ? "🟢 LONG" : "🔴 SHORT"} ${orderTypeText}\n`;
                 ordersString += `├─ Size: $${orderValueUsd.toFixed(2)} @ ${leverage.toFixed(2)}x leverage\n`;
                 ordersString += `├─ Trigger: $${triggerPriceUsd.toFixed(2)} (Current: $${markPriceUsd.toFixed(2)})\n`;
-                ordersString += `├─ Collateral: ${collateralValue.toFixed(6)} ${collateralToken.symbol}\n`;
+                ordersString += `├─ Collateral: ${collateralValue.toFixed(6)} ${initialCollateralToken.symbol}\n`;
                 ordersString += `├─ Status: ${executionStatus}\n`;
                 ordersString += `├─ Age: ${orderAgeHours.toFixed(1)} hours\n`;
                 ordersString += `└─ Order Key: ${order.key}\n\n`;
                 
             } catch (error) {
-                ordersString += `Order #${index + 1}: [Processing Error]\n\n`;
+                ordersString += `Order #${index + 1}: [Processing Error: ${error}]\n\n`;
             }
         });
         
         // Add summary
         ordersString += "═".repeat(60) + "\n";
         ordersString += "📊 SUMMARY\n";
-        ordersString += `├─ Total Orders: ${rawOrders.length}\n`;
+        ordersString += `├─ Total Orders: ${orders.length}\n`;
         ordersString += `├─ Total Value: $${totalOrderValue.toFixed(2)}\n`;
         ordersString += `├─ High Risk Orders: ${highRiskCount}\n`;
-        ordersString += `└─ Average Size: $${(totalOrderValue / rawOrders.length).toFixed(2)}\n`;
+        ordersString += `└─ Average Size: $${(totalOrderValue / orders.length).toFixed(2)}\n`;
         
         return ordersString;
         

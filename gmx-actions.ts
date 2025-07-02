@@ -14,7 +14,8 @@ import {
     convertToUsd,
     convertToTokenAmount,
     calculateLiquidationPrice,
-    getTradeActionDescriptionEnhanced
+    getTradeActionDescriptionEnhanced,
+    sleep
 } from './utils';
 import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str } from './queries';
 import { debugLog, debugError } from './logger';
@@ -169,11 +170,13 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_positions",
         description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
         async handler(data, ctx, agent) {
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
+            try {                
+                await sleep(5000);
+
                 // Use the formatted string function from queries
                 const positionsString = await get_positions_str(sdk);
+
+                let memory = ctx.memory as GmxMemory;
                 
                 // Update memory
                 memory = {
@@ -208,6 +211,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
         async handler(data, ctx, agent) {
             try {
+                await sleep(5000);
+
                 // Get formatted orders string using the query function
                 const ordersString = await get_orders_str(sdk);
                 
@@ -812,8 +817,20 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         }),
         async handler(data, ctx, agent) {
             try {
+                debugLog('CANCEL_ORDERS', 'Starting order cancellation', { input: data });
+                
+                // Wait 3 seconds before write operation to prevent nonce errors
+                debugLog('CANCEL_ORDERS', 'Waiting 3 seconds before transaction');
+                
+                debugLog('CANCEL_ORDERS', 'Executing cancel orders transaction', { orderKeys: data.orderKeys });
+                
                 // Use SDK's internal cancelOrders method (no manual wallet client needed)
                 const result = await sdk.orders.cancelOrders(data.orderKeys);
+
+                debugLog('CANCEL_ORDERS', 'Transaction successful', { 
+                    transactionHash: result?.transactionHash || result?.hash,
+                    orderCount: data.orderKeys.length 
+                });
 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -824,7 +841,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Cancelled ${data.orderKeys.length} order(s)`
                 };
 
-                return {
+                const successResult = {
                     success: true,
                     message: `Successfully cancelled ${data.orderKeys.length} order(s)`,
                     orderKeys: data.orderKeys,
@@ -834,12 +851,20 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                         orderKeys: data.orderKeys
                     }
                 };
+                
+                debugLog('CANCEL_ORDERS', 'Order cancellation completed successfully', successResult);
+                
+                return successResult;
             } catch (error) {
-                return {
+                const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to cancel orders"
                 };
+                
+                debugError('CANCEL_ORDERS', 'Failed to cancel orders', errorResult);
+                
+                return errorResult;
             }
         }
     }),
@@ -920,6 +945,18 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     }
     
                     debugLog('OPEN_LONG', 'Helper params prepared', helperParams);
+    
+                    // Wait 3 seconds before write operation to prevent nonce errors
+                    debugLog('OPEN_LONG', 'Waiting 2 seconds before transaction');
+                    await sleep(2000);
+                    
+                    debugLog('OPEN_LONG', 'Executing long position transaction', { 
+                        marketAddress: data.marketAddress,
+                        payAmount: data.payAmount,
+                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
+                        isLimitOrder: !!data.limitPrice,
+                        limitPrice: data.limitPrice ? `$${(Number(data.limitPrice) / 1e30).toFixed(2)}` : undefined
+                    });
     
                     // Use the simplified helper function with enhanced error handling
                     const result = await sdk.orders.long(helperParams).catch(error => {
@@ -1057,6 +1094,18 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     }
     
                     debugLog('OPEN_SHORT', 'Helper params prepared', helperParams);
+    
+                    // Wait 3 seconds before write operation to prevent nonce errors
+                    debugLog('OPEN_SHORT', 'Waiting 3 seconds before transaction');
+                    await sleep(2000);
+                    
+                    debugLog('OPEN_SHORT', 'Executing short position transaction', { 
+                        marketAddress: data.marketAddress,
+                        payAmount: data.payAmount,
+                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
+                        isLimitOrder: !!data.limitPrice,
+                        limitPrice: data.limitPrice ? `$${(Number(data.limitPrice) / 1e30).toFixed(2)}` : undefined
+                    });
     
                     // Use the simplified helper function with enhanced error handling
                     const result = await sdk.orders.short(helperParams).catch(error => {
@@ -1251,6 +1300,18 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     fieldCount: Object.keys(decreaseAmounts).length,
                     decreaseAmounts 
                 });
+                
+                // Wait 3 seconds before write operation to prevent nonce errors
+                debugLog('CLOSE_POSITION', 'Waiting 3 seconds before transaction');
+                await sleep(3000);
+                
+                debugLog('CLOSE_POSITION', 'Executing close position transaction', { 
+                    market: marketInfo.name,
+                    direction,
+                    sizeUsd: formatUsdAmount(position.sizeInUsd, 2),
+                    receiveToken: receiveToken.symbol,
+                    slippage: `${slippageBps / 100}%`
+                });
                                 
                 // Use the SDK's createDecreaseOrder method
                 const result = await sdk.orders.createDecreaseOrder({
@@ -1337,8 +1398,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         schema: z.object({
             fromTokenAddress: z.string().describe("ERC20 token address to swap from (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
             toTokenAddress: z.string().describe("ERC20 token address to receive (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-            fromAmount: z.string().optional().describe("Amount to swap in BigInt string using token's native decimals (e.g. '1000000000' for 1000 USDC with 6 decimals). Use either fromAmount OR toAmount."),
-            toAmount: z.string().optional().describe("Exact amount to receive in BigInt string using token's native decimals. Use either fromAmount OR toAmount."),
+            toAmount: z.string().describe("Exact amount to receive in BigInt string using token's native decimals (e.g. '1000000000' for 1000 USDC with 6 decimals)"),
             allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
             triggerPrice: z.string().optional().describe("For limit swaps: price at which to execute swap in BigInt string with 30-decimal precision. Omit for market swaps.")
         }),
@@ -1347,14 +1407,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 let memory = ctx.memory as GmxMemory;
                 
                 debugLog('SWAP_TOKENS', 'Starting token swap', { input: data });
-
-                // Validate that either fromAmount or toAmount is provided, but not both
-                if (!data.fromAmount && !data.toAmount) {
-                    throw new Error("Must provide either fromAmount OR toAmount");
-                }
-                if (data.fromAmount && data.toAmount) {
-                    throw new Error("Cannot provide both fromAmount and toAmount - choose one");
-                }
 
                 // Get market and token data for validation
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
@@ -1422,6 +1474,20 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     fromAmount: swapParams.fromAmount?.toString(),
                     toAmount: swapParams.toAmount?.toString(),
                     triggerPrice: swapParams.triggerPrice?.toString()
+                });
+
+                // Wait 3 seconds before write operation to prevent nonce errors
+                debugLog('SWAP_TOKENS', 'Waiting 3 seconds before transaction');
+                await sleep(2000);
+
+                debugLog('SWAP_TOKENS', 'Executing swap transaction', { 
+                    fromToken: fromToken.symbol,
+                    toToken: toToken.symbol,
+                    orderType,
+                    fromAmount: data.fromAmount,
+                    toAmount: data.toAmount,
+                    slippage: `${(data.allowedSlippageBps || 100) / 100}%`,
+                    triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
                 });
 
                 // Execute the swap using the SDK helper
@@ -1522,7 +1588,16 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 
                 debugLog('SET_TAKE_PROFIT', 'Starting take profit order creation', { input: data });
 
-                // Get market and token data
+                // Wait 3 seconds at the beginning to allow previous transactions to be processed
+                debugLog('SET_TAKE_PROFIT', 'Waiting 3 seconds for previous transactions to process');
+                await sleep(6000);
+
+                // Use existing get_positions_str function to get position data properly
+                const positionsData = await get_positions_str(sdk);
+                debugLog('SET_TAKE_PROFIT', 'Retrieved positions data', { positionsCount: positionsData.length });
+                
+                // Parse the positions to find our specific position
+                // The get_positions_str returns formatted string, so we need to get the raw data
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
                     debugError('SET_TAKE_PROFIT', error, { stage: 'getMarketsInfo' });
                     throw new Error(`Failed to get market data: ${error.message || error}`);
@@ -1533,14 +1608,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error("Failed to get market and token data");
                 }
                 
-                // Validate market exists
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (!marketInfo) {
-                    debugError('SET_TAKE_PROFIT', `Market not found: ${data.marketAddress}`);
-                    throw new Error(`Market not found: ${data.marketAddress}`);
-                }
-                
-                // Get current positions to find the position
+                // Get positions using the same method as get_positions_str
                 const positionsResult = await sdk.positions.getPositions({
                     marketsData: marketsInfoData,
                     tokensData: tokensData,
@@ -1548,31 +1616,37 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     end: 1000,
                 });
                 
-                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
-                const position = positions.find((pos: any) => pos.marketAddress === data.marketAddress);
+                const positionsInfoResult = await sdk.positions.getPositionsInfo({
+                    marketsInfoData,
+                    tokensData,
+                    showPnlInLeverage: false
+                });
+                
+                // Find the position using enhanced positions data (same as get_positions_str)
+                const position = Object.values(positionsInfoResult).find((pos: any) => 
+                    pos.marketAddress === data.marketAddress
+                );
                 
                 if (!position) {
-                    throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                    throw new Error(`No position found for market address ${data.marketAddress}. Use get_positions to see current positions.`);
                 }
                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
+                const marketInfo = marketsInfoData[data.marketAddress];
                 
-                // Validate trigger price direction
-                const currentPrice = isLong ? 
-                    bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS) :
-                    bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS);
-                    
+                // Use the position's mark price (this is the current market price for the position)
+                const markPrice = position.markPrice;
+                const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
                 
-                // For long positions: take profit should be above current price
-                // For short positions: take profit should be below current price
-                if (isLong && triggerPriceDecimal <= currentPrice) {
-                    throw new Error(`Take profit price $${triggerPriceDecimal.toFixed(2)} must be ABOVE current price $${currentPrice.toFixed(2)} for LONG positions`);
-                }
-                if (!isLong && triggerPriceDecimal >= currentPrice) {
-                    throw new Error(`Take profit price $${triggerPriceDecimal.toFixed(2)} must be BELOW current price $${currentPrice.toFixed(2)} for SHORT positions`);
-                }
+                debugLog('SET_TAKE_PROFIT', 'Position and price data retrieved', {
+                    market: marketInfo.name,
+                    direction,
+                    currentPrice: `$${currentPrice.toFixed(2)}`,
+                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                    positionSize: formatUsdAmount(position.sizeInUsd, 2)
+                });
                 
                 // Determine position size to close
                 const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
@@ -1597,6 +1671,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     // Price fields
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
+                    triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
                     acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
                     recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
@@ -1635,6 +1710,17 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     triggerPrice: triggerPriceDecimal,
                     currentPrice,
                     positionSize: formatUsdAmount(positionSizeUsd, 2)
+                });
+                
+                debugLog('SET_TAKE_PROFIT', 'Executing take profit order transaction', { 
+                    market: marketInfo.name,
+                    direction,
+                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                    currentPrice: `$${currentPrice.toFixed(2)}`,
+                    positionSize: formatUsdAmount(positionSizeUsd, 2),
+                    profitTarget: isLong ? 
+                        `+${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%` :
+                        `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`
                 });
                 
                 // Create the take profit order
@@ -1714,7 +1800,16 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 
                 debugLog('SET_STOP_LOSS', 'Starting stop loss order creation', { input: data });
 
-                // Get market and token data
+                // Wait 3 seconds at the beginning to allow previous transactions to be processed
+                debugLog('SET_STOP_LOSS', 'Waiting 3 seconds for previous transactions to process');
+                await sleep(4000);
+
+                // Use existing get_positions_str function to get position data properly
+                const positionsData = await get_positions_str(sdk);
+                debugLog('SET_STOP_LOSS', 'Retrieved positions data', { positionsCount: positionsData.length });
+                
+                // Parse the positions to find our specific position
+                // The get_positions_str returns formatted string, so we need to get the raw data
                 const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
                     debugError('SET_STOP_LOSS', error, { stage: 'getMarketsInfo' });
                     throw new Error(`Failed to get market data: ${error.message || error}`);
@@ -1725,14 +1820,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     throw new Error("Failed to get market and token data");
                 }
                 
-                // Validate market exists
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (!marketInfo) {
-                    debugError('SET_STOP_LOSS', `Market not found: ${data.marketAddress}`);
-                    throw new Error(`Market not found: ${data.marketAddress}`);
-                }
-                
-                // Get current positions to find the position
+                // Get positions using the same method as get_positions_str
                 const positionsResult = await sdk.positions.getPositions({
                     marketsData: marketsInfoData,
                     tokensData: tokensData,
@@ -1740,28 +1828,37 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     end: 1000,
                 });
                 
-                const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
-                const position = positions.find((pos: any) => pos.marketAddress === data.marketAddress);
+                const positionsInfoResult = await sdk.positions.getPositionsInfo({
+                    marketsInfoData,
+                    tokensData,
+                    showPnlInLeverage: false
+                });
+                
+                // Find the position using enhanced positions data (same as get_positions_str)
+                const position = Object.values(positionsInfoResult).find((pos: any) => 
+                    pos.marketAddress === data.marketAddress
+                );
                 
                 if (!position) {
-                    throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
+                    throw new Error(`No position found for market address ${data.marketAddress}. Use get_positions to see current positions.`);
                 }
                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
+                const marketInfo = marketsInfoData[data.marketAddress];
                 
-                // Validate trigger price direction
-                const currentPrice = bigIntToDecimal(position.markPrice || 0n, USD_DECIMALS);
+                // Use the position's mark price (this is the current market price for the position)
+                const markPrice = position.markPrice;
+                const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
                 
-                // For long positions: stop loss should be below current price
-                // For short positions: stop loss should be above current price
-                if (isLong && triggerPriceDecimal >= currentPrice) {
-                    throw new Error(`Stop loss price $${triggerPriceDecimal.toFixed(2)} must be BELOW current price $${currentPrice.toFixed(2)} for LONG positions`);
-                }
-                if (!isLong && triggerPriceDecimal <= currentPrice) {
-                    throw new Error(`Stop loss price $${triggerPriceDecimal.toFixed(2)} must be ABOVE current price $${currentPrice.toFixed(2)} for SHORT positions`);
-                }
+                debugLog('SET_STOP_LOSS', 'Position and price data retrieved', {
+                    market: marketInfo.name,
+                    direction,
+                    currentPrice: `$${currentPrice.toFixed(2)}`,
+                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                    positionSize: formatUsdAmount(position.sizeInUsd, 2)
+                });
                 
                 // Determine position size to close
                 const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
@@ -1786,6 +1883,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     // Price fields
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
+                    triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
                     acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
                     recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 50),
@@ -1824,6 +1922,17 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     triggerPrice: triggerPriceDecimal,
                     currentPrice,
                     positionSize: formatUsdAmount(positionSizeUsd, 2)
+                });
+                
+                debugLog('SET_STOP_LOSS', 'Executing stop loss order transaction', { 
+                    market: marketInfo.name,
+                    direction,
+                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                    currentPrice: `$${currentPrice.toFixed(2)}`,
+                    positionSize: formatUsdAmount(positionSizeUsd, 2),
+                    maxLoss: isLong ? 
+                        `-${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%` :
+                        `-${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%`
                 });
                 
                 // Create the stop loss order

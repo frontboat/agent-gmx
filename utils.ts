@@ -18,6 +18,9 @@ export const PRECISION = 10n ** 30n;
 // 🔧 UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Utility function to add delay before write operations to prevent nonce errors
+export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Use GMX SDK's decimal conversion utilities for maximum precision
 export const bigIntToDecimal = (value: bigint, decimals: number): number => {
     // Handle negative values properly

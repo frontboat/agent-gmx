@@ -14,24 +14,27 @@ This is **agent-gmx**, an autonomous cryptocurrency trading agent specialized in
 
 ```
 /home/djizus/agent-gmx/
-├── example-gmx.ts         # Main application entry point - "Vega" agent initialization
-├── gmx-actions.ts         # Trading actions/functions for GMX protocol
-├── types.ts               # TypeScript interfaces for GMX memory and trading data
-├── utils.ts               # Mathematical utilities for price calculations and PnL
-├── package.json           # Dependencies and scripts (Bun runtime)
-├── tsconfig.json          # TypeScript configuration (ES2022/ESNext)
-└── pnpm-lock.yaml         # Package lock file
+├── agent-gmx.ts          # Main application entry point - "Vega" agent initialization
+├── gmx-actions.ts        # Trading actions/functions for GMX protocol
+├── types.ts              # TypeScript interfaces for GMX memory and trading data
+├── utils.ts              # Mathematical utilities for price calculations and PnL
+├── queries.ts            # Market data queries and formatted string outputs
+├── logger.ts             # Debug logging system with file output
+├── logs/                 # Session-based debug logs directory
+├── package.json          # Dependencies and scripts (Bun runtime)
+├── tsconfig.json         # TypeScript configuration (ES2022/ESNext)
+└── pnpm-lock.yaml        # Package lock file
 ```
 
 ## 🛠 Technology Stack
 
 ### Core Dependencies
-- **@daydreamsai/core**: AI agent framework for autonomous decision making
-- **@daydreamsai/discord**: Discord integration for real-time notifications
-- **@daydreamsai/mongodb**: MongoDB persistence for agent memory
-- **@gmx-io/sdk**: Official GMX protocol SDK for trading operations
-- **viem**: Ethereum client library for blockchain interactions
-- **zod**: Schema validation and type safety
+- **@daydreamsai/core**: AI agent framework for autonomous decision making (v0.3.8)
+- **@daydreamsai/discord**: Discord integration for real-time notifications (v0.3.8)
+- **@daydreamsai/mongodb**: MongoDB persistence for agent memory (v0.3.8)
+- **@gmx-io/sdk**: Official GMX protocol SDK for trading operations (v1.1.2)
+- **viem**: Ethereum client library for blockchain interactions (v2.0.0)
+- **zod**: Schema validation and type safety (v3.25.23)
 
 ### Runtime Environment
 - **Runtime**: Bun (alternative to Node.js)
@@ -44,7 +47,7 @@ This is **agent-gmx**, an autonomous cryptocurrency trading agent specialized in
 
 ### Main Files Explained
 
-#### `example-gmx.ts` (Main Entry Point)
+#### `agent-gmx.ts` (Main Entry Point)
 - Initializes "Vega" trading agent with personality and context
 - Sets up 5-minute automated trading cycles
 - Configures MongoDB persistence and Discord integration
@@ -68,6 +71,18 @@ This is **agent-gmx**, an autonomous cryptocurrency trading agent specialized in
 - Price calculations with BigInt precision
 - Leverage and liquidation price computations
 - PnL calculations and risk metrics
+- Sleep utility for transaction timing
+
+#### `queries.ts` (Market Data Formatting)
+- Formatted string outputs for market data, positions, orders
+- Portfolio balance calculations with USD conversion
+- Enhanced data processing for agent consumption
+
+#### `logger.ts` (Debug System)
+- Session-based file logging with timestamps
+- BigInt-safe JSON serialization
+- Console and file output for debugging
+- Error tracking with stack traces
 
 ## 🔧 Development Guidelines
 
@@ -93,7 +108,7 @@ This is **agent-gmx**, an autonomous cryptocurrency trading agent specialized in
 
 ```bash
 # Install dependencies
-pnpm install
+bun install
 
 # Start main trading agent
 bun run start
@@ -101,22 +116,22 @@ bun run start
 bun run dev
 
 # Development mode
-bun run example-gmx.ts
+bun run agent-gmx.ts
 
 # Test Discord integration
-bun run test:discord
+bun run discord
 ```
 
 ## 🔍 Key Development Areas
 
 ### Trading Strategy Logic (`gmx-actions.ts`)
-- Market analysis functions (lines 50-150)
-- Position management (lines 200-400)
-- Risk calculation utilities (lines 450-550)
-- AI signal integration (lines 600-700)
+- Market analysis functions (lines 30-150)
+- Position management (lines 400-800)
+- Risk calculation utilities (lines 1500-2000)
+- AI signal integration (lines 200-300)
 
-### Agent Personality (`example-gmx.ts`)
-- "Vega" character definition (lines 20-60)
+### Agent Personality (`agent-gmx.ts`)
+- "Vega" character definition (lines 100-200)
 - Competition-focused behavior patterns
 - Memory structure and persistence logic
 
@@ -180,7 +195,7 @@ bun run test:discord
   - Example: `"5000000000000000000000000000000000"` for $5000 position
 
 #### Required Parameters for All Positions
-- **marketAddress**: Market token address from `getMarketsInfo()` (NOT indexTokenAddress)
+- **marketAddress**: Market token address from `get_btc_eth_markets()` (NOT indexTokenAddress)
 - **payTokenAddress**: ERC20 contract address of token being paid with
 - **collateralTokenAddress**: ERC20 contract address for collateral
 
@@ -213,7 +228,7 @@ bun run test:discord
 
 **Nonce Too Low Error**: If you encounter "nonce too low" errors:
 - **Cause**: Transactions sent too quickly without proper sequencing
-- **Solution**: Wait 3-5 seconds between transactions
+- **Solution**: Wait 3-5 seconds between transactions (implemented via `sleep(3000)`)
 - **Prevention**: Use sequential execution only (never parallel transactions)
 
 ### 📊 Enhanced Action Capabilities
@@ -243,20 +258,14 @@ bun run test:discord
   - Potential liquidation price if order executes
   - Risk assessment for pending orders
 
-### 🎯 Market Address Resolution (Critical Fix)
+### 🎯 Market Address Resolution (Fixed)
 
-**Problem Discovered**: Agent couldn't find market addresses because `get_markets_info` was filtering them out in the response.
-
-#### Root Cause Analysis
-- Market addresses were stored internally in `simplifiedMarketsData` 
-- But `topMarketsByInterest` mapping was only returning name, indexToken, interests
-- Missing `marketAddress` field caused "invalid market address" errors
-- Agent had no way to map market names to required addresses
+**Problem Solved**: Agent couldn't find market addresses because `get_btc_eth_markets` was filtering them out.
 
 #### Solution Implemented
-1. **Enhanced Response Structure**: Added `marketAddress` field to `topMarketsByInterest`
-2. **Complete Markets List**: Added `allMarkets` array with ALL available markets
-3. **Comprehensive Market Data**: Each market object now includes:
+1. **Enhanced Response Structure**: Added `marketAddress` field to market objects
+2. **Complete Markets List**: Both `topMarketsByInterest` and `allMarkets` arrays
+3. **Comprehensive Market Data**: Each market object includes:
    ```typescript
    {
      name: "BTC/USD [BTC-USDC]",
@@ -269,52 +278,21 @@ bun run test:discord
    }
    ```
 
-#### Market Address Lookup Process
-1. **Call `get_markets_info`** to fetch market data
-2. **Search in response arrays**:
-   - `allMarkets`: Complete list of all markets
-   - `topMarketsByInterest`: Top 10 by volume
-3. **Match by market name**: Find desired market (e.g., "BTC/USD [BTC-USDC]")
-4. **Extract `marketAddress`**: Use this for all trading actions
-5. **Validate address format**: Must be valid hex address starting with 0x
-
-#### Code Changes Made
-```typescript
-// Before (❌ Missing market address)
-topMarketsByInterest: topMarketsByInterest.map(m => ({
-  name: m.name,
-  indexToken: m.indexToken,
-  longInterest: m.longInterestUsd,
-  shortInterest: m.shortInterestUsd,
-  totalInterest: m.longInterestUsd + m.shortInterestUsd
-}))
-
-// After (✅ Includes market address)
-topMarketsByInterest: topMarketsByInterest.map(m => ({
-  name: m.name,
-  marketAddress: m.marketTokenAddress, // ✅ ADDED
-  indexToken: m.indexToken,
-  longInterest: m.longInterestUsd,
-  shortInterest: m.shortInterestUsd,
-  totalInterest: m.longInterestUsd + m.shortInterestUsd
-}))
-```
-
 ### 🛡️ Error Prevention Strategies
 
 1. **Parameter Validation**: Always use exact schema parameter names
 2. **String Format**: All BigInt values must be passed as strings
 3. **Decimal Precision**: Respect each token's decimal precision (check tokensData)
-4. **Market Addresses**: Use marketTokenAddress from get_markets_info response
+4. **Market Addresses**: Use marketTokenAddress from get_btc_eth_markets response
 5. **Sequential Execution**: Wait between transactions to avoid nonce conflicts
-6. **Market Address Lookup**: Always call get_markets_info first to resolve market names to addresses
+6. **Market Address Lookup**: Always call get_btc_eth_markets first to resolve market names to addresses
 
 ### 🐛 Common Debugging Patterns
 
-#### Agent Can't Find Market Addresses
-**Symptoms**: Agent reports "cannot find marketAddress" or uses wrong addresses
-**Root Cause**: Action response missing market addresses in summary data
-**Solution**: Ensure action responses include complete market objects with addresses
+#### Stop Loss/Take Profit Price Validation (Fixed)
+**Problem**: Actions showing $0.00 current price validation
+**Root Cause**: Using index token prices instead of position mark prices
+**Solution**: Use existing `get_positions_str` logic and position.markPrice
 
 #### Template Variables Not Resolving  
 **Symptoms**: Discord messages show `{{calls[0].portfolio.summary.totalValue}}` instead of values
@@ -326,46 +304,144 @@ topMarketsByInterest: topMarketsByInterest.map(m => ({
 **Root Cause**: Using raw SDK parameters instead of helper function parameters
 **Solution**: Update agent instructions with correct parameter formats and examples
 
-#### Transaction Nonce Errors
-**Symptoms**: "nonce too low" errors during rapid trading
+#### Transaction Nonce Errors (Fixed)
+**Problem**: "nonce too low" errors during rapid trading
 **Root Cause**: Transactions sent too quickly without proper sequencing
-**Solution**: Add wait periods and sequential execution instructions
+**Solution**: Added 3-second sleep before all write operations in gmx-actions.ts
 
-#### Missing Required Parameters
-**Symptoms**: Action calls fail with missing parameter errors
-**Root Cause**: Agent using old parameter names or missing required fields
-**Solution**: Update action descriptions with precise parameter requirements
+#### Missing Trigger Price in Orders (Fixed)
+**Problem**: Stop loss and take profit orders executing with trigger price = 0
+**Root Cause**: Missing `triggerPrice` field in decreaseAmounts object
+**Solution**: Added `triggerPrice: BigInt(data.triggerPrice)` to both actions
 
 #### JSON Parsing Errors with Optional Parameters
 **Symptoms**: `ParsingError: JSON Parse error: Unexpected EOF` when calling actions
 **Root Cause**: Agent sending malformed or empty JSON for actions with optional parameters
 **Solution**: Explicitly instruct agent to use empty object {} for optional parameters
-**Example Fix**: 
-```typescript
-// Wrong: get_markets_list() or get_markets_list("")
-// Correct: get_markets_list({}) or get_markets_list({"limit": 10})
-```
 
 #### ACTION_MISMATCH Errors
 **Symptoms**: `[ERROR] [agent:action] ACTION_MISMATCH` with data: ""
 **Root Cause**: Agent passing empty string "" to actions that don't expect parameters
 **Solution**: Clearly document which actions have no schema (no parameters)
-**Example Fix**:
-```typescript
-// Actions with NO schema - call without data:
-get_portfolio_balance
-get_synth_leaderboard
 
-// Actions with optional schema - use empty object:
-get_markets_list({})
-get_trade_history({})
+### 📋 Current Action List
+
+#### Market Data Actions
+- `get_btc_eth_markets` - BTC/ETH market data with addresses (no params)
+- `get_daily_volumes` - Volume data for liquidity analysis (no params)
+- `get_tokens_data` - Token balances and prices (no params)
+- `get_portfolio_balance` - Complete portfolio overview (no params)
+- `get_positions` - Current positions with risk metrics (no params)
+- `get_orders` - Pending orders with analysis (no params)
+
+#### Trading Actions
+- `open_long_position` - Open long with limit order support
+- `open_short_position` - Open short with limit order support
+- `close_position` - Close position at market price
+- `swap_tokens` - Token swapping for portfolio management
+
+#### Risk Management Actions
+- `set_stop_loss` - Set stop loss on existing position
+- `set_take_profit` - Set take profit on existing position
+
+#### AI Intelligence Actions
+- `get_synth_leaderboard` - Top AI miner rankings (no params)
+- `get_latest_predictions` - Market predictions by miner ID
+
+### 🔧 Debug Logging System
+
+#### File-Based Logging
+- **Location**: `logs/gmx-debug-{timestamp}.log`
+- **Functions**: `debugLog(category, message, data)`, `debugError(category, error, context)`
+- **Features**: BigInt-safe JSON serialization, stack trace capture, timestamp headers
+
+#### Usage Patterns
+```typescript
+// Standard debug logging
+debugLog('OPEN_LONG', 'Starting position creation', { input: data });
+
+// Error logging with context
+debugError('OPEN_LONG', error, { stage: 'transaction', marketAddress: data.marketAddress });
 ```
+
+### 📊 Position Data Fetching (Fixed)
+
+**Critical Fix**: Both `set_stop_loss` and `set_take_profit` now properly fetch position data:
+
+1. Use same logic as working `get_positions_str` function
+2. Call `sdk.positions.getPositionsInfo()` for enhanced position data
+3. Use `position.markPrice` for current market price validation
+4. Proper error handling if position not found
 
 ## 🤝 Code Reuse Guidelines
 
 - Always check existing components before creating new ones
 - Reuse calculation utilities from `utils.ts`
 - Follow established patterns in `gmx-actions.ts`
-- Maintain consistency with agent personality in `example-gmx.ts`
+- Maintain consistency with agent personality in `agent-gmx.ts`
 - Use GMX SDK helper functions instead of raw SDK methods
 - Validate all parameters against action schemas before implementation
+- Leverage existing query functions from `queries.ts` for data formatting
+
+## 🔄 Recent Major Updates
+
+### 1. Limit Order Support (Added)
+- Added `limitPrice` parameter to position opening actions
+- Supports both market and limit order execution
+- Proper 30-decimal precision handling
+
+### 2. Token Swap Functionality (Added)
+- Implemented `swap_tokens` action using GMX SDK
+- Support for ETH/WETH and ERC20 token swaps
+- Proper slippage and fee handling
+
+### 3. Enhanced Order Display (Fixed)
+- Fixed `get_orders` showing "[Data Missing]"
+- Proper field mapping for enhanced order properties
+- Complete order analysis with execution probability
+
+### 4. Transaction Timing (Fixed)
+- Added 3-second delays before all write operations
+- Prevents nonce collision errors
+- Sequential transaction execution
+
+### 5. Debug Logging System (Added)
+- Comprehensive file-based logging
+- BigInt-safe JSON serialization
+- Session-based log files with timestamps
+
+### 6. Stop Loss/Take Profit Fix (Fixed)
+- Fixed $0.00 price validation errors
+- Proper position data fetching using existing queries
+- Added `triggerPrice` field to decrease amounts
+
+### 7. Market Address Resolution (Enhanced)
+- Complete market data with addresses in responses
+- Simplified market lookup for trading actions
+- Proper market validation and error handling
+
+## 🎯 Agent Instructions
+
+### Trading Behavior
+- Focus on BTC and ETH markets for liquidity
+- Maximum 60-minute hold times for scalping
+- Mandatory stop-loss on all positions
+- Use AI predictions for entry/exit timing
+
+### Risk Management
+- Never exceed 10% portfolio allocation per position
+- Maximum 5x leverage on high-confidence signals
+- Always validate current prices before setting stops
+- Monitor liquidation distances continuously
+
+### Error Handling
+- Always check market addresses before trading
+- Validate all BigInt parameter formats
+- Use proper decimal precisions for tokens
+- Sequential execution for all write operations
+
+### Communication
+- Provide clear trade summaries in Discord
+- Log all critical actions for debugging
+- Format responses with proper price/percentage displays
+- Update memory state after each action

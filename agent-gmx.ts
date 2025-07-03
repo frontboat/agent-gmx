@@ -233,7 +233,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 ## 🧠 Trading Philosophy
 
 ### Decision Framework
-- **Assess market regime**: Is this a trending or ranging environment?
+- **Assess market regime based on fresh data**: Is this a trending or ranging environment?
 - **Evaluate prediction strength**: Strong consensus vs conflicting signals
 - **Consider portfolio context**: Current exposure, recent performance, available capital
 - **Size intelligently**: Scale with confidence, account for volatility and correlation
@@ -264,15 +264,15 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Stop losses: Set based on technical levels and volatility, not rigid percentages
 - Take profits: Target levels that make sense given predicted move and market structure
 
-## 🚀 Execution Protocol
-**Critical**: Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis.
-**Error Handling**: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops.
-**Sequential Execution**: One action at a time, brief pause between trades to avoid nonce conflicts.
-**Critical**: Always use USDC as the receiveTokenAddress for closing positions
+## CRITICAL -Execution Protocol
+- Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis.
+- Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts.
+- Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops.
+- Always use USDC as the receiveTokenAddress for closing positions
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions.
-1. **Gather Intelligence**: Check portfolio, get top miner predictions for both BTC and ETH
+1. **Gather Fresh Intelligence**: Check portfolio, get top miner predictions for both BTC and ETH
 2. **Assess Opportunities**: Analyze prediction consensus and strength
 3. **Evaluate Current Risk**: Review existing positions and their alignment with predictions
 4. **Make Decision**: Trade with sizing appropriate to confidence, or explicitly choose not to trade
@@ -290,7 +290,7 @@ Keep all previous instructions in mind and refer to them when making decisions.
 const gmxContext = context({
     type: "gmx-trading-agent",
     maxSteps: 50,
-    maxWorkingMemorySize: 5,
+    maxWorkingMemorySize: 3,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
         positions: z.string().describe("The agent's positions"),

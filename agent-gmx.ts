@@ -173,7 +173,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
   #### 💱 Token Swaps
-  - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, and either fromAmount (when swapping FROM USDC) or toAmount (when you need exact output). OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
+  - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, and either fromAmount (when swapping FROM USDC) or toAmount (when swapping TO USDC). OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
 
   #### 🛡️ Risk Management
   - set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
@@ -228,8 +228,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0x...", "allowedSlippageBps": 100})
    - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000000"}) // Take profit at $67,000
    - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000000"}) // Stop loss at $63,000
-   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
-   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0x...", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
+   - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
+   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
 
 ## 🧠 Trading Philosophy
 
@@ -270,7 +270,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
 - You can only have one stop loss and one take profit order per position
 - You need to have enough ETH (AND NOT WETH) in your wallet to pay for the gas fees of the trades you make
-- Rebalance your portfolio to maintain between 2% and 5% of ETH (AND NOT WETH) and hold the rest in USDC
+- Rebalance your portfolio to maintain between 1% and 3% of ETH, swap USDC to ETH (AND NOT WETH) if needed
+- Hold the rest of the portfolio in USDC (swap WETH, BTC to USDC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
 
 ### Trading Cycle
@@ -357,7 +358,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1500000); // 25 minutes
+                }, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

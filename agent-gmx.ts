@@ -247,7 +247,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### Important : Portfolio Management
 - **CRITICAL**: Keep a steady balance of 10$ worth of ETH (NOT WETH) to pay for gas fees
-- All the rest of the portfolio (WETH, BTC, etc...) should be swapped to USDC as it's the token used for trading (dont swap dust though)
+- All the rest of the portfolio (WETH, BTC) should be swapped to USDC as it's the token used for trading (dont swap dust though)
 
 ### Position Management
 - One primary position per asset maximum (avoid over-trading)

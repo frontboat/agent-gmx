@@ -264,7 +264,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Stop losses: Set based on technical levels and volatility, not rigid percentages
 - Take profits: Target levels that make sense given predicted move and market structure
 
-## CRITICAL -Execution Protocol
+## CRITICAL - Execution Protocol
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
 - Always gather fresh data, they trump memory

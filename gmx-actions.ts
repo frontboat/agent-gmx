@@ -1408,15 +1408,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 
                 debugLog('SWAP_TOKENS', 'Starting token swap', { input: data });
 
-                // Get market and token data for validation
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
-                    debugError('SWAP_TOKENS', error, { stage: 'getMarketsInfo' });
-                    throw new Error(`Failed to get market data: ${error.message || error}`);
+                // Get token data for validation (no need for markets info for swaps)
+                const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+                    debugError('SWAP_TOKENS', error, { stage: 'getTokensData' });
+                    throw new Error(`Failed to get token data: ${error.message || error}`);
                 });
                 
-                if (!marketsInfoData || !tokensData) {
-                    debugError('SWAP_TOKENS', 'Invalid market data received');
-                    throw new Error("Failed to get market and token data");
+                if (!tokensData) {
+                    debugError('SWAP_TOKENS', 'Invalid token data received');
+                    throw new Error("Failed to get token data");
                 }
 
                 // Validate tokens exist
@@ -1453,11 +1453,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     allowedSlippageBps: data.allowedSlippageBps || 100,
                 };
 
-                // Add amount parameter (either fromAmount or toAmount)
-                if (data.fromAmount) {
-                    swapParams.fromAmount = BigInt(data.fromAmount);
-                } else if (data.toAmount) {
+                // Add toAmount parameter (required for swap)
+                if (data.toAmount) {
                     swapParams.toAmount = BigInt(data.toAmount);
+                } else {
+                    throw new Error("toAmount is required for token swaps");
                 }
 
                 // Add triggerPrice for limit swaps if provided
@@ -1471,7 +1471,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 debugLog('SWAP_TOKENS', 'Swap params prepared', {
                     ...swapParams,
                     orderType,
-                    fromAmount: swapParams.fromAmount?.toString(),
                     toAmount: swapParams.toAmount?.toString(),
                     triggerPrice: swapParams.triggerPrice?.toString()
                 });
@@ -1484,7 +1483,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     fromToken: fromToken.symbol,
                     toToken: toToken.symbol,
                     orderType,
-                    fromAmount: data.fromAmount,
                     toAmount: data.toAmount,
                     slippage: `${(data.allowedSlippageBps || 100) / 100}%`,
                     triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
@@ -1514,19 +1512,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 });
 
                 // Calculate swap amounts for display
-                let swapAmountDisplay = '';
-                let receiveAmountDisplay = '';
-                
-                if (data.fromAmount) {
-                    swapAmountDisplay = formatTokenAmount(BigInt(data.fromAmount), fromToken.decimals, 6);
-                    // For market swaps, we can't know exact output until execution
-                    receiveAmountDisplay = isLimitOrder && data.triggerPrice ? 
-                        `~${(Number(data.fromAmount) / Math.pow(10, fromToken.decimals) * Number(data.triggerPrice) / 1e30).toFixed(6)}` :
-                        'Market rate';
-                } else if (data.toAmount) {
-                    receiveAmountDisplay = formatTokenAmount(BigInt(data.toAmount), toToken.decimals, 6);
-                    swapAmountDisplay = 'Market rate';
-                }
+                let swapAmountDisplay = 'Market rate';
+                let receiveAmountDisplay = formatTokenAmount(BigInt(data.toAmount), toToken.decimals, 6);
 
                 // Update memory
                 memory = {

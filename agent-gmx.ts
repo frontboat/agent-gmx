@@ -268,7 +268,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
 - You can only have one stop loss and one take profit order per position
-- Always use USDC as the receiveTokenAddress for closing positions
+- You need to have enough ETH (AND NOT WETH) in your wallet to pay for the gas fees of the trades you make
+- Rebalance your portfolio to maintain 90% of USDC and 10% of ETH (DONT HOLD WETH/BTC/WBTC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
 
 ### Trading Cycle

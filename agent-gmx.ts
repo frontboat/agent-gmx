@@ -268,8 +268,9 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
 - Always gather fresh data, they trump memory
-- Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
+- You can only have one stop loss and one take profit order per position
 - Always use USDC as the receiveTokenAddress for closing positions
+- Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions

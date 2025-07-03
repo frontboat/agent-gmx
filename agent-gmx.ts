@@ -244,7 +244,10 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Manage risk before chasing returns - protect capital first
 - Learn and adapt within the session based on market feedback
 - Consider BTC/ETH correlation when holding both positions
-- CRITICAL : keep a steady balance of 10$ worth of ETH, all the rest of the portfolio should be swapped to USDC as it's the token used for trading (dont swap dust though)
+
+### Important : Portfolio Management
+- **CRITICAL**: Keep a steady balance of 10$ worth of ETH (NOT WETH) to pay for gas fees
+- All the rest of the portfolio (WETH, BTC, etc...) should be swapped to USDC as it's the token used for trading (dont swap dust though)
 
 ### Position Management
 - One primary position per asset maximum (avoid over-trading)
@@ -354,7 +357,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }, 1200000); // 20 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

@@ -267,7 +267,6 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 ## CRITICAL - Execution Protocol
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
-- Always gather fresh data, they trump memory
 - You can only have one stop loss and one take profit order per position
 - Always use USDC as the receiveTokenAddress for closing positions
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
@@ -292,7 +291,7 @@ Keep all previous instructions in mind and refer to them when making decisions
 const gmxContext = context({
     type: "gmx-trading-agent",
     maxSteps: 50,
-    maxWorkingMemorySize: 3,
+    //maxWorkingMemorySize: 10,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
         positions: z.string().describe("The agent's positions"),

@@ -779,6 +779,9 @@ export const get_orders_str = async (sdk: GmxSdk) => {
         
         let totalOrderValue = 0;
         let highRiskCount = 0;
+        let takeProfitCount = 0;
+        let stopLossCount = 0;
+        let regularOrderCount = 0;
         
         orders.forEach((order: any, index: number) => {
             try {
@@ -810,6 +813,11 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                 const leverage = collateralValue > 0 ? orderValueUsd / collateralValue : 0;
                 if (leverage > 10) highRiskCount++;
                 
+                // Count order types
+                if (order.orderType === 5) takeProfitCount++;
+                else if (order.orderType === 6) stopLossCount++;
+                else regularOrderCount++;
+                
                 // Calculate order age using correct field name
                 const updatedAt = Number(order.updatedAtTime) || 0;
                 const orderAgeHours = updatedAt > 0 ? (Date.now() / 1000 - updatedAt) / 3600 : 0;
@@ -833,8 +841,13 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                     markPriceUsd
                 );
                 
+                // Determine if this is a TP/SL order
+                let orderIcon = "📌";
+                if (order.orderType === 5) orderIcon = "🎯"; // Take Profit
+                if (order.orderType === 6) orderIcon = "🛡️"; // Stop Loss
+                
                 // Format order info
-                ordersString += `📌 Order #${index + 1} - ${marketInfo.name}\n`;
+                ordersString += `${orderIcon} Order #${index + 1} - ${marketInfo.name}\n`;
                 ordersString += `├─ Type: ${order.isLong ? "🟢 LONG" : "🔴 SHORT"} ${orderTypeText}\n`;
                 ordersString += `├─ Size: $${orderValueUsd.toFixed(2)} @ ${leverage.toFixed(2)}x leverage\n`;
                 ordersString += `├─ Trigger: $${triggerPriceUsd.toFixed(2)} (Current: $${markPriceUsd.toFixed(2)})\n`;
@@ -852,6 +865,9 @@ export const get_orders_str = async (sdk: GmxSdk) => {
         ordersString += "═".repeat(60) + "\n";
         ordersString += "📊 SUMMARY\n";
         ordersString += `├─ Total Orders: ${orders.length}\n`;
+        ordersString += `├─ Regular Orders: ${regularOrderCount}\n`;
+        ordersString += `├─ 🎯 Take Profit Orders: ${takeProfitCount}\n`;
+        ordersString += `├─ 🛡️ Stop Loss Orders: ${stopLossCount}\n`;
         ordersString += `├─ Total Value: $${totalOrderValue.toFixed(2)}\n`;
         ordersString += `├─ High Risk Orders: ${highRiskCount}\n`;
         ordersString += `└─ Average Size: $${(totalOrderValue / orders.length).toFixed(2)}\n`;

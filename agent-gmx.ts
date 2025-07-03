@@ -250,7 +250,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Close conflicting positions before opening new ones
 - Set stop losses and take profits immediately after entry
 - Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 10% of the porfolio value)
+- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 20% of the porfolio value)
 
 ### Decision Quality Over Frequency
 - Strong signal (clear consensus, significant predicted move): Act decisively with appropriate size
@@ -260,7 +260,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### IMPORTANT - Risk Management
 - Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 10% of the porfolio value)
+- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 20% of the porfolio value)
 - Stop losses: Set based on technical levels and volatility, not rigid percentages
 - Take profits: Target levels that make sense given predicted move and market structure
 
@@ -291,7 +291,7 @@ Keep all previous instructions in mind and refer to them when making decisions
 const gmxContext = context({
     type: "gmx-trading-agent",
     maxSteps: 50,
-    //maxWorkingMemorySize: 10,
+    maxWorkingMemorySize: 5,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
         positions: z.string().describe("The agent's positions"),

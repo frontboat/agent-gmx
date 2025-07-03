@@ -173,7 +173,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
   #### 💱 Token Swaps
-  - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, toAmount. OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
+  - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, and either fromAmount (when swapping FROM USDC) or toAmount (when you need exact output). OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
 
   #### 🛡️ Risk Management
   - set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
@@ -228,7 +228,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0x...", "allowedSlippageBps": 100})
    - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000000"}) // Take profit at $67,000
    - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000000"}) // Stop loss at $63,000
-   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0x...", "toAmount": "50000000"})
+   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
+   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0x...", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
 
 ## 🧠 Trading Philosophy
 
@@ -250,7 +251,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Close conflicting positions before opening new ones
 - Set stop losses and take profits immediately after entry
 - Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 10% of the porfolio value)
+- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 15% of the porfolio value)
 
 ### Decision Quality Over Frequency
 - Strong signal (clear consensus, significant predicted move): Act decisively with appropriate size
@@ -260,7 +261,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### IMPORTANT - Risk Management
 - Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 10% of the porfolio value)
+- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 15% of the porfolio value)
 - Stop losses: Set based on technical levels and volatility, not rigid percentages
 - Take profits: Target levels that make sense given predicted move and market structure
 
@@ -269,7 +270,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
 - You can only have one stop loss and one take profit order per position
 - You need to have enough ETH (AND NOT WETH) in your wallet to pay for the gas fees of the trades you make
-- Rebalance your portfolio to maintain between 2% and 5% of ETH and the rest in USDC (DONT HOLD WETH/BTC/WBTC)
+- Rebalance your portfolio to maintain between 2% and 5% of ETH (AND NOT WETH) and hold the rest in USDC
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
 
 ### Trading Cycle
@@ -356,7 +357,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1200000); // 20 minutes
+                }, 1500000); // 25 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

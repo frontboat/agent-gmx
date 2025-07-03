@@ -1394,13 +1394,16 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Swap Tokens
     action({
         name: "swap_tokens",
-        description: "Swap tokens using GMX's liquidity pools. Supports market swaps (immediate) and limit swaps (execute at specific price).",
+        description: "Swap tokens using GMX's liquidity pools. Specify EITHER fromAmount (when you know input amount, e.g., swapping X USDC) OR toAmount (when you need exact output amount). For USDC swaps, typically use fromAmount.",
         schema: z.object({
             fromTokenAddress: z.string().describe("ERC20 token address to swap from (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
             toTokenAddress: z.string().describe("ERC20 token address to receive (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-            toAmount: z.string().describe("Exact amount to receive in BigInt string using token's native decimals (e.g. '1000000000' for 1000 USDC with 6 decimals)"),
+            fromAmount: z.string().optional().describe("Amount to swap in BigInt string using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this when swapping FROM a stablecoin like USDC."),
+            toAmount: z.string().optional().describe("Exact amount to receive in BigInt string using token's native decimals (e.g. '1000000000000000000' for 1 WETH with 18 decimals). Use this when you need exact output amount."),
             allowedSlippageBps: z.number().optional().default(100).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
             triggerPrice: z.string().optional().describe("For limit swaps: price at which to execute swap in BigInt string with 30-decimal precision. Omit for market swaps.")
+        }).refine(data => data.fromAmount || data.toAmount, {
+            message: "Either fromAmount or toAmount must be specified"
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1453,11 +1456,13 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     allowedSlippageBps: data.allowedSlippageBps || 100,
                 };
 
-                // Add toAmount parameter (required for swap)
-                if (data.toAmount) {
+                // Add amount parameter (either fromAmount or toAmount)
+                if (data.fromAmount) {
+                    swapParams.fromAmount = BigInt(data.fromAmount);
+                } else if (data.toAmount) {
                     swapParams.toAmount = BigInt(data.toAmount);
                 } else {
-                    throw new Error("toAmount is required for token swaps");
+                    throw new Error("Either fromAmount or toAmount must be specified");
                 }
 
                 // Add triggerPrice for limit swaps if provided
@@ -1471,6 +1476,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 debugLog('SWAP_TOKENS', 'Swap params prepared', {
                     ...swapParams,
                     orderType,
+                    fromAmount: swapParams.fromAmount?.toString(),
                     toAmount: swapParams.toAmount?.toString(),
                     triggerPrice: swapParams.triggerPrice?.toString()
                 });
@@ -1483,6 +1489,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     fromToken: fromToken.symbol,
                     toToken: toToken.symbol,
                     orderType,
+                    fromAmount: data.fromAmount,
                     toAmount: data.toAmount,
                     slippage: `${(data.allowedSlippageBps || 100) / 100}%`,
                     triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
@@ -1512,8 +1519,19 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 });
 
                 // Calculate swap amounts for display
-                let swapAmountDisplay = 'Market rate';
-                let receiveAmountDisplay = formatTokenAmount(BigInt(data.toAmount), toToken.decimals, 6);
+                let swapAmountDisplay = '';
+                let receiveAmountDisplay = '';
+                
+                if (data.fromAmount) {
+                    swapAmountDisplay = formatTokenAmount(BigInt(data.fromAmount), fromToken.decimals, 6);
+                    // For market swaps, we can't know exact output until execution
+                    receiveAmountDisplay = isLimitOrder && data.triggerPrice ? 
+                        `~${(Number(data.fromAmount) / Math.pow(10, fromToken.decimals) * Number(data.triggerPrice) / 1e30).toFixed(6)}` :
+                        'Market rate';
+                } else if (data.toAmount) {
+                    receiveAmountDisplay = formatTokenAmount(BigInt(data.toAmount), toToken.decimals, 6);
+                    swapAmountDisplay = 'Market rate';
+                }
 
                 // Update memory
                 memory = {

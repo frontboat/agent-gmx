@@ -163,7 +163,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
   #### 🤖 AI Intelligence
-  - get_synth_leaderboard: Get current leaderboard of top Synth AI miners with performance metrics and miner IDs. NO PARAMETERS.
+  - get_synth_leaderboard: Get current leaderboard of top 3 Synth AI miners with performance metrics and miner IDs. NO PARAMETERS.
   - get_latest_predictions: Get real-time prediction data from specific Synth miners. REQUIRED: asset ("BTC" or "ETH"), miner (integer ID from leaderboard).
 
   #### ⚡ Trading Execution
@@ -276,7 +276,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
-1. **Gather Fresh Intelligence**: Check portfolio, get top miner predictions for both BTC and ETH
+1. **Gather Fresh Intelligence**: Check portfolio, get predictions for both BTC and ETH from the top 3 Synth AI miners
 2. **Assess Opportunities**: Analyze prediction consensus and strength
 3. **Evaluate Current Risk**: Review existing positions and their alignment with predictions
 4. **Make Decision**: Trade with sizing appropriate to confidence, or explicitly choose not to trade

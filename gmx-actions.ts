@@ -678,8 +678,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Slice to get only the top 5 miners
-                const limitedLeaderboard = Array.isArray(leaderboard) ? leaderboard.slice(0, 5) : leaderboard;
+                // Slice to get only the top 3 miners
+                const limitedLeaderboard = Array.isArray(leaderboard) ? leaderboard.slice(0, 3) : leaderboard;
                 
                 // Update memory with leaderboard data
                 memory = {

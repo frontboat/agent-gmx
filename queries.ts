@@ -1044,10 +1044,8 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
         resultString += `├─ Prediction Timestamps: ${consolidatedArray.length}\n`;
         resultString += `└─ Data Source: Synth Network\n\n`;
         
-        // Add prediction details (limit to first 10 timestamps for readability)
-        const limitedPredictions = consolidatedArray.slice(0, 10);
-        
-        limitedPredictions.forEach((timeSlot, index) => {
+        // Add all prediction details
+        consolidatedArray.forEach((timeSlot, index) => {
             resultString += `⏰ Prediction #${index + 1} - ${new Date(timeSlot.time).toLocaleString()}\n`;
             
             // Sort miners by rank for consistent display
@@ -1058,15 +1056,11 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
                 resultString += `├─ Rank ${pred.rank} (Miner ${pred.miner_uid}): $${price}\n`;
             });
             
-            resultString += `└─ Consensus Range: $${Math.min(...sortedPredictions.map((p: any) => p.price)).toFixed(2)} - $${Math.max(...sortedPredictions.map((p: any) => p.price)).toFixed(2)}\n\n`;
+            resultString += `\n`;
         });
         
-        if (consolidatedArray.length > 10) {
-            resultString += `... and ${consolidatedArray.length - 10} more prediction timestamps\n\n`;
-        }
-        
         resultString += "═".repeat(60) + "\n";
-        resultString += `💡 ANALYSIS READY - Use this data to identify consensus direction and price targets\n`;
+        resultString += `💡 Data ready for analysis\n`;
         
         return resultString;
         

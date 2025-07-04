@@ -79,6 +79,10 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Retrieved daily volumes for BTC/ETH markets"
                 };
 
+                debugLog('VOLUMES', 'Volumes retrieved successfully', {
+                    dataLength: volumesString
+                });
+                
                 return {
                     success: true,
                     message: "Successfully retrieved BTC/ETH daily volumes",
@@ -113,6 +117,10 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Retrieved filtered token information"
                 };
 
+                debugLog('TOKENS', 'Tokens retrieved successfully', {
+                    dataLength: tokensString
+                });
+                
                 return {
                     success: true,
                     message: "Successfully retrieved BTC/ETH/USD tokens data",
@@ -150,6 +158,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Total portfolio value: $${totalValue.toFixed(2)}`
                 };
 
+                debugLog('PORTFOLIO', 'Portfolio balance retrieved successfully', {
+                    dataLength: portfolioString
+                });
+                
+
                 return {
                     success: true,
                     message: "Portfolio balance retrieved successfully",
@@ -185,6 +198,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📈 Positions retrieved successfully",
                     lastResult: "Current positions analyzed"
                 };
+
+                debugLog('POSITIONS', 'Positions retrieved successfully', {
+                    dataLength: positionsString
+                });
+                
 
                 return {
                     success: true,
@@ -226,6 +244,10 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: ordersString
                 };
 
+                debugLog('ORDERS', 'Orders retrieved successfully', {
+                    dataLength: ordersString
+                });
+                
                 return {
                     success: true,
                     message: ordersString,
@@ -242,422 +264,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     }),
 
 
-    // Trade History (Official SDK Method) - Enhanced with Comprehensive Analytics
-    action({
-        name: "get_trade_history",
-        description: "Get trading history with comprehensive analytics including advanced PnL calculations, liquidation prices, and portfolio-level metrics",
-        schema: z.object({
-            pageSize: z.number().optional().default(100).describe("Number of trades per page (1-1000, default: 100)"),
-            pageIndex: z.number().optional().default(0).describe("Page index for pagination (0-based, default: 0)"),
-            fromTxTimestamp: z.number().optional().describe("Start timestamp as Unix timestamp in seconds (e.g. 1672531200 for Jan 1, 2023)"),
-            toTxTimestamp: z.number().optional().describe("End timestamp as Unix timestamp in seconds (e.g. 1704067200 for Jan 1, 2024)"),
-        }),
-        async handler(data, ctx, agent) {
-            try {
-                // Set default time range if not provided (last 365 days)
-                const now = Math.floor(Date.now() / 1000);
-                const lastYear = now - (365 * 24 * 60 * 60);
-                
-                // Get market and token data first (required for trade history)
-                const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
-                
-                if (!marketsInfoData || !tokensData) {
-                    throw new Error("Failed to get market and token data");
-                }
-
-                // Create params for trade history request with required dependencies
-                const params = {
-                    pageSize: data.pageSize || 100,
-                    pageIndex: data.pageIndex || 0,
-                    fromTxTimestamp: data.fromTxTimestamp || lastYear,
-                    toTxTimestamp: data.toTxTimestamp || now,
-                    marketsInfoData,
-                    tokensData
-                };
-                
-                // Fetch trade history using the SDK
-                const tradeActions = await sdk.trades.getTradeHistory(params);
-                
-                // Process trades for comprehensive analysis
-                const simplifiedTrades: any[] = [];
-                const tradeMetrics = {
-                    totalPnl: 0,
-                    totalVolume: 0,
-                    totalFees: 0,
-                    winCount: 0,
-                    totalWins: 0,
-                    lossCount: 0,
-                    totalLosses: 0,
-                    maxWin: 0,
-                    maxLoss: 0,
-                    totalTradeDuration: 0,
-                    slippageAnalysis: { total: 0, count: 0 },
-                    marketsTraded: new Set<string>(),
-                    profitByMarket: {} as Record<string, number>,
-                    volumeByMarket: {} as Record<string, number>,
-                    tradesByDay: {} as Record<string, number>
-                };
-                
-                tradeActions.forEach(trade => {
-                    try {
-                        if (!trade) return;
-                        
-                        const tradeDate = new Date(trade.transaction.timestamp * 1000);
-                        const tradeDateStr = tradeDate.toISOString().split('T')[0];
-                        tradeMetrics.tradesByDay[tradeDateStr] = (tradeMetrics.tradesByDay[tradeDateStr] || 0) + 1;
-                        
-                        // Common properties for all trade types
-                        const baseTradeInfo = {
-                            id: trade.id,
-                            timestamp: tradeDate.toLocaleString(),
-                            txHash: trade.transaction.hash,
-                            eventName: trade.eventName,
-                            orderType: trade.orderType,
-                            orderKey: trade.orderKey,
-                            blockNumber: trade.transaction.blockNumber
-                        };
-                        
-                        // Process position trades (non-swap trades)
-                        if ('marketInfo' in trade) {
-                            const positionTrade = trade;
-                            
-                            // Extract market and token info
-                            const marketInfo = positionTrade.marketInfo;
-                            const indexToken = positionTrade.indexToken.symbol;
-                            const isLong = positionTrade.isLong;
-                            const side = isLong ? 'LONG' : 'SHORT';
-                            
-                            // Track markets traded
-                            tradeMetrics.marketsTraded.add(marketInfo.name);
-                            
-                            // Convert BigInt values to human-readable numbers
-                            const sizeUsd = bigIntToDecimal(positionTrade.sizeDeltaUsd, USD_DECIMALS);
-                            tradeMetrics.totalVolume += sizeUsd;
-                            
-                            // Update volume by market
-                            tradeMetrics.volumeByMarket[marketInfo.name] = 
-                                (tradeMetrics.volumeByMarket[marketInfo.name] || 0) + sizeUsd;
-                            
-                            // Get prices with proper decimal handling
-                            const executionPrice = positionTrade.executionPrice 
-                                ? bigIntToDecimal(positionTrade.executionPrice, USD_DECIMALS)
-                                : 0;
-                            
-                            const triggerPrice = positionTrade.triggerPrice
-                                ? bigIntToDecimal(positionTrade.triggerPrice, USD_DECIMALS)
-                                : 0;
-                            
-                            const price = executionPrice || triggerPrice;
-                            
-                            // Calculate slippage if both prices available
-                            let slippage = 0;
-                            if (triggerPrice > 0 && executionPrice > 0) {
-                                slippage = Math.abs(executionPrice - triggerPrice) / triggerPrice * 100;
-                                tradeMetrics.slippageAnalysis.total += slippage;
-                                tradeMetrics.slippageAnalysis.count++;
-                            }
-                            
-                            // Calculate comprehensive PnL metrics
-                            let pnlUsd = 0;
-                            let pnlPercentage = 0;
-                            let realizedPnl = 0;
-                            let unrealizedPnl = 0;
-                            
-                            if (positionTrade.pnlUsd) {
-                                pnlUsd = bigIntToDecimal(positionTrade.pnlUsd, USD_DECIMALS);
-                                realizedPnl = pnlUsd; // For closed positions, this is realized
-                                
-                                // Calculate PnL percentage based on collateral
-                                const collateralUsd = bigIntToDecimal(
-                                    positionTrade.initialCollateralDeltaAmount || 0n,
-                                    positionTrade.initialCollateralToken.decimals
-                                ) * (positionTrade.initialCollateralToken.prices?.maxPrice ?
-                                    bigIntToDecimal(positionTrade.initialCollateralToken.prices.maxPrice, USD_DECIMALS) : 1);
-                                
-                                if (collateralUsd > 0) {
-                                    pnlPercentage = (pnlUsd / collateralUsd) * 100;
-                                }
-                                
-                                // Update comprehensive statistics
-                                tradeMetrics.totalPnl += pnlUsd;
-                                tradeMetrics.profitByMarket[marketInfo.name] = 
-                                    (tradeMetrics.profitByMarket[marketInfo.name] || 0) + pnlUsd;
-                                
-                                if (pnlUsd > 0) {
-                                    tradeMetrics.winCount++;
-                                    tradeMetrics.totalWins += pnlUsd;
-                                    tradeMetrics.maxWin = Math.max(tradeMetrics.maxWin, pnlUsd);
-                                } else if (pnlUsd < 0) {
-                                    tradeMetrics.lossCount++;
-                                    tradeMetrics.totalLosses += Math.abs(pnlUsd);
-                                    tradeMetrics.maxLoss = Math.min(tradeMetrics.maxLoss, pnlUsd);
-                                }
-                            }
-                            
-                            // Calculate comprehensive fees
-                            const fees = {
-                                positionFee: positionTrade.positionFeeAmount 
-                                    ? bigIntToDecimal(positionTrade.positionFeeAmount, USD_DECIMALS) 
-                                    : 0,
-                                borrowingFee: positionTrade.borrowingFeeAmount 
-                                    ? bigIntToDecimal(positionTrade.borrowingFeeAmount, USD_DECIMALS) 
-                                    : 0,
-                                fundingFee: positionTrade.fundingFeeAmount 
-                                    ? bigIntToDecimal(positionTrade.fundingFeeAmount, USD_DECIMALS) 
-                                    : 0,
-                                uiFee: positionTrade.uiFeeAmount 
-                                    ? bigIntToDecimal(positionTrade.uiFeeAmount, USD_DECIMALS) 
-                                    : 0
-                            };
-                            
-                            const totalFees = fees.positionFee + fees.borrowingFee + fees.fundingFee + fees.uiFee;
-                            tradeMetrics.totalFees += totalFees;
-                            
-                            // Calculate theoretical liquidation price for this trade
-                            let liquidationPrice = null;
-                            let distanceToLiquidation = null;
-                            
-                            if (positionTrade.sizeDeltaUsd && positionTrade.initialCollateralDeltaAmount) {
-                                try {
-                                    const sizeInTokens = convertToTokenAmount(
-                                        positionTrade.sizeDeltaUsd,
-                                        positionTrade.indexToken.decimals,
-                                        positionTrade.indexToken.prices?.maxPrice || 0n
-                                    );
-                                    
-                                    const collateralUsd = convertToUsd(
-                                        positionTrade.initialCollateralDeltaAmount,
-                                        positionTrade.initialCollateralToken.decimals,
-                                        positionTrade.initialCollateralToken.prices?.maxPrice || 0n
-                                    );
-                                    
-                                    if (!sizeInTokens || !collateralUsd) {
-                                        throw new Error("Failed to convert values");
-                                    }
-                                    
-                                    const collateralAmount = positionTrade.initialCollateralDeltaAmount;
-                                    const isSameCollateralAsIndex = positionTrade.initialCollateralToken.address === positionTrade.indexToken.address;
-                                    
-                                    const liquidationPriceRaw = calculateLiquidationPrice({
-                                        sizeInUsd: positionTrade.sizeDeltaUsd,
-                                        sizeInTokens,
-                                        collateralAmount,
-                                        collateralUsd,
-                                        markPrice: positionTrade.indexToken.prices?.maxPrice || 0n,
-                                        indexTokenDecimals: positionTrade.indexToken.decimals,
-                                        collateralTokenDecimals: positionTrade.initialCollateralToken.decimals,
-                                        isLong,
-                                        minCollateralFactor: marketInfo.minCollateralFactor || 1000n,
-                                        pendingBorrowingFeesUsd: 0n, // Not available in historical trade data
-                                        pendingFundingFeesUsd: 0n,   // Not available in historical trade data
-                                        isSameCollateralAsIndex
-                                    });
-                                    
-                                    if (liquidationPriceRaw) {
-                                        liquidationPrice = bigIntToDecimal(liquidationPriceRaw, USD_DECIMALS);
-                                        if (price > 0) {
-                                            distanceToLiquidation = Math.abs(price - liquidationPrice) / price * 100;
-                                        }
-                                    }
-                                } catch (error) {
-                                    console.warn("Failed to calculate liquidation price for trade:", error);
-                                }
-                            }
-                            
-                            // Calculate leverage used
-                            const collateralAmount = bigIntToDecimal(
-                                positionTrade.initialCollateralDeltaAmount || 0n,
-                                positionTrade.initialCollateralToken.decimals
-                            );
-                            
-                            const collateralUsdValue = collateralAmount * 
-                                (positionTrade.initialCollateralToken.prices?.maxPrice ? 
-                                    bigIntToDecimal(positionTrade.initialCollateralToken.prices.maxPrice, USD_DECIMALS) : 1);
-                            
-                            const leverage = collateralUsdValue > 0 ? sizeUsd / collateralUsdValue : 0;
-                            
-                            // Calculate ROI (Return on Investment)
-                            const roi = collateralUsdValue > 0 ? (pnlUsd / collateralUsdValue) * 100 : 0;
-                            
-                            // Add enhanced trade to simplified trades array
-                            simplifiedTrades.push({
-                                ...baseTradeInfo,
-                                type: 'Position',
-                                market: marketInfo.name,
-                                marketAddress: positionTrade.marketAddress,
-                                indexToken,
-                                side,
-                                size: '$' + sizeUsd.toFixed(2),
-                                executionPrice: '$' + executionPrice.toFixed(6),
-                                triggerPrice: triggerPrice > 0 ? '$' + triggerPrice.toFixed(6) : 'N/A',
-                                slippage: slippage > 0 ? slippage.toFixed(4) + '%' : 'N/A',
-                                collateral: {
-                                    token: positionTrade.initialCollateralToken.symbol,
-                                    amount: collateralAmount.toFixed(6),
-                                    usdValue: '$' + collateralUsdValue.toFixed(2)
-                                },
-                                leverage: leverage.toFixed(2) + 'x',
-                                pnl: {
-                                    usd: '$' + pnlUsd.toFixed(2),
-                                    percentage: pnlPercentage.toFixed(2) + '%',
-                                    realized: '$' + realizedPnl.toFixed(2),
-                                    unrealized: '$' + unrealizedPnl.toFixed(2)
-                                },
-                                roi: roi.toFixed(2) + '%',
-                                fees: {
-                                    ...fees,
-                                    total: '$' + totalFees.toFixed(4)
-                                },
-                                liquidationPrice: liquidationPrice ? '$' + liquidationPrice.toFixed(6) : 'N/A',
-                                distanceToLiquidation: distanceToLiquidation ? distanceToLiquidation.toFixed(2) + '%' : 'N/A',
-                                action: getTradeActionDescriptionEnhanced(trade.eventName, trade.orderType, isLong),
-                                riskLevel: leverage > 10 ? 'High' : leverage > 5 ? 'Medium' : 'Low'
-                            });
-                        } 
-                        // Process swap trades with enhanced analysis
-                        else if ('targetCollateralToken' in trade) {
-                            const swapTrade = trade;
-                            
-                            const fromToken = swapTrade.initialCollateralToken;
-                            const toToken = swapTrade.targetCollateralToken;
-                            
-                            const amountIn = bigIntToDecimal(
-                                swapTrade.initialCollateralDeltaAmount, 
-                                fromToken.decimals
-                            );
-                            
-                            const amountOut = swapTrade.executionAmountOut 
-                                ? bigIntToDecimal(swapTrade.executionAmountOut, toToken.decimals)
-                                : 0;
-                            
-                            // Calculate swap efficiency
-                            const fromPriceUsd = fromToken.prices?.maxPrice ? 
-                                bigIntToDecimal(fromToken.prices.maxPrice, USD_DECIMALS) : 0;
-                            const toPriceUsd = toToken.prices?.maxPrice ? 
-                                bigIntToDecimal(toToken.prices.maxPrice, USD_DECIMALS) : 0;
-                            
-                            const expectedAmountOut = fromPriceUsd > 0 && toPriceUsd > 0 ? 
-                                (amountIn * fromPriceUsd) / toPriceUsd : 0;
-                            
-                            const swapEfficiency = expectedAmountOut > 0 ? 
-                                (amountOut / expectedAmountOut) * 100 : 0;
-                            
-                            const swapVolumeUsd = amountIn * fromPriceUsd;
-                            tradeMetrics.totalVolume += swapVolumeUsd;
-                            
-                            // Add enhanced swap to simplified trades array
-                            simplifiedTrades.push({
-                                ...baseTradeInfo,
-                                type: 'Swap',
-                                fromToken: fromToken.symbol,
-                                toToken: toToken.symbol,
-                                amountIn: amountIn.toFixed(6),
-                                amountOut: amountOut.toFixed(6),
-                                volumeUsd: '$' + swapVolumeUsd.toFixed(2),
-                                expectedAmountOut: expectedAmountOut.toFixed(6),
-                                swapEfficiency: swapEfficiency.toFixed(2) + '%',
-                                priceImpact: (100 - swapEfficiency).toFixed(2) + '%',
-                                action: getTradeActionDescriptionEnhanced(trade.eventName, trade.orderType, false)
-                            });
-                        }
-                    } catch (err) {
-                        console.error("Error processing trade:", err);
-                        // Continue to next trade
-                    }
-                });
-                
-                // Calculate comprehensive performance metrics
-                const tradeCount = simplifiedTrades.length;
-                const winRate = tradeCount > 0 ? (tradeMetrics.winCount / tradeCount) * 100 : 0;
-                const averageProfit = tradeMetrics.winCount > 0 ? tradeMetrics.totalWins / tradeMetrics.winCount : 0;
-                const averageLoss = tradeMetrics.lossCount > 0 ? tradeMetrics.totalLosses / tradeMetrics.lossCount : 0;
-                const profitFactor = tradeMetrics.totalLosses > 0 ? tradeMetrics.totalWins / tradeMetrics.totalLosses : 
-                    tradeMetrics.totalWins > 0 ? Infinity : 0;
-                
-                const averageSlippage = tradeMetrics.slippageAnalysis.count > 0 ? 
-                    tradeMetrics.slippageAnalysis.total / tradeMetrics.slippageAnalysis.count : 0;
-                
-                const netPnl = tradeMetrics.totalPnl - tradeMetrics.totalFees;
-                const feeRatio = tradeMetrics.totalVolume > 0 ? (tradeMetrics.totalFees / tradeMetrics.totalVolume) * 100 : 0;
-                
-                // Calculate Sharpe-like ratio (simplified)
-                const returns = simplifiedTrades
-                    .filter(t => t.type === 'Position' && t.pnl?.usd)
-                    .map(t => parseFloat(t.pnl.usd.replace('$', '')));
-                
-                const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
-                const returnStdDev = returns.length > 1 ? 
-                    Math.sqrt(returns.reduce((acc, ret) => acc + Math.pow(ret - avgReturn, 2), 0) / (returns.length - 1)) : 0;
-                
-                const riskAdjustedReturn = returnStdDev > 0 ? avgReturn / returnStdDev : 0;
-                
-                // Update memory with comprehensive data
-                let memory = ctx.memory as GmxMemory;
-                memory = {
-                    ...memory,
-                    trades: simplifiedTrades,
-                    totalPnl: tradeMetrics.totalPnl,
-                    winRate: winRate,
-                    averageProfit: averageProfit,
-                    averageLoss: averageLoss,
-                    currentTask: "🏆 Analyzing competition performance metrics",
-                    lastResult: `Retrieved trading history with ${simplifiedTrades.length} trades, total PnL: ${tradeMetrics.totalPnl.toFixed(2)}, win rate: ${winRate}%`
-                }
-                return {
-                    success: true,
-                    message: `Retrieved ${simplifiedTrades.length} trades with comprehensive analytics from ${new Date((data.fromTxTimestamp || lastYear) * 1000).toLocaleDateString()} to ${new Date((data.toTxTimestamp || now) * 1000).toLocaleDateString()}`,
-                    trades: simplifiedTrades,
-                    analytics: {
-                        basicMetrics: {
-                            totalPnl: '$' + tradeMetrics.totalPnl.toFixed(2),
-                            netPnl: '$' + netPnl.toFixed(2),
-                            totalVolume: '$' + tradeMetrics.totalVolume.toFixed(2),
-                            totalFees: '$' + tradeMetrics.totalFees.toFixed(2),
-                            feeRatio: feeRatio.toFixed(3) + '%',
-                            winRate: winRate.toFixed(2) + '%',
-                            profitFactor: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2),
-                            tradeCount,
-                            winCount: tradeMetrics.winCount,
-                            lossCount: tradeMetrics.lossCount
-                        },
-                        advancedMetrics: {
-                            averageProfit: '$' + averageProfit.toFixed(2),
-                            averageLoss: '$' + averageLoss.toFixed(2),
-                            maxWin: '$' + tradeMetrics.maxWin.toFixed(2),
-                            maxLoss: '$' + tradeMetrics.maxLoss.toFixed(2),
-                            averageSlippage: averageSlippage.toFixed(4) + '%',
-                            riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
-                            returnVolatility: returnStdDev.toFixed(2)
-                        },
-                        portfolioAnalysis: {
-                            marketsTraded: Array.from(tradeMetrics.marketsTraded),
-                            profitByMarket: Object.entries(tradeMetrics.profitByMarket)
-                                .map(([market, profit]) => ({ market, profit: '$' + profit.toFixed(2) }))
-                                .sort((a, b) => parseFloat(b.profit.replace('$', '')) - parseFloat(a.profit.replace('$', ''))),
-                            volumeByMarket: Object.entries(tradeMetrics.volumeByMarket)
-                                .map(([market, volume]) => ({ market, volume: '$' + volume.toFixed(2) }))
-                                .sort((a, b) => parseFloat(b.volume.replace('$', '')) - parseFloat(a.volume.replace('$', ''))),
-                            dailyActivity: Object.entries(tradeMetrics.tradesByDay)
-                                .map(([date, count]) => ({ date, trades: count }))
-                                .sort((a, b) => a.date.localeCompare(b.date))
-                        },
-                        tradingPeriod: {
-                            from: new Date((data.fromTxTimestamp || lastYear) * 1000).toLocaleDateString(),
-                            to: new Date((data.toTxTimestamp || now) * 1000).toLocaleDateString(),
-                            durationDays: Math.ceil(((data.toTxTimestamp || now) - (data.fromTxTimestamp || lastYear)) / (24 * 60 * 60))
-                        }
-                    }
-                };
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch trade history"
-                };
-            }
-        }
-    }),
-
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🧠 SYNTH MARKET INTELLIGENCE & PREDICTIONS
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -668,6 +274,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated BTC price predictions from top-performing Synth miners",
         async handler(data, ctx, agent) {
             try {
+                sleep(500);
                 const result = await get_synth_predictions_consolidated_str('BTC');
                 
                 let memory = ctx.memory as GmxMemory;
@@ -680,10 +287,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Retrieved consolidated BTC predictions from top Synth miners"
                 };
 
+                debugLog('BTC_PREDICTIONS', 'BTC predictions completed successfully', {
+                    dataLength: result
+                });
+
                 return {
                     success: true,
                     message: "Retrieved consolidated BTC predictions from top Synth miners",
-                    data: result
+                    synthBtcPredictions: result
                 };
             } catch (error) {
                 return {
@@ -701,6 +312,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
         async handler(data, ctx, agent) {
             try {
+                sleep(1000);
                 const result = await get_synth_predictions_consolidated_str('ETH');
                 
                 let memory = ctx.memory as GmxMemory;
@@ -713,10 +325,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Retrieved consolidated ETH predictions from top Synth miners"
                 };
 
+                debugLog('ETH_PREDICTIONS', 'ETH predictions completed successfully', {
+                    dataLength: result
+                });
+
                 return {
                     success: true,
                     message: "Retrieved consolidated ETH predictions from top Synth miners",
-                    data: result
+                    synthEthPredictions: result
                 };
             } catch (error) {
                 return {
@@ -734,10 +350,9 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
         async handler(data, ctx, agent) {
             try {
+                sleep(500);
                 let memory = ctx.memory as GmxMemory;
-                
-                debugLog('BTC_TECHNICAL_ANALYSIS', 'Starting BTC technical analysis fetch');
-                
+                              
                 // Get BTC technical analysis data
                 const technicalData = await get_technical_analysis_str('BTC');
                 
@@ -749,19 +364,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Retrieved BTC technical indicators across 4 timeframes"
                 };
 
-                const successResult = {
-                    success: true,
-                    message: "Successfully retrieved BTC technical indicators",
-                    data: technicalData,
-                    tokenSymbol: 'BTC',
-                    timeframes: ['15m', '1h', '4h', '1d']
-                };
-                
                 debugLog('BTC_TECHNICAL_ANALYSIS', 'BTC technical analysis completed successfully', {
-                    dataLength: technicalData.length
+                    dataLength: technicalData
                 });
                 
-                return successResult;
+                return {
+                    success: true,
+                    message: "Successfully retrieved BTC technical indicators",
+                    btcTechnicalAnalysis: technicalData,
+                };
             } catch (error) {
                 const errorResult = {
                     success: false,
@@ -769,7 +380,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     message: "Failed to fetch BTC technical analysis"
                 };
                 
-                debugError('BTC_TECHNICAL_ANALYSIS', 'Failed to fetch BTC technical analysis', errorResult);
                 return errorResult;
             }
         }
@@ -781,9 +391,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
         async handler(data, ctx, agent) {
             try {
+                sleep(1000);
                 let memory = ctx.memory as GmxMemory;
-                
-                debugLog('ETH_TECHNICAL_ANALYSIS', 'Starting ETH technical analysis fetch');
                 
                 // Get ETH technical analysis data
                 const technicalData = await get_technical_analysis_str('ETH');
@@ -795,28 +404,23 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📊 Analyzing ETH technical indicators",
                     lastResult: "Retrieved ETH technical indicators across 4 timeframes"
                 };
-
-                const successResult = {
-                    success: true,
-                    message: "Successfully retrieved ETH technical indicators",
-                    data: technicalData,
-                    tokenSymbol: 'ETH',
-                    timeframes: ['15m', '1h', '4h', '1d']
-                };
                 
                 debugLog('ETH_TECHNICAL_ANALYSIS', 'ETH technical analysis completed successfully', {
-                    dataLength: technicalData.length
+                    dataLength: technicalData
                 });
                 
-                return successResult;
+                return {
+                    success: true,
+                    message: "Successfully retrieved ETH technical indicators",
+                    ethTechnicalAnalysis: technicalData
+                };
             } catch (error) {
                 const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to fetch ETH technical analysis"
                 };
-                
-                debugError('ETH_TECHNICAL_ANALYSIS', 'Failed to fetch ETH technical analysis', errorResult);
+
                 return errorResult;
             }
         }
@@ -1566,11 +1170,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                         fromToken: fromToken.symbol,
                         toToken: toToken.symbol,
                         fromAmount: swapAmountDisplay,
-                        toAmount: receiveAmountDisplay,
-                        slippage: `${(data.allowedSlippageBps || 100) / 100}%`,
-                        triggerPrice: data.triggerPrice ? 
-                            `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : 
-                            undefined
+                        toAmount: receiveAmountDisplay
                     },
                     transactionHash: result?.transactionHash || null
                 };

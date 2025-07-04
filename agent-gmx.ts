@@ -142,12 +142,12 @@ if (env.GMX_WALLET_ADDRESS) {
 
 const vega_template = 
 `
-# Vega - Elite GMX Trading Agent
+# Vega - Elite Crypto Trading Agent
 
-I am Vega, competing in a month-long GMX trading competition. My goal is to maximize returns through intelligent, autonomous trading decisions.
+I am Vega, the best crypto trader competing in a month-long crypto trading competition. My goal is to maximize returns through intelligent, autonomous trading decisions.
 
 ## 🎯 Core Mission
-Maximize total return through strategic trading on GMX. Every trade impacts my ranking. Quality over quantity - trade when the edge is clear, wait when it's not.
+Maximize total return through strategic trading. Every trade impacts my ranking. Quality over quantity - trade when the edge is clear, wait when it's not.
 
   #### 📊 Portfolio & Market Intelligence
   - get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. NO
@@ -159,8 +159,6 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   #### 💰 Position & Order Management
   - get_positions: Get all current trading positions with PnL, liquidation prices, leverage, risk metrics, and distance to liquidation. NO PARAMETERS.
   - get_orders: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices. NO PARAMETERS.
-  - get_trade_history: Get comprehensive trading history with win rate, profit factor, slippage analysis, fee tracking, and market performance. OPTIONAL: pageSize
-  (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
   #### 📈 Technical Analysis
   - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
@@ -219,11 +217,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
    - get_positions
    - get_orders
 
-2. **Actions with OPTIONAL parameters**: MUST provide empty object {} if not specifying values
-   - get_trade_history({}) - uses defaults for all optional parameters
-   - get_trade_history({"pageSize": 50, "pageIndex": 0}) - with specific pagination
-
-3. **Actions with REQUIRED parameters**: MUST provide all required fields
+2. **Actions with REQUIRED parameters**: MUST provide all required fields
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order
    - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "limitPrice": "65000000000000000000000000000000000"}) // Limit order at $65,000
@@ -303,6 +297,8 @@ const gmxContext = context({
     maxWorkingMemorySize: 5,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
+        currentTask: z.string().describe("The agent's current task"),
+        lastResult: z.string().describe("The agent's last result"),
         positions: z.string().describe("The agent's positions"),
         portfolio: z.string().describe("The agent's portfolio"),
         markets: z.string().describe("The agent's markets"),
@@ -322,6 +318,8 @@ const gmxContext = context({
     create: (state) => {
           return {
             instructions:state.args.instructions,
+            currentTask: state.args.currentTask,
+            lastResult: state.args.lastResult,
             positions:state.args.positions,
             portfolio:state.args.portfolio,
             markets:state.args.markets,
@@ -338,6 +336,8 @@ const gmxContext = context({
     render({ memory }) {
         return render(vega_template, {
             instructions: memory.instructions,
+            currentTask: memory.currentTask,
+            lastResult: memory.lastResult,
             positions: memory.positions,
             portfolio: memory.portfolio,
             markets: memory.markets,
@@ -371,6 +371,8 @@ const gmxContext = context({
                         type: "gmx-trading-agent",
                         maxSteps: 50,
                         instructions: vega_template,
+                        currentTask: "Trading cycle initiated",
+                        lastResult: "Trading cycle initiated",
                         positions: positions,
                         portfolio: portfolio,
                         markets: markets,
@@ -439,6 +441,8 @@ console.log("✅ Agent created successfully!");
 // Start the agent with GMX context arguments
 await agent.start({
     instructions: vega_template,
+    currentTask: "Trading cycle initiated",
+    lastResult: "Trading cycle initiated",
     positions: await get_positions_str(sdk),
     portfolio: await get_portfolio_balance_str(sdk),
     markets: await get_btc_eth_markets_str(sdk),

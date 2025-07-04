@@ -1095,7 +1095,7 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
 };
 
 // Helper function to calculate technical indicators for a single timeframe
-const calculateTechnicalIndicators = (candles: number[], period: string, tokenSymbol: string) => {
+const calculateTechnicalIndicators = (candles: number[][], period: string, tokenSymbol: string) => {
     // Parse candlestick data: [timestamp, open, high, low, close]
     const ohlcData = candles.map((candle: number[]) => ({
         timestamp: candle[0],

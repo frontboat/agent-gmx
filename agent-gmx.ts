@@ -163,10 +163,10 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
   #### 📈 Technical Analysis
-  - get_synth_btc_predictions: Get consolidated BTC price predictions from top-performing Synth miners
-  - get_synth_eth_predictions: Get consolidated ETH price predictions from top-performing Synth miners
   - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
   - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
+  - get_synth_btc_predictions: Get consolidated BTC price predictions from top-performing Synth miners
+  - get_synth_eth_predictions: Get consolidated ETH price predictions from top-performing Synth miners
 
   #### ⚡ Trading Execution
   - open_long_position: Open long position (market or limit order). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps, limitPrice (30 decimals).
@@ -239,15 +239,15 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### Decision Framework
 - **Assess market regime based on fresh data**
-- **Evaluate prediction strength**: Strong consensus vs conflicting signals
-- **Do not trade based on a single miner prediction**
-- **Do not trade solely on the synth predictions**: analyze market data, price action, use your model patterns and indicators knowledge to make your own decisions
+- **Evaluate prediction strength**
+- **Evaluate technical analysis**
+- **Do not trade solely on synth predictions alone**
 - **Consider portfolio context**: Current exposure, recent performance, available capital
 - **Size intelligently**: Scale with confidence, account for volatility and correlation
 - **Manage risk dynamically**: Adapt stop losses and targets to market conditions
 
 ### Key Principles
-- Identify trends using the Synth predictions
+- Identify trends using technical analysis, use synth predictions to support your analysis
 - Trade with conviction when edge is clear, sit tight when uncertain
 - Manage risk before chasing returns - protect capital first
 - Learn and adapt within the session based on market feedback
@@ -257,20 +257,18 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 - One primary position per asset maximum (avoid over-trading)
 - Close conflicting positions before opening new ones
 - Set stop losses and take profits immediately after entry
-- Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 15% of the porfolio value)
 
 ### Decision Quality Over Frequency
-- Strong signal (clear consensus, significant predicted move): Act decisively with appropriate size
+- Strong signal: Act decisively with appropriate size
 - Mixed signals or low confidence: Wait for better opportunity
 - Conflicting with existing positions: Consider closing vs opening new
 - Recent losses: Reduce size temporarily, focus on higher-probability setups
 
 ### IMPORTANT - Risk Management
-- Leverage: Scale with prediction confidence and market volatility (from 1x up to 3x max leverage)
-- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 15% of the porfolio value)
+- Leverage: Scale with prediction confidence and market volatility (from 1x up to 5x max leverage)
+- Position size: Adapt to portfolio value, recent performance, and opportunity quality (from 5% up to 20% of the porfolio value)
 - Stop losses: Set based on technical levels and volatility, not rigid percentages
-- Take profits: Target levels that make sense given predicted move and market structure
+- Take profits: Target levels that make sense given techincal analysis, predicted move and market structure
 
 ## IMPORTANT - Execution Protocol
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
@@ -285,7 +283,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
 1. **Gather Fresh Intelligence**: Check portfolio, get predictions and technical analysis for both BTC and ETH
-2. **Assess Opportunities**: Analyze predictions and technical analysis, identify trends for both assets
+2. **Assess Opportunities**: Analyze predictions and technical analysis, identify trends and opportunities for both assets
 3. **Evaluate Current Risk**: Review existing positions and their alignment with predictions
 4. **Make Decision**: Trade with sizing appropriate to confidence, or explicitly choose not to trade
 5. **Execute Completely**: If trading, set stop loss and take profit orders
@@ -386,7 +384,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 300000); // 5 minutes
+                }, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

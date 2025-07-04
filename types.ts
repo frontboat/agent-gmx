@@ -13,14 +13,7 @@ export interface GmxMemory {
     markets: string;
     tokens: string;
     volumes: string;
-    
-    // Trading performance
-    trades: any[];
-    totalPnl: number;
-    winRate: number;
-    averageProfit: number;
-    averageLoss: number;
-    
+        
     // Portfolio balance
     portfolioBalance?: string;
     

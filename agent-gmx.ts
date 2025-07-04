@@ -352,8 +352,8 @@ const gmxContext = context({
                     const tokens = await get_tokens_data_str(sdk);
                     const volumes = await get_daily_volumes_str(sdk);
                     const orders = await get_orders_str(sdk);
-                    const synth_btc_predictions = await get_synth_predictions_consolidated("BTC");
-                    const synth_eth_predictions = await get_synth_predictions_consolidated("ETH");
+                    const btc_predictions = await get_synth_predictions_consolidated('BTC');
+                    const eth_predictions = await get_synth_predictions_consolidated('ETH');
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 50,
@@ -364,12 +364,12 @@ const gmxContext = context({
                         tokens: tokens,
                         volumes: volumes,
                         orders: orders,
-                        synth_btc_predictions: synth_btc_predictions,
-                        synth_eth_predictions: synth_eth_predictions,
+                        synth_btc_predictions: JSON.stringify(btc_predictions),
+                        synth_eth_predictions: JSON.stringify(eth_predictions),
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }, 300000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {
@@ -430,8 +430,8 @@ await agent.start({
     tokens: await get_tokens_data_str(sdk),
     volumes: await get_daily_volumes_str(sdk),
     orders: await get_orders_str(sdk),
-    synth_btc_predictions: await get_synth_predictions_consolidated("BTC"),
-    synth_eth_predictions: await get_synth_predictions_consolidated("ETH"),
+    synth_btc_predictions: await get_synth_predictions_consolidated('BTC'),
+    synth_eth_predictions: await get_synth_predictions_consolidated('ETH'),
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

@@ -12,9 +12,6 @@ import {
     formatTokenAmount, 
     formatUsdAmount,
     convertToUsd,
-    convertToTokenAmount,
-    calculateLiquidationPrice,
-    getTradeActionDescriptionEnhanced,
     sleep
 } from './utils';
 import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str } from './queries';
@@ -78,10 +75,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📊 Analyzing BTC/ETH volume for liquidity conditions",
                     lastResult: "Retrieved daily volumes for BTC/ETH markets"
                 };
-
-                debugLog('VOLUMES', 'Volumes retrieved successfully', {
-                    dataLength: volumesString
-                });
                 
                 return {
                     success: true,
@@ -116,10 +109,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "🪙 Fetching BTC/ETH/USD token data",
                     lastResult: "Retrieved filtered token information"
                 };
-
-                debugLog('TOKENS', 'Tokens retrieved successfully', {
-                    dataLength: tokensString
-                });
                 
                 return {
                     success: true,
@@ -157,10 +146,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "💰 Portfolio balance retrieved successfully",
                     lastResult: `Total portfolio value: $${totalValue.toFixed(2)}`
                 };
-
-                debugLog('PORTFOLIO', 'Portfolio balance retrieved successfully', {
-                    dataLength: portfolioString
-                });
                 
 
                 return {
@@ -184,7 +169,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
         async handler(data, ctx, agent) {
             try {                
-                await sleep(5000);
+                await sleep(3000);
 
                 // Use the formatted string function from queries
                 const positionsString = await get_positions_str(sdk);
@@ -198,10 +183,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📈 Positions retrieved successfully",
                     lastResult: "Current positions analyzed"
                 };
-
-                debugLog('POSITIONS', 'Positions retrieved successfully', {
-                    dataLength: positionsString
-                });
                 
 
                 return {
@@ -229,7 +210,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
         async handler(data, ctx, agent) {
             try {
-                await sleep(5000);
+                await sleep(3000);
 
                 // Get formatted orders string using the query function
                 const ordersString = await get_orders_str(sdk);
@@ -243,10 +224,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📋 Reviewing pending orders",
                     lastResult: ordersString
                 };
-
-                debugLog('ORDERS', 'Orders retrieved successfully', {
-                    dataLength: ordersString
-                });
                 
                 return {
                     success: true,
@@ -274,7 +251,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated BTC price predictions from top-performing Synth miners",
         async handler(data, ctx, agent) {
             try {
-                sleep(500);
                 const result = await get_synth_predictions_consolidated_str('BTC');
                 
                 let memory = ctx.memory as GmxMemory;
@@ -286,10 +262,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "🤖 Analyzing BTC predictions from top AI miners",
                     lastResult: "Retrieved consolidated BTC predictions from top Synth miners"
                 };
-
-                debugLog('BTC_PREDICTIONS', 'BTC predictions completed successfully', {
-                    dataLength: result
-                });
 
                 return {
                     success: true,
@@ -312,7 +284,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
         async handler(data, ctx, agent) {
             try {
-                sleep(1000);
                 const result = await get_synth_predictions_consolidated_str('ETH');
                 
                 let memory = ctx.memory as GmxMemory;
@@ -324,10 +295,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "🤖 Analyzing ETH predictions from top AI miners",
                     lastResult: "Retrieved consolidated ETH predictions from top Synth miners"
                 };
-
-                debugLog('ETH_PREDICTIONS', 'ETH predictions completed successfully', {
-                    dataLength: result
-                });
 
                 return {
                     success: true,
@@ -350,7 +317,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
         async handler(data, ctx, agent) {
             try {
-                sleep(500);
                 let memory = ctx.memory as GmxMemory;
                               
                 // Get BTC technical analysis data
@@ -363,10 +329,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📊 Analyzing BTC technical indicators",
                     lastResult: "Retrieved BTC technical indicators across 4 timeframes"
                 };
-
-                debugLog('BTC_TECHNICAL_ANALYSIS', 'BTC technical analysis completed successfully', {
-                    dataLength: technicalData
-                });
                 
                 return {
                     success: true,
@@ -391,7 +353,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
         async handler(data, ctx, agent) {
             try {
-                sleep(1000);
                 let memory = ctx.memory as GmxMemory;
                 
                 // Get ETH technical analysis data
@@ -404,11 +365,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     currentTask: "📊 Analyzing ETH technical indicators",
                     lastResult: "Retrieved ETH technical indicators across 4 timeframes"
                 };
-                
-                debugLog('ETH_TECHNICAL_ANALYSIS', 'ETH technical analysis completed successfully', {
-                    dataLength: technicalData
-                });
-                
+                                
                 return {
                     success: true,
                     message: "Successfully retrieved ETH technical indicators",
@@ -441,9 +398,9 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
             try {
                 debugLog('CANCEL_ORDERS', 'Starting order cancellation', { input: data });
                 
+                sleep(3000);
                 // Wait 3 seconds before write operation to prevent nonce errors
                 debugLog('CANCEL_ORDERS', 'Waiting 3 seconds before transaction');
-                
                 debugLog('CANCEL_ORDERS', 'Executing cancel orders transaction', { orderKeys: data.orderKeys });
                 
                 // Use SDK's internal cancelOrders method (no manual wallet client needed)
@@ -922,11 +879,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     fieldCount: Object.keys(decreaseAmounts).length,
                     decreaseAmounts 
                 });
-                
-                // Wait 3 seconds before write operation to prevent nonce errors
-                debugLog('CLOSE_POSITION', 'Waiting 3 seconds before transaction');
-                await sleep(3000);
-                
+                                
                 debugLog('CLOSE_POSITION', 'Executing close position transaction', { 
                     market: marketInfo.name,
                     direction,
@@ -1105,7 +1058,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
 
                 // Wait 3 seconds before write operation to prevent nonce errors
                 debugLog('SWAP_TOKENS', 'Waiting 3 seconds before transaction');
-                await sleep(2000);
+                await sleep(3000);
 
                 debugLog('SWAP_TOKENS', 'Executing swap transaction', { 
                     fromToken: fromToken.symbol,
@@ -1213,7 +1166,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
 
                 // Wait 3 seconds at the beginning to allow previous transactions to be processed
                 debugLog('SET_TAKE_PROFIT', 'Waiting 3 seconds for previous transactions to process');
-                await sleep(6000);
+                await sleep(3000);
 
                 // Use existing get_positions_str function to get position data properly
                 const positionsData = await get_positions_str(sdk);
@@ -1424,8 +1377,8 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 debugLog('SET_STOP_LOSS', 'Starting stop loss order creation', { input: data });
 
                 // Wait 3 seconds at the beginning to allow previous transactions to be processed
-                debugLog('SET_STOP_LOSS', 'Waiting 3 seconds for previous transactions to process');
-                await sleep(4000);
+                debugLog('SET_STOP_LOSS', 'Waiting 6 seconds for previous transactions to process');
+                await sleep(6000);
 
                 // Use existing get_positions_str function to get position data properly
                 const positionsData = await get_positions_str(sdk);

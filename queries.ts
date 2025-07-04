@@ -1041,12 +1041,11 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
         resultString += `📊 SUMMARY\n`;
         resultString += `├─ Asset: ${asset}\n`;
         resultString += `├─ Active Miners: ${minerPredictions.length}\n`;
-        resultString += `├─ Prediction Timestamps: ${consolidatedArray.length}\n`;
-        resultString += `└─ Data Source: Synth Network\n\n`;
+        resultString += `└─ Prediction Timestamps: ${consolidatedArray.length}\n`;
         
         // Add all prediction details
         consolidatedArray.forEach((timeSlot, index) => {
-            resultString += `⏰ Prediction #${index + 1} - ${new Date(timeSlot.time).toLocaleString()}\n`;
+            resultString += `⏰ Time: ${timeSlot.time}\n`;
             
             // Sort miners by rank for consistent display
             const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);

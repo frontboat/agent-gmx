@@ -930,35 +930,43 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
         
         // Get top 2 CRPS performers
         const topMiners: any[] = [];
+        const addedMinerIds = new Set<number>();
         
         if (scoresData && scoresData.length > 0) {
             // Add top 2 CRPS performers as rank 1 and 2
             const topTwoCrps = scoresData.slice(0, 2);
             topTwoCrps.forEach((miner: any, index: number) => {
-                topMiners.push({
-                    neuron_uid: miner.miner_uid,
-                    rank: index + 1
-                });
+                if (!addedMinerIds.has(miner.miner_uid)) {
+                    topMiners.push({
+                        neuron_uid: miner.miner_uid,
+                        rank: index + 1
+                    });
+                    addedMinerIds.add(miner.miner_uid);
+                }
             });
             
             // Add remaining miners from global leaderboard starting at rank 3
             let currentRank = 3;
             for (const globalMiner of globalTopMiners) {
-                // Skip if already in top 2 CRPS
-                if (!topMiners.find((m: any) => m.neuron_uid === globalMiner.neuron_uid)) {
+                // Skip if already added
+                if (!addedMinerIds.has(globalMiner.neuron_uid)) {
                     topMiners.push({
                         neuron_uid: globalMiner.neuron_uid,
                         rank: currentRank++
                     });
+                    addedMinerIds.add(globalMiner.neuron_uid);
                 }
             }
         } else {
             // If no CRPS data, use global leaderboard starting from rank 1
             globalTopMiners.forEach((miner: any, index: number) => {
-                topMiners.push({
-                    neuron_uid: miner.neuron_uid,
-                    rank: index + 1
-                });
+                if (!addedMinerIds.has(miner.neuron_uid)) {
+                    topMiners.push({
+                        neuron_uid: miner.neuron_uid,
+                        rank: index + 1
+                    });
+                    addedMinerIds.add(miner.neuron_uid);
+                }
             });
         }
         

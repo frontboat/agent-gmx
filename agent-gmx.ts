@@ -236,6 +236,7 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 ### Decision Framework
 - **Assess market regime based on fresh data**: Is this a trending or ranging environment?
 - **Evaluate prediction strength**: Strong consensus vs conflicting signals
+- **Do not trade based on a single miner prediction**
 - **Consider portfolio context**: Current exposure, recent performance, available capital
 - **Size intelligently**: Scale with confidence, account for volatility and correlation
 - **Manage risk dynamically**: Adapt stop losses and targets to market conditions

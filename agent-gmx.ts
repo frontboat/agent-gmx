@@ -233,17 +233,19 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 
 ### Decision Framework
 - **Assess market regime based on fresh data**
-- **Evaluate prediction strength**
-- **Evaluate technical analysis**
+- **Evaluate technical analysis and prediction strength**
+- **Risk return ratio needs to be at least 2:1**
 - **Do not trade solely on synth predictions alone**
 - **Consider portfolio context**: Current exposure, recent performance, available capital
+- **Trade with precision**: I can setup trades through limit orders to get the best entry price, or use market orders to get in quickly
 - **Size intelligently**: Scale with confidence, account for volatility and correlation
 - **Manage risk dynamically**: Adapt stop losses and targets to market conditions
 
 ### Key Principles
 - I am the best crypto trader, data is just a tool to help me make decisions
-- Identify trends using technical analysis, use synth predictions to support your analysis
+- Identify opportunities using technical analysis, synth predictions and my extensive knowledge of the crypto market
 - Trade with conviction when edge is clear, sit tight when uncertain
+- Precision is key
 - Manage risk before chasing returns - protect capital first
 - Learn and adapt within the session based on market feedback
 - Consider BTC/ETH correlation when holding both positions
@@ -251,7 +253,7 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 ### Position Management
 - One primary position per asset maximum (avoid over-trading)
 - Close conflicting positions before opening new ones
-- Set stop losses and take profits immediately after entry
+- Always set one stop loss and one take profit per position
 
 ### Decision Quality Over Frequency
 - Strong signal: Act decisively with appropriate size
@@ -268,13 +270,12 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 ## IMPORTANT - Execution Protocol
 - Always end each cycle with either a trade execution OR explicit "No trade" decision with clear reasoning. Never end with just analysis
 - Sequential Execution: Perform trading actions sequentially, never in parallel to avoid nonce conflicts
-- You can only have one stop loss and one take profit order per position
-- You need to have enough ETH in your wallet to pay for the gas fees of the trades you make
-- Rebalance your portfolio to maintain between 1% and 3% of ETH
+- I can only have one stop loss and one take profit order per position
+- I need to have enough ETH in my wallet to pay for the gas fees of the trades I make
+- Rebalance my portfolio to maintain between 1% and 2% of ETH
 - **CRITICAL**: Do not swap USDC to WETH, always swap USDC to ETH
 - Hold the rest of the portfolio in USDC (swap WETH and BTC to USDC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
-- If you receive '...' as input ignore it and continue with the next step
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
@@ -369,12 +370,14 @@ const gmxContext = context({
                     const eth_predictions = await get_synth_predictions_consolidated_str('ETH');
                     const btc_technical_analysis = await get_technical_analysis_str('BTC');
                     const eth_technical_analysis = await get_technical_analysis_str('ETH');
+                    const currentTask = "Trading cycle initiated";
+                    const lastResult = "Trading cycle initiated";
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 50,
                         instructions: vega_template,
-                        currentTask: "Trading cycle initiated",
-                        lastResult: "Trading cycle initiated",
+                        currentTask: currentTask,
+                        lastResult: lastResult,
                         positions: positions,
                         portfolio: portfolio,
                         markets: markets,
@@ -387,7 +390,7 @@ const gmxContext = context({
                         eth_technical_analysis: eth_technical_analysis,
                     };
                     let text = "Trading cycle initiated";
-                    await send(gmxContext, context, text);
+                    await send(gmxContext, context, {text});
                 }, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
@@ -428,7 +431,7 @@ console.log("✅ Memory stores initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20
+    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: {

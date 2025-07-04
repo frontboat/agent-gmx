@@ -675,21 +675,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 // Update memory with prediction data
                 memory = {
                     ...memory,
+                    synthBtcPredictions: result,
                     currentTask: "🤖 Analyzing BTC predictions from top AI miners",
-                    lastResult: `Retrieved ${result.predictionCount} BTC predictions from ${result.minerCount} top miners`
+                    lastResult: "Retrieved consolidated BTC predictions from top Synth miners"
                 };
 
                 return {
                     success: true,
-                    message: `Retrieved consolidated BTC predictions from ${result.minerCount} top miners`,
-                    data: {
-                        asset: result.asset,
-                        minerCount: result.minerCount,
-                        predictionCount: result.predictionCount,
-                        predictions: result.predictions,
-                        timestamp: new Date().toISOString(),
-                        source: "synth_top_miners"
-                    }
+                    message: "Retrieved consolidated BTC predictions from top Synth miners",
+                    data: result
                 };
             } catch (error) {
                 return {
@@ -714,21 +708,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                 // Update memory with prediction data
                 memory = {
                     ...memory,
+                    synthEthPredictions: result,
                     currentTask: "🤖 Analyzing ETH predictions from top AI miners",
-                    lastResult: `Retrieved ${result.predictionCount} ETH predictions from ${result.minerCount} top miners`
+                    lastResult: "Retrieved consolidated ETH predictions from top Synth miners"
                 };
 
                 return {
                     success: true,
-                    message: `Retrieved consolidated ETH predictions from ${result.minerCount} top miners`,
-                    data: {
-                        asset: result.asset,
-                        minerCount: result.minerCount,
-                        predictionCount: result.predictionCount,
-                        predictions: result.predictions,
-                        timestamp: new Date().toISOString(),
-                        source: "synth_top_miners"
-                    }
+                    message: "Retrieved consolidated ETH predictions from top Synth miners",
+                    data: result
                 };
             } catch (error) {
                 return {

@@ -28,16 +28,7 @@ export interface GmxMemory {
     currentTask: string | null;
     lastResult: string | null;
 
-    // Synth intelligence data
-    synthLeaderboard: {
-        miners: any[];
-        lastUpdated: string | null;
-        topMinerIds: number[];
-    };
-    synthPredictions: Record<string, Record<number, {
-        predictions: any[];
-        lastUpdated: string;
-        asset: string;
-        minerId: number;
-    }>>;
+    // Synth intelligence data - consolidated predictions from top miners
+    synthBtcPredictions: string;
+    synthEthPredictions: string;
 }

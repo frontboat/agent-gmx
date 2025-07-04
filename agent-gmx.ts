@@ -364,8 +364,8 @@ const gmxContext = context({
                         tokens: tokens,
                         volumes: volumes,
                         orders: orders,
-                        synth_btc_predictions: JSON.stringify(btc_predictions),
-                        synth_eth_predictions: JSON.stringify(eth_predictions),
+                        synth_btc_predictions: btc_predictions,
+                        synth_eth_predictions: eth_predictions,
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});

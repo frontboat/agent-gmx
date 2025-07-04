@@ -1034,12 +1034,41 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
         const consolidatedArray = Array.from(consolidatedMap.values())
             .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
         
-        return {
-            asset,
-            minerCount: minerPredictions.length,
-            predictionCount: consolidatedArray.length,
-            predictions: consolidatedArray
-        };
+        // Format as human-readable string for AI consumption
+        let resultString = `🧠 SYNTH AI PREDICTIONS - ${asset}\n`;
+        resultString += "═".repeat(60) + "\n\n";
+        
+        resultString += `📊 SUMMARY\n`;
+        resultString += `├─ Asset: ${asset}\n`;
+        resultString += `├─ Active Miners: ${minerPredictions.length}\n`;
+        resultString += `├─ Prediction Timestamps: ${consolidatedArray.length}\n`;
+        resultString += `└─ Data Source: Synth Network\n\n`;
+        
+        // Add prediction details (limit to first 10 timestamps for readability)
+        const limitedPredictions = consolidatedArray.slice(0, 10);
+        
+        limitedPredictions.forEach((timeSlot, index) => {
+            resultString += `⏰ Prediction #${index + 1} - ${new Date(timeSlot.time).toLocaleString()}\n`;
+            
+            // Sort miners by rank for consistent display
+            const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);
+            
+            sortedPredictions.forEach((pred: any) => {
+                const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
+                resultString += `├─ Rank ${pred.rank} (Miner ${pred.miner_uid}): $${price}\n`;
+            });
+            
+            resultString += `└─ Consensus Range: $${Math.min(...sortedPredictions.map((p: any) => p.price)).toFixed(2)} - $${Math.max(...sortedPredictions.map((p: any) => p.price)).toFixed(2)}\n\n`;
+        });
+        
+        if (consolidatedArray.length > 10) {
+            resultString += `... and ${consolidatedArray.length - 10} more prediction timestamps\n\n`;
+        }
+        
+        resultString += "═".repeat(60) + "\n";
+        resultString += `💡 ANALYSIS READY - Use this data to identify consensus direction and price targets\n`;
+        
+        return resultString;
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

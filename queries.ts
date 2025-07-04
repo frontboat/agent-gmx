@@ -879,3 +879,162 @@ export const get_orders_str = async (sdk: GmxSdk) => {
         return `❌ Error fetching orders: ${errorMsg}`;
     }
 };
+
+export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') => {
+    try {
+        // Step 1: Fetch leaderboard
+        const leaderboardResponse = await fetch('https://dashboard.synthdata.co/api/leaderboard/');
+        if (!leaderboardResponse.ok) {
+            throw new Error(`Failed to fetch leaderboard: ${leaderboardResponse.statusText}`);
+        }
+        
+        const leaderboardData = await leaderboardResponse.json();
+        
+        // Filter miners with rank > 0.098 and sort by rank descending
+        const globalTopMiners = leaderboardData
+            .filter((miner: any) => miner.rank > 0.098)
+            .sort((a: any, b: any) => b.rank - a.rank)
+            .map((miner: any) => ({
+                neuron_uid: miner.neuron_uid
+            }));
+        
+        // Step 2: Query dashboard for top performer in CRPS scoring
+        const dashboardPayload = {
+            output: "scores-table.data",
+            outputs: { id: "scores-table", property: "data" },
+            inputs: [
+                { id: "dropdown-scored-time", property: "value" },
+                { id: "dropdown-sort-table", property: "value", value: "CRPS" },
+                { id: "dropdown-asset", property: "value", value: asset },
+                { id: "interval-update", property: "n_intervals", value: 0 }
+            ],
+            changedPropIds: [],
+            parsedChangedPropsIds: []
+        };
+        
+        const dashboardResponse = await fetch('https://miners.synthdata.co/_dash-update-component', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Apikey 10df36bc817d11cb8904604a8db498e88f05579a9951c63a',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(dashboardPayload)
+        });
+        
+        if (!dashboardResponse.ok) {
+            throw new Error(`Failed to fetch dashboard data: ${dashboardResponse.statusText}`);
+        }
+        
+        const dashboardData = await dashboardResponse.json();
+        const scoresData = dashboardData.response['scores-table'].data;
+        
+        // Get top 2 CRPS performers
+        const topMiners: any[] = [];
+        
+        if (scoresData && scoresData.length > 0) {
+            // Add top 2 CRPS performers as rank 1 and 2
+            const topTwoCrps = scoresData.slice(0, 2);
+            topTwoCrps.forEach((miner: any, index: number) => {
+                topMiners.push({
+                    neuron_uid: miner.miner_uid,
+                    rank: index + 1
+                });
+            });
+            
+            // Add remaining miners from global leaderboard starting at rank 3
+            let currentRank = 3;
+            for (const globalMiner of globalTopMiners) {
+                // Skip if already in top 2 CRPS
+                if (!topMiners.find((m: any) => m.neuron_uid === globalMiner.neuron_uid)) {
+                    topMiners.push({
+                        neuron_uid: globalMiner.neuron_uid,
+                        rank: currentRank++
+                    });
+                }
+            }
+        } else {
+            // If no CRPS data, use global leaderboard starting from rank 1
+            globalTopMiners.forEach((miner: any, index: number) => {
+                topMiners.push({
+                    neuron_uid: miner.neuron_uid,
+                    rank: index + 1
+                });
+            });
+        }
+        
+        // Step 3: Fetch predictions for each miner
+        const predictionPromises = topMiners.map(async (miner: any) => {
+            const url = `https://dashboard.synthdata.co/api/predictionLatest/?asset=${asset}&miner=${miner.neuron_uid}`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error(`Failed to fetch predictions for miner ${miner.neuron_uid}: ${response.statusText}`);
+                    return null;
+                }
+                
+                const predictions = await response.json();
+                
+                // Extract prediction data based on API structure
+                if (!predictions || !predictions[0] || !predictions[0].prediction || !predictions[0].prediction[0]) {
+                    console.error(`Invalid prediction data for miner ${miner.neuron_uid}`);
+                    return null;
+                }
+                
+                const predictionData = predictions[0].prediction[0];
+                
+                // Return miner info with predictions
+                return {
+                    miner_uid: miner.neuron_uid,
+                    rank: miner.rank,
+                    predictions: predictionData
+                };
+            } catch (error) {
+                console.error(`Error fetching predictions for miner ${miner.neuron_uid}:`, error);
+                return null;
+            }
+        });
+        
+        const minerPredictions = (await Promise.all(predictionPromises)).filter(p => p !== null);
+        
+        // Step 4: Consolidate predictions by time
+        const consolidatedMap = new Map<string, any>();
+        
+        minerPredictions.forEach(minerData => {
+            if (!minerData || !minerData.predictions) return;
+            
+            // Process each prediction from this miner
+            Object.entries(minerData.predictions).forEach(([index, prediction]: [string, any]) => {
+                const time = prediction.time;
+                const price = prediction.price;
+                
+                if (!consolidatedMap.has(time)) {
+                    consolidatedMap.set(time, {
+                        time,
+                        predictions: []
+                    });
+                }
+                
+                consolidatedMap.get(time).predictions.push({
+                    miner_uid: minerData.miner_uid,
+                    rank: minerData.rank,
+                    price
+                });
+            });
+        });
+        
+        // Convert to array and sort by time
+        const consolidatedArray = Array.from(consolidatedMap.values())
+            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        
+        return {
+            asset,
+            minerCount: minerPredictions.length,
+            predictionCount: consolidatedArray.length,
+            predictions: consolidatedArray
+        };
+        
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch Synth predictions for ${asset}: ${errorMsg}`);
+    }
+};

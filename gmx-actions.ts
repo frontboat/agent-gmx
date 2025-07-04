@@ -17,7 +17,7 @@ import {
     getTradeActionDescriptionEnhanced,
     sleep
 } from './utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str } from './queries';
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated } from './queries';
 import { debugLog, debugError } from './logger';
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -662,143 +662,79 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // 🧠 SYNTH MARKET INTELLIGENCE & PREDICTIONS
     // ═══════════════════════════════════════════════════════════════════════════════
 
-    // Current Leaderboard - Top Performing Miners
+    // Get BTC Predictions - Consolidated from top miners
     action({
-        name: "get_synth_leaderboard",
-        description: "Get current leaderboard of top-performing Synth miners with performance metrics",
+        name: "get_synth_btc_predictions",
+        description: "Get consolidated BTC price predictions from top-performing Synth miners",
         async handler(data, ctx, agent) {
             try {
-                const response = await fetch('https://dashboard.synthdata.co/api/leaderboard/');
-
-                if (!response.ok) {
-                    throw new Error(`Synth API error: ${response.status} ${response.statusText}`);
-                }
-
-                const leaderboard = await response.json();
+                const result = await get_synth_predictions_consolidated('BTC');
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Slice to get only the top 3 miners
-                const limitedLeaderboard = Array.isArray(leaderboard) ? leaderboard.slice(0, 3) : leaderboard;
-                
-                // Update memory with leaderboard data
+                // Update memory with prediction data
                 memory = {
                     ...memory,
-                    synthLeaderboard: {
-                        miners: limitedLeaderboard,
-                        lastUpdated: new Date().toISOString(),
-                        topMinerIds: limitedLeaderboard.map((miner: any) => miner.uid || miner.id).filter(Boolean)
-                    },
-                    currentTask: "🤖 Fetching top AI miners for predictions",
-                    lastResult: `Retrieved Synth leaderboard with ${limitedLeaderboard.length || 0} miners`
+                    currentTask: "🤖 Analyzing BTC predictions from top AI miners",
+                    lastResult: `Retrieved ${result.predictionCount} BTC predictions from ${result.minerCount} top miners`
                 };
 
                 return {
                     success: true,
-                    message: `Retrieved Synth miner leaderboard`,
+                    message: `Retrieved consolidated BTC predictions from ${result.minerCount} top miners`,
                     data: {
-                        leaderboard: limitedLeaderboard,
+                        asset: result.asset,
+                        minerCount: result.minerCount,
+                        predictionCount: result.predictionCount,
+                        predictions: result.predictions,
                         timestamp: new Date().toISOString(),
-                        metrics_included: ["rank", "stake", "incentive", "performance"],
-                        source: "synth_network"
+                        source: "synth_top_miners"
                     }
                 };
             } catch (error) {
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch Synth leaderboard"
+                    message: "Failed to fetch BTC predictions from Synth"
                 };
             }
         }
     }),
 
-    // Latest Prediction Rates - Real-time Market Intelligence
+    // Get ETH Predictions - Consolidated from top miners
     action({
-        name: "get_latest_predictions",
-        description: "Get real-time prediction data from specific Synth miners for current market intelligence",
-        schema: z.object({
-            asset: z.enum(["BTC", "ETH"]).default("BTC").describe("Asset symbol - must be exactly 'BTC' or 'ETH' (case sensitive)"),
-            miner: z.number().describe("Miner ID as integer (required - get active miner IDs from get_synth_leaderboard first, e.g. 123)")
-        }),
+        name: "get_synth_eth_predictions",
+        description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
         async handler(data, ctx, agent) {
             try {
-                // Miner ID is required for this endpoint
-                if (!data.miner || data.miner <= 0) {
-                    throw new Error('Valid Miner ID is required. Please call get_synth_leaderboard first to get active miner IDs.');
-                }
-                let url = `https://dashboard.synthdata.co/api/predictionLatest/?asset=${data.asset}&miner=${data.miner}`;
-
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Apikey ${env.SYNTH_API_KEY}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Synth API error: ${response.status} ${response.statusText} - ${errorText}`);
-                }
-
-                const predictions = await response.json();
-                // Extract the next 144 predictions from prediction array
-                // Based on API structure: predictions[0].prediction contains array of prediction values
-                const predictionData = predictions[0].prediction[0];
-
-                let memory = ctx.memory as GmxMemory;
-
-                // Update memory with latest prediction data - ensure synthPredictions exists
-                if (!memory.synthPredictions) {
-                    memory.synthPredictions = {};
-                }
-                if (!memory.synthPredictions[data.asset]) {
-                    memory.synthPredictions[data.asset] = {};
-                }
-                memory.synthPredictions[data.asset][data.miner] = {
-                    predictions: predictionData,
-                    lastUpdated: new Date().toISOString(),
-                    asset: data.asset,
-                    minerId: data.miner
-                };
+                const result = await get_synth_predictions_consolidated('ETH');
                 
+                let memory = ctx.memory as GmxMemory;
+                
+                // Update memory with prediction data
                 memory = {
                     ...memory,
-                    currentTask: "🎯 Processing AI signals for entry opportunities",
-                    lastResult: `Retrieved ${predictionData.length} ${data.asset} predictions from miner ${data.miner}`
+                    currentTask: "🤖 Analyzing ETH predictions from top AI miners",
+                    lastResult: `Retrieved ${result.predictionCount} ETH predictions from ${result.minerCount} top miners`
                 };
 
                 return {
                     success: true,
-                    message: `Retrieved ${predictionData.length} latest ${data.asset} predictions from miner ${data.miner}`,
+                    message: `Retrieved consolidated ETH predictions from ${result.minerCount} top miners`,
                     data: {
-                        asset: data.asset,
-                        miner: data.miner,
-                        predictions: predictionData,
-                        totalPredictions: predictionData.length,
-                        quality: "real_time",
-                        source: "synth_selected_miners"
+                        asset: result.asset,
+                        minerCount: result.minerCount,
+                        predictionCount: result.predictionCount,
+                        predictions: result.predictions,
+                        timestamp: new Date().toISOString(),
+                        source: "synth_top_miners"
                     }
                 };
             } catch (error) {
-                // Enhanced error handling for API issues
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                
-                // Handle specific API errors
-                if (errorMessage.includes('500') && errorMessage.includes('Failed to fetch liquidation data')) {
-                    return {
-                        success: false,
-                        error: errorMessage,
-                        message: "Synth API is experiencing server issues (500 error). This may be temporary - try again later.",
-                        suggestion: "Check if the miner ID is valid by calling get_synth_leaderboard first"
-                    };
-                }
-                
                 return {
                     success: false,
-                    error: errorMessage,
-                    message: "Failed to fetch latest predictions from Synth",
-                    suggestion: "Verify the asset (BTC/ETH) and miner ID are correct"
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to fetch ETH predictions from Synth"
                 };
             }
         }

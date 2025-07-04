@@ -17,7 +17,7 @@ import {
     getTradeActionDescriptionEnhanced,
     sleep
 } from './utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated } from './queries';
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str } from './queries';
 import { debugLog, debugError } from './logger';
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -668,7 +668,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated BTC price predictions from top-performing Synth miners",
         async handler(data, ctx, agent) {
             try {
-                const result = await get_synth_predictions_consolidated('BTC');
+                const result = await get_synth_predictions_consolidated_str('BTC');
                 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -701,7 +701,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
         async handler(data, ctx, agent) {
             try {
-                const result = await get_synth_predictions_consolidated('ETH');
+                const result = await get_synth_predictions_consolidated_str('ETH');
                 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -724,6 +724,100 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to fetch ETH predictions from Synth"
                 };
+            }
+        }
+    }),
+
+    // Get BTC Technical Analysis - Multi-timeframe indicators
+    action({
+        name: "get_btc_technical_analysis",
+        description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('BTC_TECHNICAL_ANALYSIS', 'Starting BTC technical analysis fetch');
+                
+                // Get BTC technical analysis data
+                const technicalData = await get_technical_analysis_str('BTC');
+                
+                // Update memory with technical analysis
+                memory = {
+                    ...memory,
+                    btcTechnicalAnalysis: technicalData,
+                    currentTask: "📊 Analyzing BTC technical indicators",
+                    lastResult: "Retrieved BTC technical indicators across 4 timeframes"
+                };
+
+                const successResult = {
+                    success: true,
+                    message: "Successfully retrieved BTC technical indicators",
+                    data: technicalData,
+                    tokenSymbol: 'BTC',
+                    timeframes: ['15m', '1h', '4h', '1d']
+                };
+                
+                debugLog('BTC_TECHNICAL_ANALYSIS', 'BTC technical analysis completed successfully', {
+                    dataLength: technicalData.length
+                });
+                
+                return successResult;
+            } catch (error) {
+                const errorResult = {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to fetch BTC technical analysis"
+                };
+                
+                debugError('BTC_TECHNICAL_ANALYSIS', 'Failed to fetch BTC technical analysis', errorResult);
+                return errorResult;
+            }
+        }
+    }),
+
+    // Get ETH Technical Analysis - Multi-timeframe indicators
+    action({
+        name: "get_eth_technical_analysis",
+        description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
+        async handler(data, ctx, agent) {
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('ETH_TECHNICAL_ANALYSIS', 'Starting ETH technical analysis fetch');
+                
+                // Get ETH technical analysis data
+                const technicalData = await get_technical_analysis_str('ETH');
+                
+                // Update memory with technical analysis
+                memory = {
+                    ...memory,
+                    ethTechnicalAnalysis: technicalData,
+                    currentTask: "📊 Analyzing ETH technical indicators",
+                    lastResult: "Retrieved ETH technical indicators across 4 timeframes"
+                };
+
+                const successResult = {
+                    success: true,
+                    message: "Successfully retrieved ETH technical indicators",
+                    data: technicalData,
+                    tokenSymbol: 'ETH',
+                    timeframes: ['15m', '1h', '4h', '1d']
+                };
+                
+                debugLog('ETH_TECHNICAL_ANALYSIS', 'ETH technical analysis completed successfully', {
+                    dataLength: technicalData.length
+                });
+                
+                return successResult;
+            } catch (error) {
+                const errorResult = {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to fetch ETH technical analysis"
+                };
+                
+                debugError('ETH_TECHNICAL_ANALYSIS', 'Failed to fetch ETH technical analysis', errorResult);
+                return errorResult;
             }
         }
     }),

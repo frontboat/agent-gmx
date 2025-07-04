@@ -26,7 +26,7 @@ import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
-import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated } from "./queries";
+import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str } from "./queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -156,15 +156,17 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
   - get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis. NO PARAMETERS.
   - get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens. NO PARAMETERS.
 
-  #### 📈 Position & Order Management
+  #### 💰 Position & Order Management
   - get_positions: Get all current trading positions with PnL, liquidation prices, leverage, risk metrics, and distance to liquidation. NO PARAMETERS.
   - get_orders: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices. NO PARAMETERS.
   - get_trade_history: Get comprehensive trading history with win rate, profit factor, slippage analysis, fee tracking, and market performance. OPTIONAL: pageSize
   (1-1000), pageIndex (0-based), fromTxTimestamp, toTxTimestamp.
 
-  #### 🤖 AI Intelligence
+  #### 📈 Technical Analysis
   - get_synth_btc_predictions: Get consolidated BTC price predictions from top-performing Synth miners
   - get_synth_eth_predictions: Get consolidated ETH price predictions from top-performing Synth miners
+  - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
+  - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
 
   #### ⚡ Trading Execution
   - open_long_position: Open long position (market or limit order). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps, limitPrice (30 decimals).
@@ -209,6 +211,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
    - get_portfolio_balance
    - get_synth_btc_predictions
    - get_synth_eth_predictions
+   - get_btc_technical_analysis
+   - get_eth_technical_analysis
    - get_btc_eth_markets
    - get_daily_volumes
    - get_tokens_data
@@ -280,8 +284,8 @@ Maximize total return through strategic trading on GMX. Every trade impacts my r
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
-1. **Gather Fresh Intelligence**: Check portfolio, get predictions for both BTC and ETH from Synth
-2. **Assess Opportunities**: Analyze prediction consensus and strength, identify trends
+1. **Gather Fresh Intelligence**: Check portfolio, get predictions and technical analysis for both BTC and ETH
+2. **Assess Opportunities**: Analyze predictions and technical analysis, identify trends for both assets
 3. **Evaluate Current Risk**: Review existing positions and their alignment with predictions
 4. **Make Decision**: Trade with sizing appropriate to confidence, or explicitly choose not to trade
 5. **Execute Completely**: If trading, set stop loss and take profit orders
@@ -309,6 +313,8 @@ const gmxContext = context({
         orders: z.string().describe("The agent's pending orders"),
         synth_btc_predictions: z.string().describe("The agent's BTC predictions"),
         synth_eth_predictions: z.string().describe("The agent's ETH predictions"),
+        btc_technical_analysis: z.string().describe("The agent's BTC technical analysis"),
+        eth_technical_analysis: z.string().describe("The agent's ETH technical analysis"),
     }),
 
     key({ id }) {
@@ -326,6 +332,8 @@ const gmxContext = context({
             orders:state.args.orders,
             synth_btc_predictions:state.args.synth_btc_predictions,
             synth_eth_predictions:state.args.synth_eth_predictions,
+            btc_technical_analysis:state.args.btc_technical_analysis,
+            eth_technical_analysis:state.args.eth_technical_analysis,
           };
       },
 
@@ -340,6 +348,8 @@ const gmxContext = context({
             orders: memory.orders,
             synth_btc_predictions: memory.synth_btc_predictions,
             synth_eth_predictions: memory.synth_eth_predictions,
+            btc_technical_analysis: memory.btc_technical_analysis,
+            eth_technical_analysis: memory.eth_technical_analysis,
           });
     },
     }).setInputs({
@@ -355,8 +365,10 @@ const gmxContext = context({
                     const tokens = await get_tokens_data_str(sdk);
                     const volumes = await get_daily_volumes_str(sdk);
                     const orders = await get_orders_str(sdk);
-                    const btc_predictions = await get_synth_predictions_consolidated('BTC');
-                    const eth_predictions = await get_synth_predictions_consolidated('ETH');
+                    const btc_predictions = await get_synth_predictions_consolidated_str('BTC');
+                    const eth_predictions = await get_synth_predictions_consolidated_str('ETH');
+                    const btc_technical_analysis = await get_technical_analysis_str('BTC');
+                    const eth_technical_analysis = await get_technical_analysis_str('ETH');
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 50,
@@ -369,10 +381,12 @@ const gmxContext = context({
                         orders: orders,
                         synth_btc_predictions: btc_predictions,
                         synth_eth_predictions: eth_predictions,
+                        btc_technical_analysis: btc_technical_analysis,
+                        eth_technical_analysis: eth_technical_analysis,
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }, 300000); // 5 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {
@@ -433,8 +447,10 @@ await agent.start({
     tokens: await get_tokens_data_str(sdk),
     volumes: await get_daily_volumes_str(sdk),
     orders: await get_orders_str(sdk),
-    synth_btc_predictions: await get_synth_predictions_consolidated('BTC'),
-    synth_eth_predictions: await get_synth_predictions_consolidated('ETH'),
+    synth_btc_predictions: await get_synth_predictions_consolidated_str('BTC'),
+    synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH'),
+    btc_technical_analysis: await get_technical_analysis_str('BTC'),
+    eth_technical_analysis: await get_technical_analysis_str('ETH'),
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

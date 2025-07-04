@@ -24,6 +24,7 @@
     "@openrouter/ai-sdk-provider": "^0.7.2",
     "chromadb-default-embed": "^2.14.0",
     "openai": "^5.8.2",
+    "technicalindicators": "^3.1.0",
     "viem": "^2.0.0",
     "zod": "^3.25.23"
   }

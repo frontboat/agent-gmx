@@ -1,6 +1,7 @@
 import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced } from "./utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./utils";
 import { GmxSdk } from "@gmx-io/sdk";
+import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic } from 'technicalindicators';
 
 export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     // Get tokens data with balances and prices
@@ -191,31 +192,34 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     const positionAllocation = totalPortfolioValue > 0 ? 
         (totalPositionValueUsd / totalPortfolioValue) * 100 : 0;
 
-    let output = `💰 PORTFOLIO SUMMARY\n`;
-    output += `Total Value: $${totalPortfolioValue.toFixed(2)} (Tokens: $${totalTokenValueUsd.toFixed(2)} | Positions: $${totalPositionValueUsd.toFixed(2)})\n`;
-    output += `Total PnL: $${totalPositionPnl.toFixed(2)}\n`;
-    output += `Allocation: ${tokenAllocation.toFixed(1)}% tokens, ${positionAllocation.toFixed(1)}% positions\n\n`;
+    let output = `💰 PORTFOLIO OVERVIEW\n`;
+    output += `├─ Total Value: $${totalPortfolioValue.toFixed(2)}\n`;
+    output += `├─ Token Holdings: $${totalTokenValueUsd.toFixed(2)} (${tokenAllocation.toFixed(1)}%)\n`;
+    output += `├─ Position Value: $${totalPositionValueUsd.toFixed(2)} (${positionAllocation.toFixed(1)}%)\n`;
+    output += `├─ Unrealized PnL: $${totalPositionPnl.toFixed(2)}\n`;
+    output += `└─ Active Positions: ${positionValues.length}\n\n`;
     
-    // Add debugging info about positions
+    // Position breakdown for trading decisions
     if (positionValues.length > 0) {
-        output += `📊 POSITION VALUES (${positionValues.length} positions):\n`;
-        positionValues.forEach(pos => {
-            output += `• ${pos.marketName} ${pos.side}: Net Value ${pos.netValue} (PnL: ${pos.pnl})\n`;
+        output += `📈 POSITION BREAKDOWN\n`;
+        positionValues.forEach((pos, index) => {
+            const isLast = index === positionValues.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            output += `${prefix} ${pos.marketName} ${pos.side}: ${pos.netValue} | PnL: ${pos.pnl} | Leverage: ${pos.leverage}\n`;
         });
         output += `\n`;
-    } else if (positionsResult.positionsData && Object.keys(positionsResult.positionsData).length > 0) {
-        output += `⚠️ DEBUG: Found ${Object.keys(positionsResult.positionsData).length} raw positions but couldn't process them\n\n`;
-    } else {
-        output += `📊 POSITION VALUES: No active positions\n\n`;
     }
     
+    // Token holdings for capital allocation decisions
     if (tokenBalances.length > 0) {
-        output += `📊 TOKEN BALANCES (${tokenBalances.length} tokens):\n`;
-        tokenBalances.forEach(token => {
-            output += `• ${token.symbol}: ${token.balance} (${token.usdValue})\n`;
+        output += `🪙 AVAILABLE CAPITAL\n`;
+        tokenBalances.forEach((token, index) => {
+            const isLast = index === tokenBalances.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            output += `${prefix} ${token.symbol}: ${token.balance} (~${token.usdValue})\n`;
         });
     } else {
-        output += `📊 TOKEN BALANCES: No token balances\n`;
+        output += `🪙 AVAILABLE CAPITAL: No liquid tokens\n`;
     }
     
     return output;
@@ -407,7 +411,7 @@ export const get_positions_str = async (sdk: GmxSdk) => {
     }, 0);
 
     if (enhancedPositions.length === 0) {
-        return `📈 POSITIONS: No active positions`;
+        return `📈 POSITION STATUS: No active positions`;
     }
     
     const avgLeverage = enhancedPositions.length > 0 ? 
@@ -415,14 +419,24 @@ export const get_positions_str = async (sdk: GmxSdk) => {
             sum + parseFloat(pos.leverage.replace('x', '')), 0) / enhancedPositions.length).toFixed(2)}x` : 
         "0x";
     
-    let output = `📈 ACTIVE POSITIONS (${enhancedPositions.length})\n`;
-    output += `Total Size: $${totalSizeUsd.toFixed(2)} | Total PnL: $${totalPnl.toFixed(2)} | Avg Leverage: ${avgLeverage}\n\n`;
+    let output = `📈 POSITION ANALYSIS\n`;
+    output += `├─ Total Exposure: $${totalSizeUsd.toFixed(2)}\n`;
+    output += `├─ Unrealized PnL: $${totalPnl.toFixed(2)}\n`;
+    output += `├─ Total Collateral: $${totalCollateral.toFixed(2)}\n`;
+    output += `├─ Average Leverage: ${avgLeverage}\n`;
+    output += `└─ Active Positions: ${enhancedPositions.length}\n\n`;
     
     enhancedPositions.forEach((pos, index) => {
-        const profitEmoji = pos.pnl.includes('-') ? '🔴' : '🟢';
-        output += `${index + 1}. ${profitEmoji} ${pos.marketName} ${pos.direction}\n`;
-        output += `   Size: ${pos.sizeUsd} | PnL: ${pos.pnl} (${pos.pnlPercentage}) | Leverage: ${pos.leverage}\n`;
-        output += `   Entry: ${pos.entryPrice} | Mark: ${pos.markPrice} | Liq: ${pos.liquidationPrice} (${pos.distanceToLiquidation} away)\n`;
+        const pnlStatus = pos.pnl.includes('-') ? '🔴 LOSS' : '🟢 PROFIT';
+        const riskLevel = parseFloat(pos.distanceToLiquidation.replace('%', '')) < 10 ? '⚠️ HIGH RISK' : 
+                         parseFloat(pos.distanceToLiquidation.replace('%', '')) < 25 ? '🟡 MEDIUM RISK' : '🟢 SAFE';
+        
+        output += `${index + 1}. ${pos.marketName} ${pos.direction} | ${pnlStatus}\n`;
+        output += `├─ Size: ${pos.sizeUsd} | Leverage: ${pos.leverage}\n`;
+        output += `├─ PnL: ${pos.pnl} (${pos.pnlPercentage}) | Net Value: ${pos.netValue}\n`;
+        output += `├─ Entry: ${pos.entryPrice} | Current: ${pos.markPrice}\n`;
+        output += `├─ Liquidation: ${pos.liquidationPrice} | Distance: ${pos.distanceToLiquidation} ${riskLevel}\n`;
+        output += `└─ Market Address: ${pos.marketAddress}\n`;
         if (index < enhancedPositions.length - 1) output += `\n`;
     });
     
@@ -531,33 +545,36 @@ export const get_btc_eth_markets_str = async (sdk: GmxSdk) => {
             return 0;
         });
         
-        // Format as string output
-        let output = '📊 BTC/ETH Markets Overview\n';
-        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        // Format as AI-optimized output
+        let output = '📊 TRADING MARKETS\n';
         
         if (filteredMarkets.length === 0) {
-            output += 'No BTC or ETH markets found.\n';
-            return output;
+            return '📊 TRADING MARKETS: No available markets';
         }
         
-        // Summary section
+        // Summary for quick assessment
         const btcMarkets = filteredMarkets.filter(m => m.indexToken.includes('BTC'));
         const ethMarkets = filteredMarkets.filter(m => m.indexToken.includes('ETH'));
         
-        output += `Found ${filteredMarkets.length} markets: ${btcMarkets.length} BTC, ${ethMarkets.length} ETH\n\n`;
+        output += `├─ Available Markets: ${filteredMarkets.length}\n`;
+        output += `├─ BTC Markets: ${btcMarkets.length}\n`;
+        output += `└─ ETH Markets: ${ethMarkets.length}\n\n`;
         
-        // Market details
+        // Market details optimized for trading decisions
         filteredMarkets.forEach((market, index) => {
-            const statusIcon = market.isDisabled ? '🔴' : '🟢';
-            output += `${index + 1}. ${statusIcon} ${market.name}\n`;
-            output += `   Market Address: ${market.marketTokenAddress}\n`;
-            output += `   Price: ${market.indexPrice} | Spread: ${market.spread}\n`;
-            output += `   Pool Value: ${market.totalPoolValue}\n`;
-            output += `   Long Interest: ${market.longInterestUsd} (${market.utilizationLong})\n`;
-            output += `   Short Interest: ${market.shortInterestUsd} (${market.utilizationShort})\n`;
-            output += `   Funding Rate: ${market.fundingRateLong} | Borrowing: ${market.borrowingRateLong}\n`;
+            const status = market.isDisabled ? '🔴 DISABLED' : '🟢 ACTIVE';
+            const isLast = index === filteredMarkets.length - 1;
             
-            if (index < filteredMarkets.length - 1) output += '\n';
+            output += `${market.indexToken} MARKET | ${status}\n`;
+            output += `├─ Address: ${market.marketTokenAddress}\n`;
+            output += `├─ Price: ${market.indexPrice} | Spread: ${market.spread}\n`;
+            output += `├─ Pool Liquidity: ${market.totalPoolValue}\n`;
+            output += `├─ Long Interest: ${market.longInterestUsd} (${market.utilizationLong} utilized)\n`;
+            output += `├─ Short Interest: ${market.shortInterestUsd} (${market.utilizationShort} utilized)\n`;
+            output += `├─ Funding Rate: ${market.fundingRateLong}\n`;
+            output += `└─ Borrowing Rate: ${market.borrowingRateLong}\n`;
+            
+            if (!isLast) output += '\n';
         });
         
         return output;
@@ -626,32 +643,35 @@ export const get_tokens_data_str = async (sdk: GmxSdk) => {
         // Sort by balance USD value (highest first)
         filteredTokens.sort((a, b) => parseFloat(b.balanceUsd) - parseFloat(a.balanceUsd));
         
-        // Format as string output
-        let output = '🪙 Tokens Overview\n';
-        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        // Format for AI trading analysis
+        let output = '🪙 TOKEN INVENTORY\n';
         
         if (filteredTokens.length === 0) {
-            output += 'No relevant tokens found.\n';
-            return output;
+            return '🪙 TOKEN INVENTORY: No tokens available';
         }
         
-        // Summary section
+        // Summary for capital planning
         const totalBalanceUsd = filteredTokens.reduce((sum, token) => sum + parseFloat(token.balanceUsd), 0);
         const tokensWithBalance = filteredTokens.filter(token => parseFloat(token.balance) > 0);
         
-        output += `Found ${filteredTokens.length} tokens (${tokensWithBalance.length} with balance)\n`;
-        output += `Total Balance: $${totalBalanceUsd.toFixed(2)}\n\n`;
+        output += `├─ Total Tokens: ${filteredTokens.length}\n`;
+        output += `├─ Tokens with Balance: ${tokensWithBalance.length}\n`;
+        output += `└─ Total Value: $${totalBalanceUsd.toFixed(2)}\n\n`;
         
-        // Token details
+        // Token details for trading decisions
         filteredTokens.forEach((token, index) => {
-            const balanceIcon = parseFloat(token.balance) > 0 ? '💰' : '🔘';
-            output += `${index + 1}. ${balanceIcon} ${token.symbol} (${token.name})\n`;
-            output += `   Address: ${token.address}\n`;
-            output += `   Balance: ${token.balance} (~$${token.balanceUsd})\n`;
-            output += `   Price: $${token.priceUsd}\n`;
-            output += `   Decimals: ${token.decimals}\n`;
+            const hasBalance = parseFloat(token.balance) > 0;
+            const status = hasBalance ? '💰 AVAILABLE' : '🔘 EMPTY';
+            const isLast = index === filteredTokens.length - 1;
             
-            if (index < filteredTokens.length - 1) output += '\n';
+            output += `${token.symbol} | ${status}\n`;
+            output += `├─ Address: ${token.address}\n`;
+            output += `├─ Balance: ${token.balance} tokens\n`;
+            output += `├─ USD Value: $${token.balanceUsd}\n`;
+            output += `├─ Price: $${token.priceUsd}\n`;
+            output += `└─ Decimals: ${token.decimals}\n`;
+            
+            if (!isLast) output += '\n';
         });
         
         return output;
@@ -713,16 +733,14 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
         // Sort by volume (highest first)
         filteredVolumes.sort((a, b) => parseFloat(b.volumeUsd) - parseFloat(a.volumeUsd));
         
-        // Format as string output
-        let output = '📈 Daily Volume Overview\n';
-        output += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        // Format for liquidity analysis
+        let output = '📈 MARKET LIQUIDITY\n';
         
         if (filteredVolumes.length === 0) {
-            output += 'No BTC or ETH volume data found.\n';
-            return output;
+            return '📈 MARKET LIQUIDITY: No volume data available';
         }
         
-        // Summary section
+        // Summary for liquidity assessment
         const totalVolume = filteredVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
         const btcVolumes = filteredVolumes.filter(v => v.indexToken.includes('BTC'));
         const ethVolumes = filteredVolumes.filter(v => v.indexToken.includes('ETH'));
@@ -730,18 +748,23 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
         const btcTotalVolume = btcVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
         const ethTotalVolume = ethVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
         
-        output += `Total Volume: $${totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })}\n`;
-        output += `BTC Markets: $${btcTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${btcVolumes.length} markets)\n`;
-        output += `ETH Markets: $${ethTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${ethVolumes.length} markets)\n\n`;
+        output += `├─ Total 24h Volume: $${totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })}\n`;
+        output += `├─ BTC Volume: $${btcTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${btcVolumes.length} markets)\n`;
+        output += `└─ ETH Volume: $${ethTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${ethVolumes.length} markets)\n\n`;
         
-        // Volume details
+        // Volume details for trading decisions
         filteredVolumes.forEach((volume, index) => {
-            const tokenIcon = volume.indexToken.includes('BTC') ? '₿' : '⟠';
-            output += `${index + 1}. ${tokenIcon} ${volume.name}\n`;
-            output += `   Market Address: ${volume.marketAddress}\n`;
-            output += `   24h Volume: ${volume.volumeFormatted}\n`;
+            const token = volume.indexToken.includes('BTC') ? 'BTC' : 'ETH';
+            const volumeNum = parseFloat(volume.volumeUsd);
+            const liquidityLevel = volumeNum > 50000000 ? '🟢 HIGH' : volumeNum > 10000000 ? '🟡 MEDIUM' : '🔴 LOW';
+            const isLast = index === filteredVolumes.length - 1;
             
-            if (index < filteredVolumes.length - 1) output += '\n';
+            output += `${token} MARKET | ${liquidityLevel} LIQUIDITY\n`;
+            output += `├─ Market: ${volume.name}\n`;
+            output += `├─ Address: ${volume.marketAddress}\n`;
+            output += `└─ 24h Volume: ${volume.volumeFormatted}\n`;
+            
+            if (!isLast) output += '\n';
         });
         
         return output;
@@ -770,12 +793,11 @@ export const get_orders_str = async (sdk: GmxSdk) => {
         const orders = Object.values(ordersInfoData);
         
         if (orders.length === 0) {
-            return "📋 No pending orders found.";
+            return "📋 ORDER STATUS: No pending orders";
         }
         
-        // Build formatted string
-        let ordersString = `📋 PENDING ORDERS (${orders.length} total)\n`;
-        ordersString += "═".repeat(60) + "\n\n";
+        // Build AI-optimized output
+        let ordersString = `📋 ORDER MANAGEMENT\n`;
         
         let totalOrderValue = 0;
         let highRiskCount = 0;
@@ -846,14 +868,16 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                 if (order.orderType === 5) orderIcon = "🎯"; // Take Profit
                 if (order.orderType === 6) orderIcon = "🛡️"; // Stop Loss
                 
-                // Format order info
-                ordersString += `${orderIcon} Order #${index + 1} - ${marketInfo.name}\n`;
-                ordersString += `├─ Type: ${order.isLong ? "🟢 LONG" : "🔴 SHORT"} ${orderTypeText}\n`;
-                ordersString += `├─ Size: $${orderValueUsd.toFixed(2)} @ ${leverage.toFixed(2)}x leverage\n`;
-                ordersString += `├─ Trigger: $${triggerPriceUsd.toFixed(2)} (Current: $${markPriceUsd.toFixed(2)})\n`;
+                // Format order info for AI analysis
+                const direction = order.isLong ? "LONG" : "SHORT";
+                const orderType = order.orderType === 5 ? "TAKE_PROFIT" : order.orderType === 6 ? "STOP_LOSS" : "REGULAR";
+                const riskStatus = leverage > 10 ? "⚠️ HIGH_RISK" : leverage > 5 ? "🟡 MEDIUM_RISK" : "🟢 LOW_RISK";
+                
+                ordersString += `${orderIcon} ${marketInfo.name} ${direction} ${orderType}\n`;
+                ordersString += `├─ Size: $${orderValueUsd.toFixed(2)} | Leverage: ${leverage.toFixed(2)}x | ${riskStatus}\n`;
+                ordersString += `├─ Trigger: $${triggerPriceUsd.toFixed(2)} | Current: $${markPriceUsd.toFixed(2)}\n`;
                 ordersString += `├─ Collateral: ${collateralValue.toFixed(6)} ${initialCollateralToken.symbol}\n`;
-                ordersString += `├─ Status: ${executionStatus}\n`;
-                ordersString += `├─ Age: ${orderAgeHours.toFixed(1)} hours\n`;
+                ordersString += `├─ Status: ${executionStatus} | Age: ${orderAgeHours.toFixed(1)}h\n`;
                 ordersString += `└─ Order Key: ${order.key}\n\n`;
                 
             } catch (error) {
@@ -861,13 +885,12 @@ export const get_orders_str = async (sdk: GmxSdk) => {
             }
         });
         
-        // Add summary
-        ordersString += "═".repeat(60) + "\n";
-        ordersString += "📊 SUMMARY\n";
+        // Add summary for risk management
+        ordersString += "📊 ORDER SUMMARY\n";
         ordersString += `├─ Total Orders: ${orders.length}\n`;
         ordersString += `├─ Regular Orders: ${regularOrderCount}\n`;
-        ordersString += `├─ 🎯 Take Profit Orders: ${takeProfitCount}\n`;
-        ordersString += `├─ 🛡️ Stop Loss Orders: ${stopLossCount}\n`;
+        ordersString += `├─ Take Profit Orders: ${takeProfitCount}\n`;
+        ordersString += `├─ Stop Loss Orders: ${stopLossCount}\n`;
         ordersString += `├─ Total Value: $${totalOrderValue.toFixed(2)}\n`;
         ordersString += `├─ High Risk Orders: ${highRiskCount}\n`;
         ordersString += `└─ Average Size: $${(totalOrderValue / orders.length).toFixed(2)}\n`;
@@ -880,7 +903,7 @@ export const get_orders_str = async (sdk: GmxSdk) => {
     }
 };
 
-export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') => {
+export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
         // Step 1: Fetch leaderboard
         const leaderboardResponse = await fetch('https://dashboard.synthdata.co/api/leaderboard/');
@@ -1034,37 +1057,260 @@ export const get_synth_predictions_consolidated = async (asset: 'BTC' | 'ETH') =
         const consolidatedArray = Array.from(consolidatedMap.values())
             .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
         
-        // Format as human-readable string for AI consumption
-        let resultString = `🧠 SYNTH AI PREDICTIONS - ${asset}\n`;
-        resultString += "═".repeat(60) + "\n\n";
+        // Format raw prediction data for AI analysis
+        let resultString = `📊 ${asset} SYNTH PREDICTIONS\n`;
         
-        resultString += `📊 SUMMARY\n`;
-        resultString += `├─ Asset: ${asset}\n`;
         resultString += `├─ Active Miners: ${minerPredictions.length}\n`;
-        resultString += `└─ Prediction Timestamps: ${consolidatedArray.length}\n`;
+        resultString += `├─ Prediction Windows: ${consolidatedArray.length}\n`;
+        resultString += `└─ Asset: ${asset}\n\n`;
         
-        // Add all prediction details
+        // Raw prediction data by time - let AI do the analysis
         consolidatedArray.forEach((timeSlot, index) => {
-            resultString += `⏰ Time: ${timeSlot.time}\n`;
+            const isLast = index === consolidatedArray.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            
+            resultString += `${prefix} Time: ${timeSlot.time}\n`;
             
             // Sort miners by rank for consistent display
             const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);
             
-            sortedPredictions.forEach((pred: any) => {
+            sortedPredictions.forEach((pred: any, predIndex: number) => {
                 const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
-                resultString += `├─ Rank ${pred.rank} (Miner ${pred.miner_uid}): $${price}\n`;
+                const isLastPred = predIndex === sortedPredictions.length - 1;
+                const predPrefix = isLast ? (isLastPred ? '   └─' : '   ├─') : (isLastPred ? '│  └─' : '│  ├─');
+                resultString += `${predPrefix} Rank ${pred.rank} (Miner ${pred.miner_uid}): $${price}\n`;
             });
             
-            resultString += `\n`;
+            if (!isLast) {
+                resultString += `│\n`;
+            }
         });
-        
-        resultString += "═".repeat(60) + "\n";
-        resultString += `💡 Data ready for analysis\n`;
         
         return resultString;
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to fetch Synth predictions for ${asset}: ${errorMsg}`);
+    }
+};
+
+// Helper function to calculate technical indicators for a single timeframe
+const calculateTechnicalIndicators = (candles: number[], period: string, tokenSymbol: string) => {
+    // Parse candlestick data: [timestamp, open, high, low, close]
+    const ohlcData = candles.map((candle: number[]) => ({
+        timestamp: candle[0],
+        open: candle[1],
+        high: candle[2],
+        low: candle[3],
+        close: candle[4],
+        date: new Date(candle[0] * 1000).toISOString().split('T')[0]
+    }));
+    
+    // Sort by timestamp (oldest first) for proper indicator calculation
+    ohlcData.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Extract price arrays for technical indicators
+    const closes = ohlcData.map(d => d.close);
+    const highs = ohlcData.map(d => d.high);
+    const lows = ohlcData.map(d => d.low);
+    const opens = ohlcData.map(d => d.open);
+    
+    // Calculate technical indicators
+    const currentPrice = closes[closes.length - 1];
+    const previousPrice = closes[closes.length - 2];
+    const priceChange = currentPrice - previousPrice;
+    const priceChangePercent = (priceChange / previousPrice) * 100;
+    
+    // Moving Averages
+    const sma20 = SMA.calculate({ period: Math.min(20, closes.length - 1), values: closes });
+    const sma50 = SMA.calculate({ period: Math.min(50, closes.length - 1), values: closes });
+    const ema12 = EMA.calculate({ period: Math.min(12, closes.length - 1), values: closes });
+    const ema26 = EMA.calculate({ period: Math.min(26, closes.length - 1), values: closes });
+    
+    // RSI (14-period)
+    const rsi = RSI.calculate({ period: Math.min(14, closes.length - 1), values: closes });
+    
+    // MACD
+    const macd = MACD.calculate({
+        fastPeriod: Math.min(12, closes.length - 1),
+        slowPeriod: Math.min(26, closes.length - 1),
+        signalPeriod: Math.min(9, closes.length - 1),
+        values: closes,
+        SimpleMAOscillator: false,
+        SimpleMASignal: false
+    });
+    
+    // Bollinger Bands (20-period, 2 standard deviations)
+    const bb = BollingerBands.calculate({
+        period: Math.min(20, closes.length - 1),
+        stdDev: 2,
+        values: closes
+    });
+    
+    // ATR (14-period) for volatility
+    const atr = ATR.calculate({
+        period: Math.min(14, closes.length - 1),
+        high: highs,
+        low: lows,
+        close: closes
+    });
+    
+    // Stochastic Oscillator
+    const stoch = Stochastic.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: Math.min(14, closes.length - 1),
+        signalPeriod: Math.min(3, closes.length - 1)
+    });
+    
+    // Get latest values
+    const latestSMA20 = sma20[sma20.length - 1];
+    const latestSMA50 = sma50[sma50.length - 1];
+    const latestEMA12 = ema12[ema12.length - 1];
+    const latestEMA26 = ema26[ema26.length - 1];
+    const latestRSI = rsi[rsi.length - 1];
+    const latestMACD = macd[macd.length - 1];
+    const latestBB = bb[bb.length - 1];
+    const latestATR = atr[atr.length - 1];
+    const latestStoch = stoch[stoch.length - 1];
+    
+    // Calculate trend signals
+    const trendSignals = {
+        sma_trend: currentPrice > latestSMA20 ? 'BULLISH' : 'BEARISH',
+        ema_cross: latestEMA12 > latestEMA26 ? 'BULLISH' : 'BEARISH',
+        price_vs_sma50: currentPrice > latestSMA50 ? 'ABOVE' : 'BELOW',
+        macd_signal: latestMACD?.MACD > latestMACD?.signal ? 'BULLISH' : 'BEARISH',
+        rsi_condition: latestRSI > 70 ? 'OVERBOUGHT' : latestRSI < 30 ? 'OVERSOLD' : 'NEUTRAL',
+        bb_position: currentPrice > latestBB?.upper ? 'ABOVE_UPPER' : 
+                    currentPrice < latestBB?.lower ? 'BELOW_LOWER' : 'WITHIN_BANDS',
+        stoch_signal: latestStoch?.k > 80 ? 'OVERBOUGHT' : latestStoch?.k < 20 ? 'OVERSOLD' : 'NEUTRAL'
+    };
+    
+    // Calculate support/resistance levels
+    const recentHighs = highs.slice(-20);
+    const recentLows = lows.slice(-20);
+    const resistance = Math.max(...recentHighs);
+    const support = Math.min(...recentLows);
+    
+    // Calculate overall trend
+    const bullishSignals = Object.values(trendSignals).filter(signal => 
+        signal === 'BULLISH' || signal === 'ABOVE' || signal === 'ABOVE_UPPER'
+    ).length;
+    const bearishSignals = Object.values(trendSignals).filter(signal => 
+        signal === 'BEARISH' || signal === 'BELOW' || signal === 'BELOW_LOWER' || signal === 'OVERBOUGHT'
+    ).length;
+    
+    let overallTrend = 'NEUTRAL';
+    if (bullishSignals > bearishSignals + 1) overallTrend = 'BULLISH';
+    else if (bearishSignals > bullishSignals + 1) overallTrend = 'BEARISH';
+    
+    return {
+        period,
+        currentPrice,
+        priceChange,
+        priceChangePercent,
+        candleCount: candles.length,
+        lastUpdate: ohlcData[ohlcData.length - 1].date,
+        indicators: {
+            sma20: latestSMA20,
+            sma50: latestSMA50,
+            ema12: latestEMA12,
+            ema26: latestEMA26,
+            rsi: latestRSI,
+            macd: latestMACD,
+            bb: latestBB,
+            atr: latestATR,
+            stoch: latestStoch
+        },
+        signals: trendSignals,
+        levels: {
+            resistance,
+            support,
+            distanceToResistance: ((resistance - currentPrice) / currentPrice * 100),
+            distanceToSupport: ((currentPrice - support) / currentPrice * 100)
+        },
+        trend: {
+            overall: overallTrend,
+            bullishSignals,
+            bearishSignals,
+            volatilityLevel: latestATR > (currentPrice * 0.03) ? 'HIGH' : latestATR > (currentPrice * 0.01) ? 'MEDIUM' : 'LOW'
+        }
+    };
+};
+
+// Technical Analysis Query - Fetch candlestick data for all timeframes and calculate indicators
+export const get_technical_analysis_str = async (
+    tokenSymbol: 'BTC' | 'ETH'
+): Promise<string> => {
+    try {
+        const timeframes = ['15m', '1h', '4h', '1d'] as const;
+        const analysisResults: any[] = [];
+        
+        // Fetch data for all timeframes
+        for (const period of timeframes) {
+            const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${tokenSymbol}&period=${period}`;
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch candlestick data for ${period}: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (!data || !data.candles || !Array.isArray(data.candles)) {
+                throw new Error(`Invalid candlestick data received for ${tokenSymbol} ${period}`);
+            }
+            
+            const candles = data.candles;
+            if (candles.length < 10) {
+                console.warn(`Insufficient data for ${period} analysis. Got ${candles.length} candles`);
+                continue;
+            }
+            
+            const analysis = calculateTechnicalIndicators(candles, period, tokenSymbol);
+            analysisResults.push(analysis);
+        }
+        
+        if (analysisResults.length === 0) {
+            throw new Error(`No valid data available for ${tokenSymbol} technical analysis`);
+        }
+        
+        // Get current price from most recent data
+        const currentPrice = analysisResults[0]?.currentPrice;
+        
+        // Format raw technical indicator data for AI analysis
+        let output = `📊 TECHNICAL INDICATORS - ${tokenSymbol}\n`;
+        output += '═'.repeat(60) + '\n\n';
+        
+        output += `💰 CURRENT PRICE: $${currentPrice.toFixed(2)}\n\n`;
+        
+        // Raw indicator data by timeframe
+        for (const data of analysisResults) {
+            output += `⏰ ${data.period.toUpperCase()} TIMEFRAME (${data.candleCount} candles)\n`;
+            output += `├─ Price: $${data.currentPrice.toFixed(2)} (${data.priceChangePercent > 0 ? '+' : ''}${data.priceChangePercent.toFixed(2)}%)\n`;
+            output += `├─ SMA(20): $${data.indicators.sma20?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ SMA(50): $${data.indicators.sma50?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA(12): $${data.indicators.ema12?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA(26): $${data.indicators.ema26?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ RSI(14): ${data.indicators.rsi?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ MACD: ${data.indicators.macd?.MACD?.toFixed(4) || 'N/A'}\n`;
+            output += `├─ MACD Signal: ${data.indicators.macd?.signal?.toFixed(4) || 'N/A'}\n`;
+            output += `├─ MACD Histogram: ${data.indicators.macd?.histogram?.toFixed(4) || 'N/A'}\n`;
+            output += `├─ Bollinger Upper: $${data.indicators.bb?.upper?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Bollinger Middle: $${data.indicators.bb?.middle?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Bollinger Lower: $${data.indicators.bb?.lower?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ ATR(14): ${data.indicators.atr?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Stochastic %K: ${data.indicators.stoch?.k?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Stochastic %D: ${data.indicators.stoch?.d?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Support: $${data.levels.support.toFixed(2)}\n`;
+            output += `└─ Resistance: $${data.levels.resistance.toFixed(2)}\n\n`;
+        }
+        
+        return output;
+        
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch technical analysis for ${tokenSymbol}: ${errorMsg}`);
     }
 };

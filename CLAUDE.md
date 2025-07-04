@@ -11,6 +11,8 @@ This is **Vega**, an autonomous AI-powered trading agent for GMX perpetual futur
 ```bash
 # Install dependencies
 bun install
+# or alternatively
+pnpm install
 
 # Run the trading agent
 bun run start
@@ -21,6 +23,7 @@ bun run agent-gmx.ts
 
 # No build step needed - Bun handles TypeScript compilation
 # No test commands - testing framework not implemented
+# No lint commands defined - TypeScript strict mode enforces code quality
 ```
 
 ## Architecture Overview
@@ -86,17 +89,20 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 
 ### External Dependencies
 
-- **ChromaDB**: Must be running at `http://localhost:8000`
-- **MongoDB**: Accessible via connection string
-- **Funded Wallet**: On specified network with ETH for gas
+- **ChromaDB**: Must be running at `http://localhost:8000` for vector storage
+- **MongoDB**: Accessible via connection string for persistent memory
+- **Funded Wallet**: On specified network with ETH for gas fees
+- **Active Internet**: Required for Synth AI predictions and GMX oracle data
 
 ## Important Conventions
 
-1. **TypeScript Strict Mode**: All code must pass strict TypeScript checks
-2. **ES Modules**: Use import/export syntax, not require()
-3. **BigInt for Prices**: All financial values use BigInt for precision
-4. **Async/Await**: All blockchain operations are asynchronous
-5. **Error Logging**: Use the custom logger for debugging (`logger.debug()`)
+1. **TypeScript Strict Mode**: All code must pass strict TypeScript checks (configured in tsconfig.json)
+2. **ES Modules**: Use import/export syntax, not require() (specified in package.json)
+3. **BigInt for Precision**: All financial values use BigInt to avoid floating-point precision issues
+4. **Async/Await**: All blockchain operations are asynchronous and use proper error handling
+5. **Structured Logging**: Use custom logger (`debugLog`, `debugError`) for session-based file logging
+6. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
+7. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
 
 ## Trading Action Pattern
 
@@ -134,8 +140,17 @@ When adding new trading actions to `gmx-actions.ts`:
 
 ## Integration Points
 
-- **GMX SDK**: For all trading operations
-- **Viem**: For blockchain interactions
-- **OpenRouter**: For AI model access
-- **Synth AI**: For market predictions
-- **Discord**: For trade notifications
+- **GMX SDK (@gmx-io/sdk)**: Primary trading interface for positions, orders, markets data
+- **Viem**: Low-level blockchain interactions and wallet management
+- **Daydreams AI Framework**: Agent orchestration, memory management, and action coordination
+- **OpenRouter**: AI model access (Claude Sonnet 4 for main agent, Gemini for vector embeddings)
+- **Synth AI**: Real-time market predictions from decentralized AI miners
+- **MongoDB**: Persistent memory storage across sessions
+- **ChromaDB**: Vector storage for semantic memory and context retrieval
+
+## Debugging and Logging
+
+- **Session-based Logs**: All debug output saved to `logs/gmx-debug-{timestamp}.log`
+- **BigInt-safe JSON**: Custom serialization handles BigInt values in logs
+- **Structured Debug Logging**: Use `debugLog(category, message, data)` and `debugError(category, error, context)`
+- **Trading Action Logging**: Every trade action is logged with context and results

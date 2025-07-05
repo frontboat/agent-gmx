@@ -15,11 +15,10 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.5",
-    "@daydreamsai/chromadb": "^0.3.8",
     "@daydreamsai/cli": "^0.3.8",
     "@daydreamsai/core": "^0.3.8",
     "@daydreamsai/discord": "^0.3.8",
-    "@daydreamsai/mongodb": "^0.3.8",
+    "@daydreamsai/supabase": "^0.3.8",
     "@gmx-io/sdk": "^1.1.2",
     "@openrouter/ai-sdk-provider": "^0.7.2",
     "chromadb-default-embed": "^2.14.0",

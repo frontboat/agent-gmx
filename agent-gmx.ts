@@ -17,10 +17,9 @@ import {
     extension,
     validateEnv, 
     LogLevel,
-    Logger,
-    createVectorStore
+    Logger
 } from "@daydreamsai/core";
-import { createSupabaseMemoryStore } from "@daydreamsai/supabase";
+import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
@@ -279,7 +278,7 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 - **CRITICAL**: Do not swap USDC to WETH, always swap USDC to ETH
 - Hold the rest of the portfolio in USDC (swap WETH and BTC to USDC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
-- **CRITICAL**: Ignore '...' inputs, they are not valid inputs. Continue with the next step.
+- **CRITICAL**: If you get a '...' input, store everything about it's context, where it came from and what it is. This is a critical error and you need to store it.
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
@@ -304,6 +303,8 @@ const gmxContext = context({
     maxWorkingMemorySize: 5,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
+        currentTask: z.string().describe("The agent's current task"),
+        lastResult: z.string().describe("The agent's last result"),
         positions: z.string().describe("The agent's positions"),
         portfolio: z.string().describe("The agent's portfolio"),
         markets: z.string().describe("The agent's markets"),
@@ -323,6 +324,8 @@ const gmxContext = context({
     create: (state) => {
           return {
             instructions:state.args.instructions,
+            currentTask: state.args.currentTask,
+            lastResult: state.args.lastResult,
             positions:state.args.positions,
             portfolio:state.args.portfolio,
             markets:state.args.markets,
@@ -339,6 +342,8 @@ const gmxContext = context({
     render({ memory }) {
         return render(vega_template, {
             instructions: memory.instructions,
+            currentTask: memory.currentTask,
+            lastResult: memory.lastResult,
             positions: memory.positions,
             portfolio: memory.portfolio,
             markets: memory.markets,
@@ -368,10 +373,14 @@ const gmxContext = context({
                     const eth_predictions = await get_synth_predictions_consolidated_str('ETH');
                     const btc_technical_analysis = await get_technical_analysis_str('BTC');
                     const eth_technical_analysis = await get_technical_analysis_str('ETH');
+                    const currentTask = "Trading cycle initiated";
+                    const lastResult = "Trading cycle initiated";
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 20,
                         instructions: vega_template,
+                        currentTask: currentTask,
+                        lastResult: lastResult,
                         positions: positions,
                         portfolio: portfolio,
                         markets: markets,
@@ -413,25 +422,24 @@ const gmx = extension({
 
 console.log("⚡ Initializing Vega trading agent...");
 
-// Initialize Supabase memory store only
-console.log("🗄️ Setting up Supabase persistent memory...");
-const supabaseMemoryStore = createSupabaseMemoryStore({
-    url: env.SUPABASE_URL,
-    key: env.SUPABASE_KEY,
-    tableName: "gmx_memory",
-});
+ // Initialize complete Supabase memory system
+ console.log("🗄️ Setting up Supabase memory system..." );
+ const supabaseMemory = createSupabaseBaseMemory({
+     url: env.SUPABASE_URL,
+     key: env.SUPABASE_KEY,
+     memoryTableName: "gmx_memory_test",
+     vectorTableName: "gmx_embeddings_test",
+     vectorModel: openai("gpt-4o-mini"),
+ });
 
-console.log("✅ Memory store initialized!");
+ console.log("✅ Memory system initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
+    model: openrouter("google/gemini-2.5-flash-preview-05-20"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
-    memory: {
-        store: supabaseMemoryStore,
-        vector: createVectorStore(), // No-op vector store to prevent errors
-    }
+    memory: supabaseMemory,
 });
 
 console.log("✅ Agent created successfully!");
@@ -439,6 +447,8 @@ console.log("✅ Agent created successfully!");
 // Start the agent with GMX context arguments
 await agent.start({
     instructions: vega_template,
+    currentTask: "Trading cycle initiated",
+    lastResult: "Trading cycle initiated",
     positions: await get_positions_str(sdk),
     portfolio: await get_portfolio_balance_str(sdk),
     markets: await get_btc_eth_markets_str(sdk),

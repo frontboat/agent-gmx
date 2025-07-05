@@ -427,8 +427,8 @@ console.log("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory_test",
-     vectorTableName: "gmx_embeddings_test",
+     memoryTableName: "gmx_memory",
+     vectorTableName: "gmx_embeddings",
      vectorModel: openai("gpt-4o-mini"),
  });
 
@@ -436,7 +436,7 @@ console.log("⚡ Initializing Vega trading agent...");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("google/gemini-2.5-flash-preview-05-20"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
+    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,

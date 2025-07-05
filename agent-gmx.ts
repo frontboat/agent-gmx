@@ -19,9 +19,7 @@ import {
     LogLevel,
     Logger
 } from "@daydreamsai/core";
-// Import episode generation functions directly
-import { createEpisodeFromWorkingMemory, generateEpisodicMemory } from "@daydreamsai/core/src/memory/utils";
-import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
+import { createSupabaseMemoryStore } from "@daydreamsai/supabase";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
@@ -317,7 +315,6 @@ const gmxContext = context({
         synth_eth_predictions: z.string().describe("The agent's ETH predictions"),
         btc_technical_analysis: z.string().describe("The agent's BTC technical analysis"),
         eth_technical_analysis: z.string().describe("The agent's ETH technical analysis"),
-        sessionId: z.string().describe("Unique session identifier"),
     }),
 
     key({ id }) {
@@ -339,7 +336,6 @@ const gmxContext = context({
             synth_eth_predictions:state.args.synth_eth_predictions,
             btc_technical_analysis:state.args.btc_technical_analysis,
             eth_technical_analysis:state.args.eth_technical_analysis,
-            sessionId: state.args.sessionId || `session-${Date.now()}`,
           };
       },
 
@@ -359,112 +355,6 @@ const gmxContext = context({
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
           });
-    },
-
-    async onRun({ memory, workingMemory, agent, contextId }) {
-        try {
-            console.log(`🧠 Processing trading session: ${memory.sessionId}`);
-            console.log(`📊 Working memory: ${workingMemory.thoughts.length} thoughts, ${workingMemory.calls.length} actions, ${workingMemory.results.length} results`);
-            
-            // Only generate episodes if there was meaningful activity
-            if (workingMemory.thoughts.length > 0 && workingMemory.calls.length > 0) {
-                console.log("📝 Generating episodic memory from trading session...");
-                
-                // Convert working memory data to the format expected by the framework
-                const thoughts = workingMemory.thoughts.map(thought => ({
-                    id: thought.id,
-                    timestamp: thought.timestamp,
-                    data: { thought: thought.data.thought }
-                }));
-                
-                const actions = workingMemory.calls.map(call => ({
-                    name: call.data.name,
-                    args: call.data.args,
-                    description: `GMX trading action: ${call.data.name}`
-                }));
-                
-                const results = workingMemory.results.map(result => ({
-                    id: result.id,
-                    timestamp: result.timestamp,
-                    data: result.data
-                }));
-
-                // Generate episode using the framework's built-in function
-                const episode = await createEpisodeFromWorkingMemory(
-                    thoughts,
-                    actions,
-                    results,
-                    agent
-                );
-
-                // Enhance episode with trading-specific metadata
-                const tradingEpisode = {
-                    ...episode,
-                    metadata: {
-                        sessionId: memory.sessionId,
-                        timestamp: Date.now(),
-                        tradingContext: {
-                            portfolio: memory.portfolio.substring(0, 200) + "...",
-                            positions: memory.positions.substring(0, 200) + "...",
-                            marketConditions: {
-                                btc_sentiment: memory.synth_btc_predictions.includes("bullish") ? "bullish" : 
-                                              memory.synth_btc_predictions.includes("bearish") ? "bearish" : "neutral",
-                                eth_sentiment: memory.synth_eth_predictions.includes("bullish") ? "bullish" : 
-                                              memory.synth_eth_predictions.includes("bearish") ? "bearish" : "neutral"
-                            }
-                        },
-                        actionCount: actions.length,
-                        hasPositions: memory.positions.includes("Position"),
-                        success: !results.some(r => r.data.toString().includes("error")),
-                        tags: [
-                            ...actions.map(a => `action:${a.name}`),
-                            memory.positions.includes("Position") ? "has_positions" : "no_positions",
-                            actions.length > 0 ? "active_trading" : "analysis_only",
-                            `session:${memory.sessionId}`
-                        ]
-                    }
-                };
-
-                // Store the episode in vector database
-                await agent.memory.vector.upsert(contextId, [{
-                    id: episode.id,
-                    text: `${episode.observation} ${episode.thoughts} ${episode.result}`,
-                    metadata: tradingEpisode
-                }]);
-
-                console.log(`✅ Stored trading episode: ${episode.id}`);
-                console.log(`📈 Episode summary: ${episode.observation.substring(0, 100)}...`);
-                
-            } else {
-                console.log("⏭️  No meaningful activity to store as episode");
-            }
-
-            // Also store a market snapshot for pattern recognition
-            if (memory.markets && memory.btc_technical_analysis && memory.eth_technical_analysis) {
-                const marketSnapshot = {
-                    id: `market-${memory.sessionId}-${Date.now()}`,
-                    text: `Market analysis snapshot: ${memory.btc_technical_analysis.substring(0, 300)} ${memory.eth_technical_analysis.substring(0, 300)} ${memory.synth_btc_predictions.substring(0, 200)} ${memory.synth_eth_predictions.substring(0, 200)}`,
-                    metadata: {
-                        type: "market_snapshot",
-                        sessionId: memory.sessionId,
-                        timestamp: Date.now(),
-                        conditions: {
-                            btc_predictions: memory.synth_btc_predictions,
-                            eth_predictions: memory.synth_eth_predictions,
-                            portfolio: memory.portfolio,
-                            positions: memory.positions
-                        }
-                    }
-                };
-
-                await agent.memory.vector.upsert(`${contextId}-market`, [marketSnapshot]);
-                console.log(`📊 Stored market snapshot: ${marketSnapshot.id}`);
-            }
-
-        } catch (error) {
-            console.error("❌ Error generating episodic memory:", error);
-            console.error("Error details:", error.message);
-        }
     },
     }).setInputs({
         "gmx:trading-cycle": input({  
@@ -501,7 +391,6 @@ const gmxContext = context({
                         synth_eth_predictions: eth_predictions,
                         btc_technical_analysis: btc_technical_analysis,
                         eth_technical_analysis: eth_technical_analysis,
-                        sessionId: `vega-cycle-${Date.now()}`,
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
@@ -533,18 +422,25 @@ const gmx = extension({
 
 console.log("⚡ Initializing Vega trading agent...");
 
+// Initialize Supabase memory store only
+console.log("🗄️ Setting up Supabase persistent memory...");
+const supabaseMemoryStore = createSupabaseMemoryStore({
+    url: env.SUPABASE_URL,
+    key: env.SUPABASE_KEY,
+    tableName: "gmx_memory",
+});
+
+console.log("✅ Memory store initialized!");
+
 // Create the agent with persistent memory
 const agent = createDreams({
     model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
-    memory: createSupabaseBaseMemory({
-        url: env.SUPABASE_URL,
-        key: env.SUPABASE_KEY,
-        memoryTableName: "gmx_memory",
-        vectorTableName: "gmx_embeddings",
-        vectorModel: openai("gpt-4-turbo"), // Used for episode generation
-    }),
+    memory: {
+        store: supabaseMemoryStore,
+        // No vector store - keeping it simple
+    }
 });
 
 console.log("✅ Agent created successfully!");
@@ -564,7 +460,6 @@ await agent.start({
     synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH'),
     btc_technical_analysis: await get_technical_analysis_str('BTC'),
     eth_technical_analysis: await get_technical_analysis_str('ETH'),
-    sessionId: `vega-session-${Date.now()}`,
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

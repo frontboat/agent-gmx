@@ -409,10 +409,10 @@ const gmxContext = context({
                         btc_technical_analysis: btc_technical_analysis,
                         eth_technical_analysis: eth_technical_analysis,
                     };
-                    let text = "Trading cycle initiated";
+                    let text = `Trading cycle initiated`;
                     
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }, 300000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

@@ -20,6 +20,7 @@ import {
     Logger
 } from "@daydreamsai/core";
 import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
+import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
@@ -36,6 +37,7 @@ console.log("🚀 Starting GMX Trading Agent...");
 const env = validateEnv(
     z.object({
         OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
+        OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
         GMX_NETWORK: z.enum(["arbitrum", "avalanche"]).default("arbitrum"),
         GMX_CHAIN_ID: z.string(),
         GMX_ORACLE_URL: z.string(),
@@ -296,7 +298,7 @@ Keep all previous instructions in mind and refer to them when making decisions
 
 const gmxContext = context({
     type: "gmx-trading-agent",
-    maxSteps: 50,
+    maxSteps: 20,
     maxWorkingMemorySize: 5,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
@@ -374,7 +376,7 @@ const gmxContext = context({
                     const lastResult = "Trading cycle initiated";
                     let context = {
                         type: "gmx-trading-agent",
-                        maxSteps: 50,
+                        maxSteps: 20,
                         instructions: vega_template,
                         currentTask: currentTask,
                         lastResult: lastResult,
@@ -426,7 +428,7 @@ console.log("⚡ Initializing Vega trading agent...");
      key: env.SUPABASE_KEY,
      memoryTableName: "gmx_memory",
      vectorTableName: "gmx_embeddings",
-     vectorModel: openrouter("google/gemini-2.0-flash-001"),
+     vectorModel: openai("gpt-4o-mini"),
  });
 
  console.log("✅ Memory system initialized!");

@@ -359,14 +359,8 @@ const gmxContext = context({
           };
       },
 
-    render({ memory, workingMemory }) {
-        // Override episodic memory to prevent "..." bug from empty/malformed memory
-        const safeWorkingMemory = {
-            ...workingMemory,
-            episodicMemory: {
-                episodes: []  // Replace malformed episodic memory with safe empty array
-            }
-        };
+    render({ memory }) {
+        console.log(memory);
 
         return render(vega_template, {
             instructions: memory.instructions,
@@ -382,7 +376,6 @@ const gmxContext = context({
             synth_eth_predictions: memory.synth_eth_predictions,
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
-            workingMemory: safeWorkingMemory  // Use cleaned working memory
           });
     },
     }).setInputs({
@@ -422,7 +415,8 @@ const gmxContext = context({
                         eth_technical_analysis: eth_technical_analysis,
                     };
                     let text = `Trading cycle initiated`;
-                    
+                    console.log(context);
+                    console.log(text);
                     await send(gmxContext, context, {text});
                 }, 300000); // 30 minutes
 

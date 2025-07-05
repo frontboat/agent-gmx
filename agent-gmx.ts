@@ -19,7 +19,7 @@ import {
     LogLevel,
     Logger
 } from "@daydreamsai/core";
-import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
+import { createSupabaseMemoryStore } from "@daydreamsai/supabase";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
@@ -423,7 +423,7 @@ console.log("⚡ Initializing Vega trading agent...");
 
  // Initialize complete Supabase memory system
  console.log("🗄️ Setting up Supabase memory system..." );
- const supabaseMemory = createSupabaseBaseMemory({
+ const supabaseMemory = createSupabaseMemoryStore({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
      tableName: "gmx_memory",

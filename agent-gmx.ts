@@ -440,6 +440,8 @@ const agent = createDreams({
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,
+    generateMemories: true,
+    vectorModel: openai("text-embedding-3-small") // Use OpenAI for embeddings
 });
 
 console.log("✅ Agent created successfully!");

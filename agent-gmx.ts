@@ -19,8 +19,7 @@ import {
     LogLevel,
     Logger
 } from "@daydreamsai/core";
-import { createMongoMemoryStore } from "@daydreamsai/mongodb";
-import { createChromaVectorStore } from "@daydreamsai/chromadb";
+import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
@@ -419,26 +418,24 @@ const gmx = extension({
 
 console.log("⚡ Initializing Vega trading agent...");
 
-// Initialize persistent memory stores
-console.log("🗄️ Setting up MongoDB persistent memory...");
-const mongoMemoryStore = await createMongoMemoryStore({
-    uri: env.MONGODB_STRING,
-    dbName: "vega_trading_agent", 
-    collectionName: "gmx_memory",
-});
+ // Initialize complete Supabase memory system
+ console.log("🗄️ Setting up Supabase memory system..." );
+ const supabaseMemory = createSupabaseBaseMemory({
+     url: env.SUPABASE_URL,
+     key: env.SUPABASE_KEY,
+     memoryTableName: "gmx_memory",
+     vectorTableName: "gmx_embeddings",
+     vectorModel: openrouter("google/gemini-2.0-flash-001"),
+ });
 
-console.log("✅ Memory stores initialized!");
+ console.log("✅ Memory system initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
     model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
-    memory: {
-        store: mongoMemoryStore,
-        vector: createChromaVectorStore("agent", "http://localhost:8000"),
-        vectorModel: openrouter("google/gemini-2.0-flash-001"),
-    }
+    memory: supabaseMemory,
 });
 
 console.log("✅ Agent created successfully!");

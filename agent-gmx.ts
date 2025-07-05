@@ -278,6 +278,7 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 - **CRITICAL**: Do not swap USDC to WETH, always swap USDC to ETH
 - Hold the rest of the portfolio in USDC (swap WETH and BTC to USDC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
+- **CRITICAL**: Ignore '...' inputs, they are not valid inputs. Continue with the next step.
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions

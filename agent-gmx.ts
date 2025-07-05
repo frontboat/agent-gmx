@@ -278,7 +278,7 @@ Maximize total return through strategic trading. Every trade impacts my ranking.
 - **CRITICAL**: Do not swap USDC to WETH, always swap USDC to ETH
 - Hold the rest of the portfolio in USDC (swap WETH and BTC to USDC)
 - Error Handling: If actions fail, diagnose the issue, adapt parameters if needed, and continue. Don't get stuck in retry loops
-- **CRITICAL**: If you get a '...' input, store everything about it's context, where it came from and what it is. This is a critical error and you need to store it.
+- **CRITICAL INPUT VALIDATION**: If you receive a message that is exactly "..." (three dots) or contains only ellipsis characters, immediately ignore it and do not respond. This is malformed input from a system bug. Continue with your normal trading cycle as if no input was received.
 
 ### Trading Cycle
 Keep all previous instructions in mind and refer to them when making decisions
@@ -339,7 +339,15 @@ const gmxContext = context({
           };
       },
 
-    render({ memory }) {
+    render({ memory, workingMemory }) {
+        // Override episodic memory to prevent "..." bug from empty/malformed memory
+        const safeWorkingMemory = {
+            ...workingMemory,
+            episodicMemory: {
+                episodes: []  // Replace malformed episodic memory with safe empty array
+            }
+        };
+
         return render(vega_template, {
             instructions: memory.instructions,
             currentTask: memory.currentTask,
@@ -354,6 +362,7 @@ const gmxContext = context({
             synth_eth_predictions: memory.synth_eth_predictions,
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
+            workingMemory: safeWorkingMemory  // Use cleaned working memory
           });
     },
     }).setInputs({
@@ -393,8 +402,9 @@ const gmxContext = context({
                         eth_technical_analysis: eth_technical_analysis,
                     };
                     let text = "Trading cycle initiated";
+                    
                     await send(gmxContext, context, {text});
-                }, 300000); // 30 minutes
+                }, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

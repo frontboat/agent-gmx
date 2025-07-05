@@ -44,7 +44,8 @@ const env = validateEnv(
         GMX_WALLET_ADDRESS: z.string(),
         GMX_PRIVATE_KEY: z.string(),
         SYNTH_API_KEY: z.string().min(1, "SYNTH_API_KEY is required for market intelligence"),
-        MONGODB_STRING: z.string().min(1, "MONGODB_STRING is required for persistent memory"),
+        SUPABASE_URL: z.string().min(1, "SUPABASE_URL is required for persistent memory"),
+        SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required for persistent memory"),
     })
 );
 

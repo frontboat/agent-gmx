@@ -17,7 +17,8 @@ import {
     extension,
     validateEnv, 
     LogLevel,
-    Logger
+    Logger,
+    createVectorStore
 } from "@daydreamsai/core";
 import { createSupabaseMemoryStore } from "@daydreamsai/supabase";
 import { openai } from "@ai-sdk/openai";
@@ -394,7 +395,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }, 300000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {
@@ -437,10 +438,10 @@ const agent = createDreams({
     model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
     logger: new Logger({ level: LogLevel.INFO }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
-    memory: {
-        store: supabaseMemoryStore,
-        // No vector store - keeping it simple
-    }
+    //memory: {
+    //    store: supabaseMemoryStore,
+    //    vector: createVectorStore(), // No-op vector store to prevent errors
+    //}
 });
 
 console.log("✅ Agent created successfully!");

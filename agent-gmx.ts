@@ -20,7 +20,6 @@ import {
     Logger
 } from "@daydreamsai/core";
 import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
@@ -427,9 +426,7 @@ console.log("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory",
-     vectorTableName: "gmx_embeddings",
-     vectorModel: openai("gpt-4o-mini"),
+     tableName: "gmx_memory",
  });
 
  console.log("✅ Memory system initialized!");

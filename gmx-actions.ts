@@ -147,7 +147,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: `Total portfolio value: $${totalValue.toFixed(2)}`
                 };
                 
-
                 return {
                     success: true,
                     message: "Portfolio balance retrieved successfully",
@@ -184,7 +183,6 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     lastResult: "Current positions analyzed"
                 };
                 
-
                 return {
                     success: true,
                     message: "Positions retrieved successfully",

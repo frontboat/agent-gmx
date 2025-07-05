@@ -304,8 +304,6 @@ const gmxContext = context({
     maxWorkingMemorySize: 5,
     schema: z.object({
         instructions: z.string().describe("The agent's instructions"),
-        currentTask: z.string().describe("The agent's current task"),
-        lastResult: z.string().describe("The agent's last result"),
         positions: z.string().describe("The agent's positions"),
         portfolio: z.string().describe("The agent's portfolio"),
         markets: z.string().describe("The agent's markets"),
@@ -325,8 +323,6 @@ const gmxContext = context({
     create: (state) => {
           return {
             instructions:state.args.instructions,
-            currentTask: state.args.currentTask,
-            lastResult: state.args.lastResult,
             positions:state.args.positions,
             portfolio:state.args.portfolio,
             markets:state.args.markets,
@@ -343,8 +339,6 @@ const gmxContext = context({
     render({ memory }) {
         return render(vega_template, {
             instructions: memory.instructions,
-            currentTask: memory.currentTask,
-            lastResult: memory.lastResult,
             positions: memory.positions,
             portfolio: memory.portfolio,
             markets: memory.markets,
@@ -374,14 +368,10 @@ const gmxContext = context({
                     const eth_predictions = await get_synth_predictions_consolidated_str('ETH');
                     const btc_technical_analysis = await get_technical_analysis_str('BTC');
                     const eth_technical_analysis = await get_technical_analysis_str('ETH');
-                    const currentTask = "Trading cycle initiated";
-                    const lastResult = "Trading cycle initiated";
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 20,
                         instructions: vega_template,
-                        currentTask: currentTask,
-                        lastResult: lastResult,
                         positions: positions,
                         portfolio: portfolio,
                         markets: markets,
@@ -449,8 +439,6 @@ console.log("✅ Agent created successfully!");
 // Start the agent with GMX context arguments
 await agent.start({
     instructions: vega_template,
-    currentTask: "Trading cycle initiated",
-    lastResult: "Trading cycle initiated",
     positions: await get_positions_str(sdk),
     portfolio: await get_portfolio_balance_str(sdk),
     markets: await get_btc_eth_markets_str(sdk),

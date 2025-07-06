@@ -1279,7 +1279,44 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         return { rsiDivergence };
     };
     
+    // MACD Divergence Detection - price vs MACD momentum
+    const calculateMacdDivergence = () => {
+        const lookback = Math.min(10, closes.length);
+        if (lookback < 5 || macd.length < lookback) return { macdDivergence: 'none' };
+        
+        // Get recent price and MACD data
+        const recentPrices = closes.slice(-lookback);
+        const recentMACD = macd.slice(-lookback).map(m => m.MACD);
+        
+        // Simple linear regression slope calculation
+        const calculateSlope = (data: number[]) => {
+            const n = data.length;
+            if (n < 2) return 0;
+            
+            const sumX = (n * (n - 1)) / 2;
+            const sumY = data.reduce((sum, val) => sum + val, 0);
+            const sumXY = data.reduce((sum, val, i) => sum + val * i, 0);
+            const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
+            
+            const denominator = n * sumX2 - sumX * sumX;
+            if (denominator === 0) return 0;
+            
+            return (n * sumXY - sumX * sumY) / denominator;
+        };
+        
+        const priceSlope = calculateSlope(recentPrices);
+        const macdSlope = calculateSlope(recentMACD);
+        
+        // Detect MACD divergence (opposite slopes with significant magnitude)
+        const macdDivergence = Math.abs(priceSlope) > 0.01 && Math.abs(macdSlope) > 0.01 ?
+            (priceSlope > 0 && macdSlope < 0 ? 'bearish' : 
+             priceSlope < 0 && macdSlope > 0 ? 'bullish' : 'none') : 'none';
+        
+        return { macdDivergence };
+    };
+    
     const rsiDivergenceData = calculateRsiDivergence();
+    const macdDivergenceData = calculateMacdDivergence();
     
     return {
         period,
@@ -1307,7 +1344,8 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         },
         signals: {
             emaAlignment,
-            rsiDivergence: rsiDivergenceData.rsiDivergence
+            rsiDivergence: rsiDivergenceData.rsiDivergence,
+            macdDivergence: macdDivergenceData.macdDivergence
         },
         levels: {
             resistance,
@@ -1379,7 +1417,7 @@ export const get_technical_analysis_str = async (
             let totalSignals = 0;
             
             analysisResults.forEach(data => {
-                const { emaAlignment, rsiDivergence } = data.signals;
+                const { emaAlignment, rsiDivergence, macdDivergence } = data.signals;
                 const indicators = data.indicators;
                 
                 // EMA alignment signals
@@ -1417,6 +1455,15 @@ export const get_technical_analysis_str = async (
                     bullishSignals++;
                     totalSignals++;
                 } else if (rsiDivergence === 'bearish') {
+                    bearishSignals++;
+                    totalSignals++;
+                }
+                
+                // MACD divergence signals
+                if (macdDivergence === 'bullish') {
+                    bullishSignals++;
+                    totalSignals++;
+                } else if (macdDivergence === 'bearish') {
                     bearishSignals++;
                     totalSignals++;
                 }
@@ -1478,6 +1525,7 @@ export const get_technical_analysis_str = async (
             output += `├─ -DI: ${data.indicators.adx?.mdi?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA Alignment: ${data.signals.emaAlignment.score}/4 (${data.signals.emaAlignment.strength.toFixed(1)}%)\n`;
             output += `├─ RSI Divergence: ${data.signals.rsiDivergence}\n`;
+            output += `├─ MACD Divergence: ${data.signals.macdDivergence}\n`;
             output += `├─ Support: $${data.levels.support.toFixed(2)}\n`;
             output += `└─ Resistance: $${data.levels.resistance.toFixed(2)}\n\n`;
         }

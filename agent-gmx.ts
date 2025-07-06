@@ -438,7 +438,7 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 300000); // 5 minutes
+                }, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

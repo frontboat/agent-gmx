@@ -1121,22 +1121,22 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     const priceChangePercent = (priceChange / previousPrice) * 100;
     
     // Moving Averages
-    const sma20 = SMA.calculate({ period: Math.min(20, closes.length - 1), values: closes });
-    const sma50 = SMA.calculate({ period: Math.min(50, closes.length - 1), values: closes });
-    const ema5 = EMA.calculate({ period: Math.min(5, closes.length - 1), values: closes });
-    const ema8 = EMA.calculate({ period: Math.min(8, closes.length - 1), values: closes });
-    const ema12 = EMA.calculate({ period: Math.min(12, closes.length - 1), values: closes });
-    const ema21 = EMA.calculate({ period: Math.min(21, closes.length - 1), values: closes });
-    const ema26 = EMA.calculate({ period: Math.min(26, closes.length - 1), values: closes });
+    const sma20 = SMA.calculate({ period: Math.min(20, closes.length), values: closes });
+    const sma50 = SMA.calculate({ period: Math.min(50, closes.length), values: closes });
+    const ema5 = EMA.calculate({ period: Math.min(5, closes.length), values: closes });
+    const ema8 = EMA.calculate({ period: Math.min(8, closes.length), values: closes });
+    const ema12 = EMA.calculate({ period: Math.min(12, closes.length), values: closes });
+    const ema21 = EMA.calculate({ period: Math.min(21, closes.length), values: closes });
+    const ema26 = EMA.calculate({ period: Math.min(26, closes.length), values: closes });
     
     // RSI (14-period)
-    const rsi = RSI.calculate({ period: Math.min(14, closes.length - 1), values: closes });
+    const rsi = RSI.calculate({ period: Math.min(14, closes.length), values: closes });
     
     // MACD
     const macd = MACD.calculate({
-        fastPeriod: Math.min(12, closes.length - 1),
-        slowPeriod: Math.min(26, closes.length - 1),
-        signalPeriod: Math.min(9, closes.length - 1),
+        fastPeriod: Math.min(12, closes.length),
+        slowPeriod: Math.min(26, closes.length),
+        signalPeriod: Math.min(9, closes.length),
         values: closes,
         SimpleMAOscillator: false,
         SimpleMASignal: false
@@ -1144,14 +1144,14 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     
     // Bollinger Bands (20-period, 2 standard deviations)
     const bb = BollingerBands.calculate({
-        period: Math.min(20, closes.length - 1),
+        period: Math.min(20, closes.length),
         stdDev: 2,
         values: closes
     });
     
     // ATR (14-period) for volatility
     const atr = ATR.calculate({
-        period: Math.min(14, closes.length - 1),
+        period: Math.min(14, closes.length),
         high: highs,
         low: lows,
         close: closes
@@ -1162,8 +1162,8 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         high: highs,
         low: lows,
         close: closes,
-        period: Math.min(14, closes.length - 1),
-        signalPeriod: Math.min(3, closes.length - 1)
+        period: Math.min(14, closes.length),
+        signalPeriod: Math.min(3, closes.length)
     });
     
     // Williams %R (14-period)
@@ -1171,7 +1171,7 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         high: highs,
         low: lows,
         close: closes,
-        period: Math.min(14, closes.length - 1)
+        period: Math.min(14, closes.length)
     });
     
     // Commodity Channel Index (20-period)
@@ -1179,7 +1179,7 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         high: highs,
         low: lows,
         close: closes,
-        period: Math.min(20, closes.length - 1)
+        period: Math.min(20, closes.length)
     });
     
     // Average Directional Index (14-period)
@@ -1187,7 +1187,7 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         high: highs,
         low: lows,
         close: closes,
-        period: Math.min(14, closes.length - 1)
+        period: Math.min(14, closes.length)
     });
     
     // Get latest values
@@ -1215,52 +1215,56 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     
     // 1. EMA Alignment Score - when fast EMAs are stacked properly
     const calculateEmaAlignment = () => {
-        let alignmentScore = 0;
+        const emas = [latestEMA5, latestEMA8, latestEMA12, latestEMA21, latestEMA26];
         let bullishAlignment = 0;
         let bearishAlignment = 0;
         
-        // Check EMA ordering for bullish alignment (5 > 8 > 12 > 21 > 26)
-        if (latestEMA5 > latestEMA8) bullishAlignment++;
-        if (latestEMA8 > latestEMA12) bullishAlignment++;
-        if (latestEMA12 > latestEMA21) bullishAlignment++;
-        if (latestEMA21 > latestEMA26) bullishAlignment++;
+        // Check EMA ordering
+        for (let i = 0; i < emas.length - 1; i++) {
+            if (emas[i] !== undefined && emas[i + 1] !== undefined) {
+                if (emas[i] > emas[i + 1]) bullishAlignment++;
+                else if (emas[i] < emas[i + 1]) bearishAlignment++;
+            }
+        }
         
-        // Check EMA ordering for bearish alignment (5 < 8 < 12 < 21 < 26)
-        if (latestEMA5 < latestEMA8) bearishAlignment++;
-        if (latestEMA8 < latestEMA12) bearishAlignment++;
-        if (latestEMA12 < latestEMA21) bearishAlignment++;
-        if (latestEMA21 < latestEMA26) bearishAlignment++;
-        
-        // Calculate alignment score (-4 to +4)
-        alignmentScore = bullishAlignment - bearishAlignment;
+        // Calculate alignment score with perfect alignment priority
+        let alignmentScore;
+        if (bullishAlignment === 4) alignmentScore = 4;      // Perfect bullish alignment
+        else if (bearishAlignment === 4) alignmentScore = -4; // Perfect bearish alignment
+        else alignmentScore = bullishAlignment - bearishAlignment; // Mixed signals
         
         return {
             score: alignmentScore,
             bullishLayers: bullishAlignment,
             bearishLayers: bearishAlignment,
-            strength: Math.abs(alignmentScore) / 4 * 100 // Percentage strength
+            strength: Math.max(bullishAlignment, bearishAlignment) / 4 * 100 // Percentage strength
         };
     };
     
     // 2. Divergence Detection - price vs momentum indicators
     const calculateDivergences = () => {
-        const lookback = Math.min(10, closes.length - 1);
+        const lookback = Math.min(10, closes.length);
         if (lookback < 5) return { rsiDivergence: null, macdDivergence: null };
         
-        // Get recent price and indicator data
+        // Get recent price and indicator data with bounds checking
         const recentPrices = closes.slice(-lookback);
-        const recentRSI = rsi.slice(-lookback);
-        const recentMACD = macd.slice(-lookback);
+        const recentRSI = rsi.length >= lookback ? rsi.slice(-lookback) : rsi;
+        const recentMACD = macd.length >= lookback ? macd.slice(-lookback) : macd;
         
         // Calculate price trend (simple linear regression slope)
         const calculateSlope = (data: number[]) => {
             const n = data.length;
+            if (n < 2) return 0;
+            
             const sumX = (n * (n - 1)) / 2;
             const sumY = data.reduce((sum, val) => sum + val, 0);
             const sumXY = data.reduce((sum, val, i) => sum + val * i, 0);
             const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
             
-            return (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            const denominator = n * sumX2 - sumX * sumX;
+            if (denominator === 0) return 0;
+            
+            return (n * sumXY - sumX * sumY) / denominator;
         };
         
         const priceSlope = calculateSlope(recentPrices);
@@ -1269,20 +1273,20 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
             calculateSlope(recentMACD.map(m => m.MACD || 0)) : 0;
         
         // Detect divergences (opposite slopes with significant magnitude)
-        const rsiDivergence = Math.abs(priceSlope) > 0.001 && Math.abs(rsiSlope) > 0.001 ?
+        const rsiDivergence = Math.abs(priceSlope) > 0.01 && Math.abs(rsiSlope) > 0.01 ?
             (priceSlope > 0 && rsiSlope < 0 ? 'bearish' : 
              priceSlope < 0 && rsiSlope > 0 ? 'bullish' : 'none') : 'none';
              
-        const macdDivergence = Math.abs(priceSlope) > 0.001 && Math.abs(macdSlope) > 0.001 ?
+        const macdDivergence = Math.abs(priceSlope) > 0.01 && Math.abs(macdSlope) > 0.01 ?
             (priceSlope > 0 && macdSlope < 0 ? 'bearish' : 
              priceSlope < 0 && macdSlope > 0 ? 'bullish' : 'none') : 'none';
         
         return {
             rsiDivergence,
             macdDivergence,
-            priceSlope: priceSlope.toFixed(6),
-            rsiSlope: rsiSlope.toFixed(6),
-            macdSlope: macdSlope.toFixed(6)
+            priceSlope: priceSlope,
+            rsiSlope: rsiSlope,
+            macdSlope: macdSlope
         };
     };
     
@@ -1351,8 +1355,8 @@ export const get_technical_analysis_str = async (
                 }
                 
                 const candles = data.candles;
-                if (candles.length < 50) {
-                    console.warn(`Insufficient data for ${period} analysis. Got ${candles.length} candles, need at least 50`);
+                if (candles.length < 30) {
+                    console.warn(`Insufficient data for ${period} analysis. Got ${candles.length} candles, need at least 30`);
                     return null;
                 }
                 
@@ -1401,9 +1405,11 @@ export const get_technical_analysis_str = async (
                 totalSignals++;
                 
                 // MACD signals
-                if (indicators.macd?.MACD > indicators.macd?.signal) bullishSignals++;
-                else if (indicators.macd?.MACD < indicators.macd?.signal) bearishSignals++;
-                totalSignals++;
+                if (indicators.macd?.MACD !== undefined && indicators.macd?.signal !== undefined) {
+                    if (indicators.macd.MACD > indicators.macd.signal) bullishSignals++;
+                    else if (indicators.macd.MACD < indicators.macd.signal) bearishSignals++;
+                    totalSignals++;
+                }
                 
                 // Price vs SMA signals
                 if (data.currentPrice > indicators.sma20) bullishSignals++;
@@ -1411,8 +1417,9 @@ export const get_technical_analysis_str = async (
                 totalSignals++;
                 
                 // ADX trend strength
-                if (indicators.adx?.adx > 25) {
-                    if (indicators.adx?.pdi > indicators.adx?.mdi) bullishSignals++;
+                if (indicators.adx?.adx !== undefined && indicators.adx?.adx > 25 && 
+                    indicators.adx?.pdi !== undefined && indicators.adx?.mdi !== undefined) {
+                    if (indicators.adx.pdi > indicators.adx.mdi) bullishSignals++;
                     else bearishSignals++;
                     totalSignals++;
                 }

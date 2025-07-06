@@ -264,7 +264,7 @@ You are an **experienced crypto trader** with deep market expertise. You make **
 - **One position per asset** (BTC/ETH separately)
 - **Position sizing**: 5-20% of portfolio based on setup quality
 - **Leverage range**: 1x-5x based on confidence and volatility
-- **Complete setup**: Always place both stop loss AND take profit
+- **Complete setup**: Always place both stop loss AND take profit - ONLY ONE take profit and ONE stop loss per position
 - **Technical stops**: Use market structure, not arbitrary percentages
 - **Conflict resolution**: Close existing position before opening opposite direction
 
@@ -389,8 +389,8 @@ const gmxContext = context({
             schema: z.object({
                 text: z.string(),
           }),
-            subscribe(send, { container }) {
-                const interval = setInterval(async () => {
+            subscribe: (send, agent) => {
+                const tradingCycle = async () => {
                     const portfolio = await get_portfolio_balance_str(sdk);
                     const positions = await get_positions_str(sdk);
                     const markets = await get_btc_eth_markets_str(sdk);
@@ -422,7 +422,8 @@ const gmxContext = context({
                     };
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
-                }, 1800000); // 30 minutes
+                }
+                const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

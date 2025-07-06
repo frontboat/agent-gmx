@@ -1,7 +1,7 @@
 import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced } from "./utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./utils";
 import { GmxSdk } from "@gmx-io/sdk";
-import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic } from 'technicalindicators';
+import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 
 export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     // Get tokens data with balances and prices
@@ -1113,9 +1113,8 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     const closes = ohlcData.map(d => d.close);
     const highs = ohlcData.map(d => d.high);
     const lows = ohlcData.map(d => d.low);
-    const opens = ohlcData.map(d => d.open);
     
-    // Calculate technical indicators
+    // Calculate basic price metrics
     const currentPrice = closes[closes.length - 1];
     const previousPrice = closes[closes.length - 2];
     const priceChange = currentPrice - previousPrice;
@@ -1124,7 +1123,10 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     // Moving Averages
     const sma20 = SMA.calculate({ period: Math.min(20, closes.length - 1), values: closes });
     const sma50 = SMA.calculate({ period: Math.min(50, closes.length - 1), values: closes });
+    const ema5 = EMA.calculate({ period: Math.min(5, closes.length - 1), values: closes });
+    const ema8 = EMA.calculate({ period: Math.min(8, closes.length - 1), values: closes });
     const ema12 = EMA.calculate({ period: Math.min(12, closes.length - 1), values: closes });
+    const ema21 = EMA.calculate({ period: Math.min(21, closes.length - 1), values: closes });
     const ema26 = EMA.calculate({ period: Math.min(26, closes.length - 1), values: closes });
     
     // RSI (14-period)
@@ -1164,28 +1166,46 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         signalPeriod: Math.min(3, closes.length - 1)
     });
     
+    // Williams %R (14-period)
+    const williamsR = WilliamsR.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: Math.min(14, closes.length - 1)
+    });
+    
+    // Commodity Channel Index (20-period)
+    const cci = CCI.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: Math.min(20, closes.length - 1)
+    });
+    
+    // Average Directional Index (14-period)
+    const adx = ADX.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: Math.min(14, closes.length - 1)
+    });
+    
     // Get latest values
     const latestSMA20 = sma20[sma20.length - 1];
     const latestSMA50 = sma50[sma50.length - 1];
+    const latestEMA5 = ema5[ema5.length - 1];
+    const latestEMA8 = ema8[ema8.length - 1];
     const latestEMA12 = ema12[ema12.length - 1];
+    const latestEMA21 = ema21[ema21.length - 1];
     const latestEMA26 = ema26[ema26.length - 1];
     const latestRSI = rsi[rsi.length - 1];
     const latestMACD = macd[macd.length - 1];
     const latestBB = bb[bb.length - 1];
     const latestATR = atr[atr.length - 1];
     const latestStoch = stoch[stoch.length - 1];
-    
-    // Calculate trend signals
-    const trendSignals = {
-        sma_trend: currentPrice > latestSMA20 ? 'BULLISH' : 'BEARISH',
-        ema_cross: latestEMA12 > latestEMA26 ? 'BULLISH' : 'BEARISH',
-        price_vs_sma50: currentPrice > latestSMA50 ? 'ABOVE' : 'BELOW',
-        macd_signal: latestMACD?.MACD > latestMACD?.signal ? 'BULLISH' : 'BEARISH',
-        rsi_condition: latestRSI > 70 ? 'OVERBOUGHT' : latestRSI < 30 ? 'OVERSOLD' : 'NEUTRAL',
-        bb_position: currentPrice > latestBB?.upper ? 'ABOVE_UPPER' : 
-                    currentPrice < latestBB?.lower ? 'BELOW_LOWER' : 'WITHIN_BANDS',
-        stoch_signal: latestStoch?.k > 80 ? 'OVERBOUGHT' : latestStoch?.k < 20 ? 'OVERSOLD' : 'NEUTRAL'
-    };
+    const latestWilliamsR = williamsR[williamsR.length - 1];
+    const latestCCI = cci[cci.length - 1];
+    const latestADX = adx[adx.length - 1];
     
     // Calculate support/resistance levels
     const recentHighs = highs.slice(-20);
@@ -1193,17 +1213,81 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
     const resistance = Math.max(...recentHighs);
     const support = Math.min(...recentLows);
     
-    // Calculate overall trend
-    const bullishSignals = Object.values(trendSignals).filter(signal => 
-        signal === 'BULLISH' || signal === 'ABOVE' || signal === 'ABOVE_UPPER'
-    ).length;
-    const bearishSignals = Object.values(trendSignals).filter(signal => 
-        signal === 'BEARISH' || signal === 'BELOW' || signal === 'BELOW_LOWER' || signal === 'OVERBOUGHT'
-    ).length;
+    // 1. EMA Alignment Score - when fast EMAs are stacked properly
+    const calculateEmaAlignment = () => {
+        let alignmentScore = 0;
+        let bullishAlignment = 0;
+        let bearishAlignment = 0;
+        
+        // Check EMA ordering for bullish alignment (5 > 8 > 12 > 21 > 26)
+        if (latestEMA5 > latestEMA8) bullishAlignment++;
+        if (latestEMA8 > latestEMA12) bullishAlignment++;
+        if (latestEMA12 > latestEMA21) bullishAlignment++;
+        if (latestEMA21 > latestEMA26) bullishAlignment++;
+        
+        // Check EMA ordering for bearish alignment (5 < 8 < 12 < 21 < 26)
+        if (latestEMA5 < latestEMA8) bearishAlignment++;
+        if (latestEMA8 < latestEMA12) bearishAlignment++;
+        if (latestEMA12 < latestEMA21) bearishAlignment++;
+        if (latestEMA21 < latestEMA26) bearishAlignment++;
+        
+        // Calculate alignment score (-4 to +4)
+        alignmentScore = bullishAlignment - bearishAlignment;
+        
+        return {
+            score: alignmentScore,
+            bullishLayers: bullishAlignment,
+            bearishLayers: bearishAlignment,
+            strength: Math.abs(alignmentScore) / 4 * 100 // Percentage strength
+        };
+    };
     
-    let overallTrend = 'NEUTRAL';
-    if (bullishSignals > bearishSignals + 1) overallTrend = 'BULLISH';
-    else if (bearishSignals > bullishSignals + 1) overallTrend = 'BEARISH';
+    // 2. Divergence Detection - price vs momentum indicators
+    const calculateDivergences = () => {
+        const lookback = Math.min(10, closes.length - 1);
+        if (lookback < 5) return { rsiDivergence: null, macdDivergence: null };
+        
+        // Get recent price and indicator data
+        const recentPrices = closes.slice(-lookback);
+        const recentRSI = rsi.slice(-lookback);
+        const recentMACD = macd.slice(-lookback);
+        
+        // Calculate price trend (simple linear regression slope)
+        const calculateSlope = (data: number[]) => {
+            const n = data.length;
+            const sumX = (n * (n - 1)) / 2;
+            const sumY = data.reduce((sum, val) => sum + val, 0);
+            const sumXY = data.reduce((sum, val, i) => sum + val * i, 0);
+            const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
+            
+            return (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        };
+        
+        const priceSlope = calculateSlope(recentPrices);
+        const rsiSlope = recentRSI.length > 0 ? calculateSlope(recentRSI) : 0;
+        const macdSlope = recentMACD.length > 0 && recentMACD[0]?.MACD !== undefined ? 
+            calculateSlope(recentMACD.map(m => m.MACD || 0)) : 0;
+        
+        // Detect divergences (opposite slopes with significant magnitude)
+        const rsiDivergence = Math.abs(priceSlope) > 0.001 && Math.abs(rsiSlope) > 0.001 ?
+            (priceSlope > 0 && rsiSlope < 0 ? 'bearish' : 
+             priceSlope < 0 && rsiSlope > 0 ? 'bullish' : 'none') : 'none';
+             
+        const macdDivergence = Math.abs(priceSlope) > 0.001 && Math.abs(macdSlope) > 0.001 ?
+            (priceSlope > 0 && macdSlope < 0 ? 'bearish' : 
+             priceSlope < 0 && macdSlope > 0 ? 'bullish' : 'none') : 'none';
+        
+        return {
+            rsiDivergence,
+            macdDivergence,
+            priceSlope: priceSlope.toFixed(6),
+            rsiSlope: rsiSlope.toFixed(6),
+            macdSlope: macdSlope.toFixed(6)
+        };
+    };
+    
+    const emaAlignment = calculateEmaAlignment();
+    const divergences = calculateDivergences();
     
     return {
         period,
@@ -1215,26 +1299,29 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         indicators: {
             sma20: latestSMA20,
             sma50: latestSMA50,
+            ema5: latestEMA5,
+            ema8: latestEMA8,
             ema12: latestEMA12,
+            ema21: latestEMA21,
             ema26: latestEMA26,
             rsi: latestRSI,
             macd: latestMACD,
             bb: latestBB,
             atr: latestATR,
-            stoch: latestStoch
+            stoch: latestStoch,
+            williamsR: latestWilliamsR,
+            cci: latestCCI,
+            adx: latestADX
         },
-        signals: trendSignals,
+        signals: {
+            emaAlignment,
+            divergences
+        },
         levels: {
             resistance,
             support,
             distanceToResistance: ((resistance - currentPrice) / currentPrice * 100),
             distanceToSupport: ((currentPrice - support) / currentPrice * 100)
-        },
-        trend: {
-            overall: overallTrend,
-            bullishSignals,
-            bearishSignals,
-            volatilityLevel: latestATR > (currentPrice * 0.03) ? 'HIGH' : latestATR > (currentPrice * 0.01) ? 'MEDIUM' : 'LOW'
         }
     };
 };
@@ -1244,33 +1331,47 @@ export const get_technical_analysis_str = async (
     tokenSymbol: 'BTC' | 'ETH'
 ): Promise<string> => {
     try {
-        const timeframes = ['15m', '1h', '4h', '1d'] as const;
+        const timeframes = ['5min', '15m', '1h', '4h'] as const;
         const analysisResults: any[] = [];
         
-        // Fetch data for all timeframes
-        for (const period of timeframes) {
-            const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${tokenSymbol}&period=${period}`;
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch candlestick data for ${period}: ${response.status} ${response.statusText}`);
+        // Fetch data for all timeframes in parallel
+        const fetchPromises = timeframes.map(async (period) => {
+            try {
+                const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${tokenSymbol}&period=${period}`;
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch candlestick data for ${period}: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data || !data.candles || !Array.isArray(data.candles)) {
+                    throw new Error(`Invalid candlestick data received for ${tokenSymbol} ${period}`);
+                }
+                
+                const candles = data.candles;
+                if (candles.length < 50) {
+                    console.warn(`Insufficient data for ${period} analysis. Got ${candles.length} candles, need at least 50`);
+                    return null;
+                }
+                
+                const analysis = calculateTechnicalIndicators(candles, period, tokenSymbol);
+                return analysis;
+            } catch (error) {
+                console.error(`Error fetching data for ${period}:`, error);
+                return null;
             }
-            
-            const data = await response.json();
-            
-            if (!data || !data.candles || !Array.isArray(data.candles)) {
-                throw new Error(`Invalid candlestick data received for ${tokenSymbol} ${period}`);
+        });
+        
+        const results = await Promise.all(fetchPromises);
+        
+        // Filter out failed requests
+        results.forEach(result => {
+            if (result !== null) {
+                analysisResults.push(result);
             }
-            
-            const candles = data.candles;
-            if (candles.length < 10) {
-                console.warn(`Insufficient data for ${period} analysis. Got ${candles.length} candles`);
-                continue;
-            }
-            
-            const analysis = calculateTechnicalIndicators(candles, period, tokenSymbol);
-            analysisResults.push(analysis);
-        }
+        });
         
         if (analysisResults.length === 0) {
             throw new Error(`No valid data available for ${tokenSymbol} technical analysis`);
@@ -1279,11 +1380,75 @@ export const get_technical_analysis_str = async (
         // Get current price from most recent data
         const currentPrice = analysisResults[0]?.currentPrice;
         
+        // 3. Multi-timeframe Confluence Scoring
+        const calculateConfluenceScore = () => {
+            let bullishSignals = 0;
+            let bearishSignals = 0;
+            let totalSignals = 0;
+            
+            analysisResults.forEach(data => {
+                const { emaAlignment, divergences } = data.signals;
+                const indicators = data.indicators;
+                
+                // EMA alignment signals
+                if (emaAlignment.score > 2) bullishSignals++;
+                else if (emaAlignment.score < -2) bearishSignals++;
+                totalSignals++;
+                
+                // RSI signals
+                if (indicators.rsi < 30) bullishSignals++;
+                else if (indicators.rsi > 70) bearishSignals++;
+                totalSignals++;
+                
+                // MACD signals
+                if (indicators.macd?.MACD > indicators.macd?.signal) bullishSignals++;
+                else if (indicators.macd?.MACD < indicators.macd?.signal) bearishSignals++;
+                totalSignals++;
+                
+                // Price vs SMA signals
+                if (data.currentPrice > indicators.sma20) bullishSignals++;
+                else if (data.currentPrice < indicators.sma20) bearishSignals++;
+                totalSignals++;
+                
+                // ADX trend strength
+                if (indicators.adx?.adx > 25) {
+                    if (indicators.adx?.pdi > indicators.adx?.mdi) bullishSignals++;
+                    else bearishSignals++;
+                    totalSignals++;
+                }
+                
+                // Divergence signals
+                if (divergences.rsiDivergence === 'bullish' || divergences.macdDivergence === 'bullish') bullishSignals++;
+                else if (divergences.rsiDivergence === 'bearish' || divergences.macdDivergence === 'bearish') bearishSignals++;
+                if (divergences.rsiDivergence !== 'none' || divergences.macdDivergence !== 'none') totalSignals++;
+            });
+            
+            const confluenceScore = totalSignals > 0 ? ((bullishSignals - bearishSignals) / totalSignals) * 100 : 0;
+            
+            return {
+                score: confluenceScore.toFixed(1),
+                bullishSignals,
+                bearishSignals,
+                totalSignals,
+                strength: Math.abs(confluenceScore) > 60 ? 'STRONG' : Math.abs(confluenceScore) > 30 ? 'MODERATE' : 'WEAK',
+                direction: confluenceScore > 10 ? 'BULLISH' : confluenceScore < -10 ? 'BEARISH' : 'NEUTRAL'
+            };
+        };
+        
+        const confluenceAnalysis = calculateConfluenceScore();
+        
         // Format raw technical indicator data for AI analysis
         let output = `📊 TECHNICAL INDICATORS - ${tokenSymbol}\n`;
         output += '═'.repeat(60) + '\n\n';
         
         output += `💰 CURRENT PRICE: $${currentPrice.toFixed(2)}\n\n`;
+        
+        // Multi-timeframe confluence summary
+        output += `🎯 CONFLUENCE ANALYSIS\n`;
+        output += `├─ Overall Signal: ${confluenceAnalysis.direction} (${confluenceAnalysis.strength})\n`;
+        output += `├─ Confluence Score: ${confluenceAnalysis.score}%\n`;
+        output += `├─ Bullish Signals: ${confluenceAnalysis.bullishSignals}/${confluenceAnalysis.totalSignals}\n`;
+        output += `└─ Bearish Signals: ${confluenceAnalysis.bearishSignals}/${confluenceAnalysis.totalSignals}\n\n`;
         
         // Raw indicator data by timeframe
         for (const data of analysisResults) {
@@ -1291,7 +1456,10 @@ export const get_technical_analysis_str = async (
             output += `├─ Price: $${data.currentPrice.toFixed(2)} (${data.priceChangePercent > 0 ? '+' : ''}${data.priceChangePercent.toFixed(2)}%)\n`;
             output += `├─ SMA(20): $${data.indicators.sma20?.toFixed(2) || 'N/A'}\n`;
             output += `├─ SMA(50): $${data.indicators.sma50?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA(5): $${data.indicators.ema5?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA(8): $${data.indicators.ema8?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA(12): $${data.indicators.ema12?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA(21): $${data.indicators.ema21?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA(26): $${data.indicators.ema26?.toFixed(2) || 'N/A'}\n`;
             output += `├─ RSI(14): ${data.indicators.rsi?.toFixed(2) || 'N/A'}\n`;
             output += `├─ MACD: ${data.indicators.macd?.MACD?.toFixed(4) || 'N/A'}\n`;
@@ -1303,6 +1471,14 @@ export const get_technical_analysis_str = async (
             output += `├─ ATR(14): ${data.indicators.atr?.toFixed(2) || 'N/A'}\n`;
             output += `├─ Stochastic %K: ${data.indicators.stoch?.k?.toFixed(2) || 'N/A'}\n`;
             output += `├─ Stochastic %D: ${data.indicators.stoch?.d?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ Williams %R: ${data.indicators.williamsR?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ CCI(20): ${data.indicators.cci?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ ADX(14): ${data.indicators.adx?.adx?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ +DI: ${data.indicators.adx?.pdi?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ -DI: ${data.indicators.adx?.mdi?.toFixed(2) || 'N/A'}\n`;
+            output += `├─ EMA Alignment: ${data.signals.emaAlignment.score}/4 (${data.signals.emaAlignment.strength.toFixed(1)}%)\n`;
+            output += `├─ RSI Divergence: ${data.signals.divergences.rsiDivergence}\n`;
+            output += `├─ MACD Divergence: ${data.signals.divergences.macdDivergence}\n`;
             output += `├─ Support: $${data.levels.support.toFixed(2)}\n`;
             output += `└─ Resistance: $${data.levels.resistance.toFixed(2)}\n\n`;
         }

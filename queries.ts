@@ -1241,17 +1241,18 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         };
     };
     
-    // 2. Divergence Detection - price vs momentum indicators
-    const calculateDivergences = () => {
+    const emaAlignment = calculateEmaAlignment();
+    
+    // RSI Divergence Detection - price vs RSI momentum
+    const calculateRsiDivergence = () => {
         const lookback = Math.min(10, closes.length);
-        if (lookback < 5) return { rsiDivergence: null, macdDivergence: null };
+        if (lookback < 5 || rsi.length < lookback) return { rsiDivergence: 'none' };
         
-        // Get recent price and indicator data with bounds checking
+        // Get recent price and RSI data
         const recentPrices = closes.slice(-lookback);
-        const recentRSI = rsi.length >= lookback ? rsi.slice(-lookback) : rsi;
-        const recentMACD = macd.length >= lookback ? macd.slice(-lookback) : macd;
+        const recentRSI = rsi.slice(-lookback);
         
-        // Calculate price trend (simple linear regression slope)
+        // Simple linear regression slope calculation
         const calculateSlope = (data: number[]) => {
             const n = data.length;
             if (n < 2) return 0;
@@ -1268,30 +1269,17 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         };
         
         const priceSlope = calculateSlope(recentPrices);
-        const rsiSlope = recentRSI.length > 0 ? calculateSlope(recentRSI) : 0;
-        const macdSlope = recentMACD.length > 0 && recentMACD[0]?.MACD !== undefined ? 
-            calculateSlope(recentMACD.map(m => m.MACD || 0)) : 0;
+        const rsiSlope = calculateSlope(recentRSI);
         
-        // Detect divergences (opposite slopes with significant magnitude)
+        // Detect RSI divergence (opposite slopes with significant magnitude)
         const rsiDivergence = Math.abs(priceSlope) > 0.01 && Math.abs(rsiSlope) > 0.01 ?
             (priceSlope > 0 && rsiSlope < 0 ? 'bearish' : 
              priceSlope < 0 && rsiSlope > 0 ? 'bullish' : 'none') : 'none';
-             
-        const macdDivergence = Math.abs(priceSlope) > 0.01 && Math.abs(macdSlope) > 0.01 ?
-            (priceSlope > 0 && macdSlope < 0 ? 'bearish' : 
-             priceSlope < 0 && macdSlope > 0 ? 'bullish' : 'none') : 'none';
         
-        return {
-            rsiDivergence,
-            macdDivergence,
-            priceSlope: priceSlope,
-            rsiSlope: rsiSlope,
-            macdSlope: macdSlope
-        };
+        return { rsiDivergence };
     };
     
-    const emaAlignment = calculateEmaAlignment();
-    const divergences = calculateDivergences();
+    const rsiDivergenceData = calculateRsiDivergence();
     
     return {
         period,
@@ -1319,7 +1307,7 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
         },
         signals: {
             emaAlignment,
-            divergences
+            rsiDivergence: rsiDivergenceData.rsiDivergence
         },
         levels: {
             resistance,
@@ -1391,7 +1379,7 @@ export const get_technical_analysis_str = async (
             let totalSignals = 0;
             
             analysisResults.forEach(data => {
-                const { emaAlignment, divergences } = data.signals;
+                const { emaAlignment, rsiDivergence } = data.signals;
                 const indicators = data.indicators;
                 
                 // EMA alignment signals
@@ -1424,10 +1412,15 @@ export const get_technical_analysis_str = async (
                     totalSignals++;
                 }
                 
-                // Divergence signals
-                if (divergences.rsiDivergence === 'bullish' || divergences.macdDivergence === 'bullish') bullishSignals++;
-                else if (divergences.rsiDivergence === 'bearish' || divergences.macdDivergence === 'bearish') bearishSignals++;
-                if (divergences.rsiDivergence !== 'none' || divergences.macdDivergence !== 'none') totalSignals++;
+                // RSI divergence signals
+                if (rsiDivergence === 'bullish') {
+                    bullishSignals++;
+                    totalSignals++;
+                } else if (rsiDivergence === 'bearish') {
+                    bearishSignals++;
+                    totalSignals++;
+                }
+                
             });
             
             const confluenceScore = totalSignals > 0 ? ((bullishSignals - bearishSignals) / totalSignals) * 100 : 0;
@@ -1484,8 +1477,7 @@ export const get_technical_analysis_str = async (
             output += `├─ +DI: ${data.indicators.adx?.pdi?.toFixed(2) || 'N/A'}\n`;
             output += `├─ -DI: ${data.indicators.adx?.mdi?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA Alignment: ${data.signals.emaAlignment.score}/4 (${data.signals.emaAlignment.strength.toFixed(1)}%)\n`;
-            output += `├─ RSI Divergence: ${data.signals.divergences.rsiDivergence}\n`;
-            output += `├─ MACD Divergence: ${data.signals.divergences.macdDivergence}\n`;
+            output += `├─ RSI Divergence: ${data.signals.rsiDivergence}\n`;
             output += `├─ Support: $${data.levels.support.toFixed(2)}\n`;
             output += `└─ Resistance: $${data.levels.resistance.toFixed(2)}\n\n`;
         }

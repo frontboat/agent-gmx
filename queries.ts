@@ -759,7 +759,7 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
             const liquidityLevel = volumeNum > 50000000 ? '🟢 HIGH' : volumeNum > 10000000 ? '🟡 MEDIUM' : '🔴 LOW';
             const isLast = index === filteredVolumes.length - 1;
             
-            output += `${token} MARKET | ${liquidityLevel} LIQUIDITY\n`;
+            output += `${token} MARKET | ${liquidityLevel} VOLUME\n`;
             output += `├─ Market: ${volume.name}\n`;
             output += `├─ Address: ${volume.marketAddress}\n`;
             output += `└─ 24h Volume: ${volume.volumeFormatted}\n`;
@@ -1335,7 +1335,7 @@ export const get_technical_analysis_str = async (
     tokenSymbol: 'BTC' | 'ETH'
 ): Promise<string> => {
     try {
-        const timeframes = ['5min', '15m', '1h', '4h'] as const;
+        const timeframes = ['5m', '15m', '1h', '4h'] as const;
         const analysisResults: any[] = [];
         
         // Fetch data for all timeframes in parallel

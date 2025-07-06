@@ -96,12 +96,17 @@ export const calculatePositionPnl = (params: {
 }): bigint => {
     const { sizeInUsd, sizeInTokens, markPrice, isLong, indexTokenDecimals } = params;
     
-    // Calculate current position value in USD
-    const positionValueUsd = convertToUsd(sizeInTokens, indexTokenDecimals, markPrice);
-    if (!positionValueUsd) return 0n;
+    // Calculate entry price from position data
+    // Entry price = sizeInUsd / sizeInTokens (accounting for decimals)
+    if (sizeInTokens === 0n) return 0n;
     
-    // Calculate PnL: Long = currentValue - originalSize, Short = originalSize - currentValue
-    const pnl = isLong ? positionValueUsd - sizeInUsd : sizeInUsd - positionValueUsd;
+    const entryPrice = (sizeInUsd * (10n ** BigInt(indexTokenDecimals))) / sizeInTokens;
+    
+    // Calculate PnL based on price difference
+    // Long: (current_price - entry_price) * size_in_tokens
+    // Short: (entry_price - current_price) * size_in_tokens
+    const priceDifference = isLong ? markPrice - entryPrice : entryPrice - markPrice;
+    const pnl = (priceDifference * sizeInTokens) / (10n ** BigInt(indexTokenDecimals));
     
     return pnl;
 };

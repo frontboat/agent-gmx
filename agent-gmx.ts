@@ -384,7 +384,7 @@ Market Conditions Assessment:
 ### Key Success Metrics
 - **Win Rate**: Target 45-55% (focus on R-multiple not win rate)
 - **Risk/Reward Ratio**: Maintain 2:1 minimum, target 3:1 or better
-- **Position Discipline**: Never exceed 30% portfolio allocation per position
+- **Position Discipline**: Never exceed 80% portfolio allocation and 3x leverage per position
 - **Consistency**: Focus on process improvement over individual trade outcomes
 
 ---

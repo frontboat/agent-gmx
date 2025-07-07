@@ -253,3 +253,72 @@ export function getTradeActionDescriptionEnhanced(
     
     return `${action} ${orderTypeStr}`;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 TRADING PERFORMANCE METRICS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const calculatePerformanceMetrics = (trades: any[]) => {
+    if (!trades.length) {
+        return {
+            totalPnl: 0,
+            winRate: 0,
+            totalTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            averageProfit: 0,
+            averageLoss: 0,
+            largestWin: 0,
+            largestLoss: 0,
+            profitFactor: 0,
+        };
+    }
+
+    const executedTrades = trades.filter(trade => 
+        trade.pnlUsd !== undefined && 
+        trade.pnlUsd !== 0
+    );
+
+    if (!executedTrades.length) {
+        return {
+            totalPnl: 0,
+            winRate: 0,
+            totalTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            averageProfit: 0,
+            averageLoss: 0,
+            largestWin: 0,
+            largestLoss: 0,
+            profitFactor: 0,
+        };
+    }
+
+    const totalPnl = executedTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
+    const winningTrades = executedTrades.filter(trade => trade.pnlUsd > 0);
+    const losingTrades = executedTrades.filter(trade => trade.pnlUsd < 0);
+    
+    const totalProfit = winningTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
+    const totalLoss = Math.abs(losingTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0));
+    
+    const averageProfit = winningTrades.length > 0 ? totalProfit / winningTrades.length : 0;
+    const averageLoss = losingTrades.length > 0 ? totalLoss / losingTrades.length : 0;
+    
+    const largestWin = winningTrades.length > 0 ? Math.max(...winningTrades.map(t => t.pnlUsd)) : 0;
+    const largestLoss = losingTrades.length > 0 ? Math.min(...losingTrades.map(t => t.pnlUsd)) : 0;
+    
+    const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? Infinity : 0;
+
+    return {
+        totalPnl,
+        winRate: (winningTrades.length / executedTrades.length) * 100,
+        totalTrades: executedTrades.length,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        averageProfit,
+        averageLoss,
+        largestWin,
+        largestLoss,
+        profitFactor,
+    };
+};

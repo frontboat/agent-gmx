@@ -1,4 +1,4 @@
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced } from "./utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics } from "./utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./utils";
 import { GmxSdk } from "@gmx-io/sdk";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
@@ -916,48 +916,8 @@ export const get_orders_str = async (sdk: GmxSdk) => {
 
 export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
-        // Step 1: Fetch top miners from validation scores for the specific asset
-        const scoresResponse = await fetch(`https://api.synthdata.co/validation/scores/latest?asset=${asset}`, {
-            headers: {
-                'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
-            }
-        });
-        
-        // Handle rate limiting gracefully
-        if (scoresResponse.status === 429) {
-            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
-        }
-        
-        if (!scoresResponse.ok) {
-            throw new Error(`Failed to fetch validation scores: ${scoresResponse.statusText}`);
-        }
-        
-        const scoresData = await scoresResponse.json();
-
-        // Extract miners from the scores data - assuming it returns an array of miners with scores
-        if (!scoresData || !Array.isArray(scoresData)) {
-            throw new Error("Invalid validation scores data format");
-        }
-        
-        // The API returns miners already sorted by performance (best first)
-        const topMiners = scoresData
-            .slice(0, 3) // Take top 10 miners
-            .map((miner: any, index: number) => ({
-                neuron_uid: miner.miner_uid || miner.neuron_uid || miner.uid,
-                rank: index + 1,
-                score: miner.crps || miner.score
-            }));
-        
-        if (topMiners.length === 0) {
-            throw new Error(`No miners found in validation scores for ${asset}`);
-        }
-        
-        // Step 2: Fetch predictions for all miners at once using the new API
-        const minerIds = topMiners.map(m => m.neuron_uid);
-        const minerParams = minerIds.map(id => `miner=${id}`).join('&');
-        
-        // Using the new prediction/latest endpoint with multiple miners
-        const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
+        // Fetch best miner's prediction using the new endpoint
+        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=86400`;
         
         const predictionsResponse = await fetch(predictionsUrl, {
             headers: {
@@ -976,95 +936,63 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
         
         const predictionsData = await predictionsResponse.json();
 
-        // Process the predictions data - the API returns an array of miner prediction objects
-        if (!predictionsData || !Array.isArray(predictionsData)) {
+        // Process the predictions data - API returns an array with the best miner
+        if (!predictionsData || !Array.isArray(predictionsData) || predictionsData.length === 0) {
             throw new Error("Invalid predictions data format");
         }
         
-        // Step 3: Consolidate predictions by time
-        const consolidatedMap = new Map<string, any>();
+        // Get the first (best) miner from the array
+        const bestMiner = predictionsData[0];
         
-        // Process each miner's prediction data
-        predictionsData.forEach((minerPrediction: any) => {
-            // Find the rank for this miner
-            const minerInfo = topMiners.find(m => m.neuron_uid === minerPrediction.miner_uid);
-            if (!minerInfo) {
-                console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
-                return;
-            }
-            // Extract predictions from the nested array structure
-            if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
-                !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
-                console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
-                return;
-            }
-            
-            // The predictions are in prediction[0] which contains an array of {time, price} objects
-            const predictions = minerPrediction.prediction[0];
-            
-            // Process each prediction point
-            predictions.forEach((pred: any) => {
-                if (!pred.time || pred.price === undefined) {
-                    return;
-                }
-                
-                const time = pred.time;
-                const price = pred.price;
-                
-                if (!consolidatedMap.has(time)) {
-                    consolidatedMap.set(time, {
-                        time,
-                        predictions: []
-                    });
-                }
-                
-                consolidatedMap.get(time).predictions.push({
-                    miner_uid: minerPrediction.miner_uid,
-                    rank: minerInfo.rank,
-                    price
-                });
-            });
-        });
+        // Extract miner info and predictions
+        const minerUid = bestMiner.miner_uid;
+        const startTime = bestMiner.start_time;
+        const timeIncrement = bestMiner.time_increment;
+        const timeLength = bestMiner.time_length;
+        const numSimulations = bestMiner.num_simulations;
+        const predictionAsset = bestMiner.asset;
         
-        // Convert to array and sort by time
-        const consolidatedArray = Array.from(consolidatedMap.values())
-            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        // Extract predictions from the nested structure
+        if (!bestMiner.prediction || !Array.isArray(bestMiner.prediction) || 
+            !bestMiner.prediction[0] || !Array.isArray(bestMiner.prediction[0])) {
+            throw new Error("Invalid prediction structure from best miner");
+        }
         
-        // Format raw prediction data for AI analysis
-        let resultString = `📊 ${asset} SYNTH PREDICTIONS\n`;
+        // The predictions are in prediction[0] which contains an array of {time, price} objects
+        const predictions = bestMiner.prediction[0];
         
-        // Count unique miners that returned predictions
-        const uniqueMiners = new Set<number>();
-        consolidatedArray.forEach(timeSlot => {
-            timeSlot.predictions.forEach((pred: any) => {
-                uniqueMiners.add(pred.miner_uid);
-            });
-        });
+        if (!predictions || predictions.length === 0) {
+            return `📊 ${asset} SYNTH PREDICTIONS\n└─ No predictions available from best miner\n`;
+        }
         
-        resultString += `├─ Active Miners: ${uniqueMiners.size}\n`;
-        resultString += `├─ Prediction Windows: ${consolidatedArray.length}\n`;
-        resultString += `└─ Asset: ${asset}\n\n`;
+        // Sort predictions by time
+        const sortedPredictions = predictions
+            .filter((pred: any) => pred.time && pred.price !== undefined)
+            .sort((a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime());
         
-        // Raw prediction data by time - let AI do the analysis
-        consolidatedArray.forEach((timeSlot, index) => {
-            const isLast = index === consolidatedArray.length - 1;
+        // Calculate prediction duration in hours
+        const durationHours = timeLength / 3600;
+        const intervalMinutes = timeIncrement / 60;
+        
+        // Format prediction data for AI analysis
+        let resultString = `📊 ${predictionAsset} SYNTH PREDICTIONS (Best Miner)\n`;
+        resultString += `├─ Miner UID: ${minerUid}\n`;
+        resultString += `├─ Start Time: ${new Date(startTime).toLocaleString()}\n`;
+        resultString += `├─ Duration: ${durationHours}h (${intervalMinutes}min intervals)\n`;
+        resultString += `├─ Simulations: ${numSimulations}\n`;
+        resultString += `├─ Prediction Points: ${sortedPredictions.length}\n`;
+        resultString += `└─ Asset: ${predictionAsset}\n\n`;
+        
+        // Show all predictions
+        resultString += `🔮 PRICE PREDICTIONS\n`;
+        
+        sortedPredictions.forEach((pred: any, index: number) => {
+            const isLast = index === sortedPredictions.length - 1;
             const prefix = isLast ? '└─' : '├─';
+            const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
+            const time = new Date(pred.time).toLocaleString();
             
-            resultString += `${prefix} Time: ${timeSlot.time}\n`;
-            
-            // Sort miners by rank for consistent display
-            const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);
-            
-            sortedPredictions.forEach((pred: any, predIndex: number) => {
-                const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
-                const isLastPred = predIndex === sortedPredictions.length - 1;
-                const predPrefix = isLast ? (isLastPred ? '   └─' : '   ├─') : (isLastPred ? '│  └─' : '│  ├─');
-                resultString += `${predPrefix} Rank ${pred.rank} (Miner ${pred.miner_uid}): $${price}\n`;
-            });
-            
-            if (!isLast) {
-                resultString += `│\n`;
-            }
+            resultString += `${prefix} ${time}: $${price}\n`;
         });
         
         return resultString;
@@ -1558,9 +1486,7 @@ export const get_technical_analysis_str = async (
     }
 };
 
-export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
-    const maxRetries = 2;
-    
+export const get_trading_history_str = async (sdk: GmxSdk) => {
     try {
         // Get markets and tokens data first
         const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
@@ -1578,7 +1504,7 @@ export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
         // Fetch all trades with pagination to get complete history
         let allTrades: any[] = [];
         let pageIndex = 0;
-        const pageSize = 1000; // Increase page size for efficiency
+        const pageSize = 1000;
         let hasMoreData = true;
 
         while (hasMoreData) {
@@ -1605,15 +1531,19 @@ export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
             } catch (error) {
                 const errorMsg = error instanceof Error ? error.message : String(error);
                 
+                // Handle GraphQL errors gracefully
+                if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('HTTP error')) {
+                    console.warn('Trading history unavailable due to GraphQL error:', errorMsg);
+                    return '📊 TRADING PERFORMANCE: Trade history temporarily unavailable\n';
+                }
+                
                 // Check if it's a temporary network error
-                const isTemporaryError = errorMsg.includes('HTTP error') || 
-                                       errorMsg.includes('502') || 
-                                       errorMsg.includes('503') || 
+                const isTemporaryError = errorMsg.includes('503') || 
                                        errorMsg.includes('504') ||
                                        errorMsg.includes('timeout');
                 
                 if (isTemporaryError && pageIndex === 0) {
-                    // If we can't get any data at all, throw the error to be handled by the string function
+                    // If we can't get any data at all, throw the error
                     throw new Error(`Failed to get trade history: ${errorMsg}`);
                 } else if (isTemporaryError) {
                     // If we have some data but hit an error on later pages, stop gracefully
@@ -1623,30 +1553,6 @@ export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
                     // For other errors, throw immediately
                     throw new Error(`Failed to get trade history: ${errorMsg}`);
                 }
-            }
-
-            if (history && history.length > 0) {
-                allTrades.push(...history);
-                pageIndex++;
-                
-                // If we got less than the page size, we've reached the end
-                if (history.length < pageSize) {
-                    hasMoreData = false;
-                }
-            } else {
-                hasMoreData = false;
-            }
-
-            if (history && history.length > 0) {
-                allTrades.push(...history);
-                pageIndex++;
-                
-                // If we got less than the page size, we've reached the end
-                if (history.length < pageSize) {
-                    hasMoreData = false;
-                }
-            } else {
-                hasMoreData = false;
             }
 
             // Safety break to prevent infinite loops
@@ -1718,138 +1624,27 @@ export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
             };
         });
 
-        return processedTrades.sort((a, b) => b.timestamp - a.timestamp); // Sort by newest first
-    } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to get trading history: ${errorMsg}`);
-    }
-};
-
-const calculatePerformanceMetrics = (trades: any[]) => {
-    if (!trades.length) {
-        return {
-            totalPnl: 0,
-            winRate: 0,
-            totalTrades: 0,
-            winningTrades: 0,
-            losingTrades: 0,
-            averageProfit: 0,
-            averageLoss: 0,
-            largestWin: 0,
-            largestLoss: 0,
-            profitFactor: 0,
-        };
-    }
-
-    const executedTrades = trades.filter(trade => 
-        trade.pnlUsd !== undefined && 
-        trade.pnlUsd !== 0
-    );
-
-    if (!executedTrades.length) {
-        return {
-            totalPnl: 0,
-            winRate: 0,
-            totalTrades: 0,
-            winningTrades: 0,
-            losingTrades: 0,
-            averageProfit: 0,
-            averageLoss: 0,
-            largestWin: 0,
-            largestLoss: 0,
-            profitFactor: 0,
-        };
-    }
-
-    const totalPnl = executedTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
-    const winningTrades = executedTrades.filter(trade => trade.pnlUsd > 0);
-    const losingTrades = executedTrades.filter(trade => trade.pnlUsd < 0);
-    
-    const totalProfit = winningTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
-    const totalLoss = Math.abs(losingTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0));
-    
-    const averageProfit = winningTrades.length > 0 ? totalProfit / winningTrades.length : 0;
-    const averageLoss = losingTrades.length > 0 ? totalLoss / losingTrades.length : 0;
-    
-    const largestWin = winningTrades.length > 0 ? Math.max(...winningTrades.map(t => t.pnlUsd)) : 0;
-    const largestLoss = losingTrades.length > 0 ? Math.min(...losingTrades.map(t => t.pnlUsd)) : 0;
-    
-    const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? Infinity : 0;
-
-    return {
-        totalPnl,
-        winRate: (winningTrades.length / executedTrades.length) * 100,
-        totalTrades: executedTrades.length,
-        winningTrades: winningTrades.length,
-        losingTrades: losingTrades.length,
-        averageProfit,
-        averageLoss,
-        largestWin,
-        largestLoss,
-        profitFactor,
-    };
-};
-
-export const get_trading_history_str = async (sdk: GmxSdk) => {
-    try {
-        let trades;
-        try {
-            trades = await get_trading_history(sdk);
-        } catch (error) {
-            // Handle GraphQL errors gracefully  
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('HTTP error')) {
-                console.warn('Trading history unavailable due to GraphQL error:', errorMsg);
-                return '📊 TRADING PERFORMANCE: Trade history temporarily unavailable\n';
-            }
-            throw error;
-        }
+        const trades = processedTrades.sort((a, b) => b.timestamp - a.timestamp); // Sort by newest first
         
         if (!trades || trades.length === 0) {
-            return `📊 TRADING HISTORY ANALYSIS
-═══════════════════════════════════════════════════════════
-
-🚫 No trading history found. This could indicate:
-   • New account with no previous trades
-   • All recent activity was token swaps (excluded from trading history)
-   • SDK unable to fetch historical data
-
-💡 Trading history helps analyze:
-   • Win rate and performance patterns
-   • Average profit/loss per trade
-   • Position sizing effectiveness
-   • Entry/exit timing quality
-   • Market timing skills
-
-🎯 Start trading to build performance data for analysis!
-
-═══════════════════════════════════════════════════════════`;
+            return '📊 TRADING PERFORMANCE: No trading history available';
         }
 
-        // Use the proper performance metrics calculation
+        // Use the performance metrics calculation from utils
         const metrics = calculatePerformanceMetrics(trades);
         const avgTradeSize = trades.reduce((sum, t) => sum + Math.abs(t.sizeDeltaUsd), 0) / trades.length;
 
-        let output = `📊 TRADING HISTORY ANALYSIS
-═══════════════════════════════════════════════════════════
-
-📈 PERFORMANCE OVERVIEW
-├─ Total Trades: ${trades.length}
-├─ Date Range: ${new Date(trades[trades.length - 1].timestamp * 1000).toLocaleDateString()} to ${new Date(trades[0].timestamp * 1000).toLocaleDateString()}
-
-`;
-
-        output += `💰 PROFIT & LOSS METRICS
-├─ Total P&L: ${metrics.totalPnl >= 0 ? '+' : ''}$${metrics.totalPnl.toFixed(2)}
-├─ Win Rate: ${metrics.winRate.toFixed(1)}% (${metrics.winningTrades}/${metrics.totalTrades})
-├─ Average Win: +$${metrics.averageProfit.toFixed(2)}
-├─ Average Loss: -$${metrics.averageLoss.toFixed(2)}
-├─ Profit Factor: ${metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}x
-├─ Average Trade Size: $${avgTradeSize.toFixed(2)}
-├─ Largest Win: +$${metrics.largestWin.toFixed(2)}
-├─ Largest Loss: $${metrics.largestLoss.toFixed(2)}
-
-`;
+        let output = `📊 TRADING PERFORMANCE\n`;
+        output += `├─ Total Trades: ${trades.length}\n`;
+        output += `├─ Date Range: ${new Date(trades[trades.length - 1].timestamp * 1000).toLocaleDateString()} to ${new Date(trades[0].timestamp * 1000).toLocaleDateString()}\n`;
+        output += `├─ Total P&L: ${metrics.totalPnl >= 0 ? '+' : ''}$${metrics.totalPnl.toFixed(2)}\n`;
+        output += `├─ Win Rate: ${metrics.winRate.toFixed(1)}% (${metrics.winningTrades}/${metrics.totalTrades})\n`;
+        output += `├─ Average Win: +$${metrics.averageProfit.toFixed(2)}\n`;
+        output += `├─ Average Loss: -$${metrics.averageLoss.toFixed(2)}\n`;
+        output += `├─ Profit Factor: ${metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}x\n`;
+        output += `├─ Average Trade Size: $${avgTradeSize.toFixed(2)}\n`;
+        output += `├─ Largest Win: +$${metrics.largestWin.toFixed(2)}\n`;
+        output += `└─ Largest Loss: $${metrics.largestLoss.toFixed(2)}\n\n`;
 
         // Analyze by position type
         const longTrades = trades.filter(t => t.isLong);
@@ -1857,15 +1652,13 @@ export const get_trading_history_str = async (sdk: GmxSdk) => {
         const longMetrics = calculatePerformanceMetrics(longTrades);
         const shortMetrics = calculatePerformanceMetrics(shortTrades);
         
-        output += `📊 POSITION TYPE ANALYSIS
-├─ Long Positions: ${longTrades.length} trades
-│  ├─ P&L: ${longMetrics.totalPnl >= 0 ? '+' : ''}$${longMetrics.totalPnl.toFixed(2)}
-│  └─ Win Rate: ${longMetrics.winRate.toFixed(1)}%
-├─ Short Positions: ${shortTrades.length} trades
-│  ├─ P&L: ${shortMetrics.totalPnl >= 0 ? '+' : ''}$${shortMetrics.totalPnl.toFixed(2)}
-│  └─ Win Rate: ${shortMetrics.winRate.toFixed(1)}%
-
-`;
+        output += `📊 POSITION TYPE ANALYSIS\n`;
+        output += `├─ Long Positions: ${longTrades.length} trades\n`;
+        output += `│  ├─ P&L: ${longMetrics.totalPnl >= 0 ? '+' : ''}$${longMetrics.totalPnl.toFixed(2)}\n`;
+        output += `│  └─ Win Rate: ${longMetrics.winRate.toFixed(1)}%\n`;
+        output += `├─ Short Positions: ${shortTrades.length} trades\n`;
+        output += `│  ├─ P&L: ${shortMetrics.totalPnl >= 0 ? '+' : ''}$${shortMetrics.totalPnl.toFixed(2)}\n`;
+        output += `│  └─ Win Rate: ${shortMetrics.winRate.toFixed(1)}%\n\n`;
 
         // Show recent trades (last 10)
         output += `🕒 RECENT TRADES (Last 10)\n`;
@@ -1876,16 +1669,11 @@ export const get_trading_history_str = async (sdk: GmxSdk) => {
             const marketName = trade.marketInfo?.name || 'Unknown Market';
             const side = trade.isLong ? 'LONG' : 'SHORT';
             const pnlColor = trade.pnlUsd >= 0 ? '+' : '';
+            const isLast = index === recentTrades.length - 1;
+            const prefix = isLast ? '└─' : '├─';
             
-            output += `├─ ${index + 1}. ${marketName} ${side} - ${pnlColor}$${trade.pnlUsd.toFixed(2)} (${date.toLocaleDateString()})\n`;
+            output += `${prefix} ${index + 1}. ${marketName} ${side} - ${pnlColor}$${trade.pnlUsd.toFixed(2)} (${date.toLocaleDateString()})\n`;
         });
-
-        output += `\n💡 TRADING INSIGHTS
-├─ ${metrics.winRate >= 50 ? '✅' : '⚠️'} Win Rate: ${metrics.winRate >= 50 ? 'Above 50% - Good consistency' : 'Below 50% - Focus on trade quality'}
-├─ ${metrics.profitFactor >= 1.5 ? '✅' : '⚠️'} Profit Factor: ${metrics.profitFactor >= 1.5 ? 'Excellent risk/reward management' : 'Improve average win vs loss ratio'}
-├─ ${metrics.totalPnl >= 0 ? '✅' : '❌'} Overall P&L: ${metrics.totalPnl >= 0 ? 'Profitable trading performance' : 'Focus on cutting losses and risk management'}
-
-═══════════════════════════════════════════════════════════`;
 
         return output;
         

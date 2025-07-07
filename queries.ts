@@ -917,7 +917,7 @@ export const get_orders_str = async (sdk: GmxSdk) => {
 export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
         // Fetch best miner's prediction using the new endpoint
-        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=14400`;
+        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=86400`;
         
         const predictionsResponse = await fetch(predictionsUrl, {
             headers: {
@@ -970,6 +970,10 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
             .filter((pred: any) => pred.time && pred.price !== undefined)
             .sort((a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime());
         
+        // Slice to only get the next 4 hours of predictions
+        // With 5-minute intervals (300 seconds), 4 hours = 4 * 60 / 5 = 48 prediction points
+        const fourHourPredictions = sortedPredictions.slice(0, 48);
+        
         // Calculate prediction duration in hours
         const durationHours = timeLength / 3600;
         const intervalMinutes = timeIncrement / 60;
@@ -978,16 +982,16 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
         let resultString = `📊 ${predictionAsset} SYNTH PREDICTIONS (Best Miner)\n`;
         resultString += `├─ Miner UID: ${minerUid}\n`;
         resultString += `├─ Start Time: ${new Date(startTime).toLocaleString()}\n`;
-        resultString += `├─ Duration: ${durationHours}h (${intervalMinutes}min intervals)\n`;
+        resultString += `├─ Duration: 4h (${intervalMinutes}min intervals)\n`;
         resultString += `├─ Simulations: ${numSimulations}\n`;
-        resultString += `├─ Prediction Points: ${sortedPredictions.length}\n`;
+        resultString += `├─ Prediction Points: ${fourHourPredictions.length}\n`;
         resultString += `└─ Asset: ${predictionAsset}\n\n`;
         
-        // Show all predictions
-        resultString += `🔮 PRICE PREDICTIONS\n`;
+        // Show 4-hour predictions
+        resultString += `🔮 PRICE PREDICTIONS (Next 4 Hours)\n`;
         
-        sortedPredictions.forEach((pred: any, index: number) => {
-            const isLast = index === sortedPredictions.length - 1;
+        fourHourPredictions.forEach((pred: any, index: number) => {
+            const isLast = index === fourHourPredictions.length - 1;
             const prefix = isLast ? '└─' : '├─';
             const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
             const time = new Date(pred.time).toLocaleString();

@@ -684,7 +684,18 @@ export const get_tokens_data_str = async (sdk: GmxSdk) => {
 export const get_daily_volumes_str = async (sdk: GmxSdk) => {
     try {
         // Get daily volumes data
-        const volumes = await sdk.markets.getDailyVolumes();
+        let volumes;
+        try {
+            volumes = await sdk.markets.getDailyVolumes();
+        } catch (error) {
+            // Handle GraphQL errors gracefully
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('getMarketsValues')) {
+                console.warn('Daily volumes unavailable due to GraphQL error:', errorMsg);
+                return '📈 MARKET LIQUIDITY: Volume data temporarily unavailable\n';
+            }
+            throw error;
+        }
         
         if (!volumes || typeof volumes !== 'object') {
             throw new Error("No volume data available");

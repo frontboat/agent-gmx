@@ -917,7 +917,7 @@ export const get_orders_str = async (sdk: GmxSdk) => {
 export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
         // Fetch best miner's prediction using the new endpoint
-        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=86400`;
+        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=14400`;
         
         const predictionsResponse = await fetch(predictionsUrl, {
             headers: {

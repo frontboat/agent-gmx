@@ -906,13 +906,23 @@ export const get_orders_str = async (sdk: GmxSdk) => {
 export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
         // Step 1: Fetch top miners from validation scores for the specific asset
-        const scoresResponse = await fetch(`https://api.synthdata.co/validation/scores/latest?asset=${asset}`);
+        const scoresResponse = await fetch(`https://api.synthdata.co/validation/scores/latest?asset=${asset}`, {
+            headers: {
+                'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+            }
+        });
+        
+        // Handle rate limiting gracefully
+        if (scoresResponse.status === 429) {
+            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
+        }
+        
         if (!scoresResponse.ok) {
             throw new Error(`Failed to fetch validation scores: ${scoresResponse.statusText}`);
         }
         
         const scoresData = await scoresResponse.json();
-        
+
         // Extract miners from the scores data - assuming it returns an array of miners with scores
         if (!scoresData || !Array.isArray(scoresData)) {
             throw new Error("Invalid validation scores data format");
@@ -938,13 +948,23 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
         // Using the new prediction/latest endpoint with multiple miners
         const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
         
-        const predictionsResponse = await fetch(predictionsUrl);
+        const predictionsResponse = await fetch(predictionsUrl, {
+            headers: {
+                'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+            }
+        });
+        
+        // Handle rate limiting gracefully
+        if (predictionsResponse.status === 429) {
+            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
+        }
+        
         if (!predictionsResponse.ok) {
             throw new Error(`Failed to fetch predictions: ${predictionsResponse.statusText}`);
         }
         
         const predictionsData = await predictionsResponse.json();
-        
+
         // Process the predictions data - the API returns an array of miner prediction objects
         if (!predictionsData || !Array.isArray(predictionsData)) {
             throw new Error("Invalid predictions data format");
@@ -961,65 +981,38 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
                 console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
                 return;
             }
-            
             // Extract predictions from the nested array structure
             if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
-                !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0]) ||
-                !minerPrediction.prediction[0][0]) {
+                !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
                 console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
                 return;
             }
             
-            // The predictions are in prediction[0][0] which contains an array of {time, price} objects
-            const predictions = minerPrediction.prediction[0][0];
+            // The predictions are in prediction[0] which contains an array of {time, price} objects
+            const predictions = minerPrediction.prediction[0];
             
             // Process each prediction point
-            if (Array.isArray(predictions)) {
-                predictions.forEach((pred: any) => {
-                    if (!pred.time || pred.price === undefined) {
-                        return;
-                    }
-                    
-                    const time = pred.time;
-                    const price = pred.price;
-                    
-                    if (!consolidatedMap.has(time)) {
-                        consolidatedMap.set(time, {
-                            time,
-                            predictions: []
-                        });
-                    }
-                    
-                    consolidatedMap.get(time).predictions.push({
-                        miner_uid: minerPrediction.miner_uid,
-                        rank: minerInfo.rank,
-                        price
+            predictions.forEach((pred: any) => {
+                if (!pred.time || pred.price === undefined) {
+                    return;
+                }
+                
+                const time = pred.time;
+                const price = pred.price;
+                
+                if (!consolidatedMap.has(time)) {
+                    consolidatedMap.set(time, {
+                        time,
+                        predictions: []
                     });
+                }
+                
+                consolidatedMap.get(time).predictions.push({
+                    miner_uid: minerPrediction.miner_uid,
+                    rank: minerInfo.rank,
+                    price
                 });
-            } else if (typeof predictions === 'object') {
-                // Handle case where prediction[0][0] is a single object with time/price pairs
-                Object.entries(predictions).forEach(([index, pred]: [string, any]) => {
-                    if (!pred.time || pred.price === undefined) {
-                        return;
-                    }
-                    
-                    const time = pred.time;
-                    const price = pred.price;
-                    
-                    if (!consolidatedMap.has(time)) {
-                        consolidatedMap.set(time, {
-                            time,
-                            predictions: []
-                        });
-                    }
-                    
-                    consolidatedMap.get(time).predictions.push({
-                        miner_uid: minerPrediction.miner_uid,
-                        rank: minerInfo.rank,
-                        price
-                    });
-                });
-            }
+            });
         });
         
         // Convert to array and sort by time

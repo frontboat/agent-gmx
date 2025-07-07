@@ -1558,7 +1558,9 @@ export const get_technical_analysis_str = async (
     }
 };
 
-export const get_trading_history = async (sdk: GmxSdk) => {
+export const get_trading_history = async (sdk: GmxSdk, retryCount = 0) => {
+    const maxRetries = 2;
+    
     try {
         // Get markets and tokens data first
         const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
@@ -1580,15 +1582,60 @@ export const get_trading_history = async (sdk: GmxSdk) => {
         let hasMoreData = true;
 
         while (hasMoreData) {
-            const history = await sdk.trades.getTradeHistory({
-                forAllAccounts: false,
-                pageSize: pageSize,
-                pageIndex: pageIndex,
-                marketsInfoData: marketsInfoData,
-                tokensData: tokensData,
-            }).catch(error => {
-                throw new Error(`Failed to get trade history: ${error.message || error}`);
-            });
+            try {
+                const history = await sdk.trades.getTradeHistory({
+                    forAllAccounts: false,
+                    pageSize: pageSize,
+                    pageIndex: pageIndex,
+                    marketsInfoData: marketsInfoData,
+                    tokensData: tokensData,
+                });
+                
+                if (history && history.length > 0) {
+                    allTrades.push(...history);
+                    pageIndex++;
+                    
+                    // If we got less than the page size, we've reached the end
+                    if (history.length < pageSize) {
+                        hasMoreData = false;
+                    }
+                } else {
+                    hasMoreData = false;
+                }
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                
+                // Check if it's a temporary network error
+                const isTemporaryError = errorMsg.includes('HTTP error') || 
+                                       errorMsg.includes('502') || 
+                                       errorMsg.includes('503') || 
+                                       errorMsg.includes('504') ||
+                                       errorMsg.includes('timeout');
+                
+                if (isTemporaryError && pageIndex === 0) {
+                    // If we can't get any data at all, throw the error to be handled by the string function
+                    throw new Error(`Failed to get trade history: ${errorMsg}`);
+                } else if (isTemporaryError) {
+                    // If we have some data but hit an error on later pages, stop gracefully
+                    console.warn(`Trading history fetch stopped at page ${pageIndex} due to network error: ${errorMsg}`);
+                    hasMoreData = false;
+                } else {
+                    // For other errors, throw immediately
+                    throw new Error(`Failed to get trade history: ${errorMsg}`);
+                }
+            }
+
+            if (history && history.length > 0) {
+                allTrades.push(...history);
+                pageIndex++;
+                
+                // If we got less than the page size, we've reached the end
+                if (history.length < pageSize) {
+                    hasMoreData = false;
+                }
+            } else {
+                hasMoreData = false;
+            }
 
             if (history && history.length > 0) {
                 allTrades.push(...history);
@@ -1745,7 +1792,18 @@ const calculatePerformanceMetrics = (trades: any[]) => {
 
 export const get_trading_history_str = async (sdk: GmxSdk) => {
     try {
-        const trades = await get_trading_history(sdk);
+        let trades;
+        try {
+            trades = await get_trading_history(sdk);
+        } catch (error) {
+            // Handle GraphQL errors gracefully  
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('HTTP error')) {
+                console.warn('Trading history unavailable due to GraphQL error:', errorMsg);
+                return '📊 TRADING PERFORMANCE: Trade history temporarily unavailable\n';
+            }
+            throw error;
+        }
         
         if (!trades || trades.length === 0) {
             return `📊 TRADING HISTORY ANALYSIS
@@ -1832,7 +1890,6 @@ export const get_trading_history_str = async (sdk: GmxSdk) => {
         return output;
         
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to get trading history string: ${errorMsg}`);
+        throw new Error(`Failed to get trading history: ${error instanceof Error ? error.message : String(error)}`);
     }
 };

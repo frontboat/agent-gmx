@@ -1557,3 +1557,282 @@ export const get_technical_analysis_str = async (
         throw new Error(`Failed to fetch technical analysis for ${tokenSymbol}: ${errorMsg}`);
     }
 };
+
+export const get_trading_history = async (sdk: GmxSdk) => {
+    try {
+        // Get markets and tokens data first
+        const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+            throw new Error(`Failed to get markets data: ${error.message || error}`);
+        });
+        
+        const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+            throw new Error(`Failed to get tokens data: ${error.message || error}`);
+        });
+
+        if (!marketsInfoData || !tokensData) {
+            throw new Error("Failed to get required market and token data for trading history");
+        }
+
+        // Fetch all trades with pagination to get complete history
+        let allTrades: any[] = [];
+        let pageIndex = 0;
+        const pageSize = 1000; // Increase page size for efficiency
+        let hasMoreData = true;
+
+        while (hasMoreData) {
+            const history = await sdk.trades.getTradeHistory({
+                forAllAccounts: false,
+                pageSize: pageSize,
+                pageIndex: pageIndex,
+                marketsInfoData: marketsInfoData,
+                tokensData: tokensData,
+            }).catch(error => {
+                throw new Error(`Failed to get trade history: ${error.message || error}`);
+            });
+
+            if (history && history.length > 0) {
+                allTrades.push(...history);
+                pageIndex++;
+                
+                // If we got less than the page size, we've reached the end
+                if (history.length < pageSize) {
+                    hasMoreData = false;
+                }
+            } else {
+                hasMoreData = false;
+            }
+
+            // Safety break to prevent infinite loops
+            if (pageIndex > 50) { // Max 50 pages (50k trades)
+                break;
+            }
+        }
+
+        // Filter to only executed trades and exclude swaps (orderType 0 and 1)
+        const executedTrades = allTrades.filter(trade => 
+            trade.eventName === 'OrderExecuted' && 
+            trade.orderType !== 0 && // Market Swap
+            trade.orderType !== 1    // Limit Swap
+        );
+
+        const processedTrades = executedTrades.map((trade: any) => {
+            // Handle timestamp - ensure it's in seconds
+            let finalTimestamp = trade.timestamp || Date.now() / 1000;
+            
+            // If timestamp looks like it's in milliseconds (> year 2100 in seconds), convert to seconds
+            if (finalTimestamp > 4102444800) { // Jan 1, 2100 in seconds
+                finalTimestamp = finalTimestamp / 1000;
+            }
+
+            // Calculate collateralDeltaUsd from the raw amount
+            let collateralDeltaUsd = 0;
+            if (trade.initialCollateralDeltaAmount && trade.initialCollateralToken) {
+                // Use the execution price if available, otherwise use current token price
+                const collateralPrice = trade.collateralTokenPriceMax || 
+                                      trade.collateralTokenPriceMin || 
+                                      trade.initialCollateralToken?.prices?.maxPrice ||
+                                      trade.initialCollateralToken?.prices?.minPrice;
+                
+                if (collateralPrice) {
+                    const collateralUsdBigInt = convertToUsd(
+                        trade.initialCollateralDeltaAmount,
+                        trade.initialCollateralToken.decimals || 18,
+                        collateralPrice
+                    );
+                    collateralDeltaUsd = collateralUsdBigInt ? bigIntToDecimal(collateralUsdBigInt, USD_DECIMALS) : 0;
+                }
+            }
+
+            return {
+                id: trade.id || `${trade.transaction?.hash}-${Date.now()}`,
+                txHash: trade.transaction?.hash,
+                blockNumber: trade.transaction?.blockNumber,
+                timestamp: finalTimestamp,
+                eventName: trade.eventName,
+                orderType: trade.orderType,
+                orderKey: trade.orderKey,
+                account: trade.account,
+                marketAddress: trade.marketAddress || trade.marketInfo?.marketTokenAddress,
+                isLong: trade.isLong,
+                sizeDeltaUsd: trade.sizeDeltaUsd ? bigIntToDecimal(trade.sizeDeltaUsd, USD_DECIMALS) : 0,
+                collateralDeltaAmount: trade.initialCollateralDeltaAmount,
+                collateralDeltaUsd: collateralDeltaUsd,
+                triggerPrice: trade.triggerPrice && trade.triggerPrice !== 0n ? bigIntToDecimal(trade.triggerPrice, USD_DECIMALS) : 0,
+                acceptablePrice: trade.acceptablePrice ? bigIntToDecimal(trade.acceptablePrice, USD_DECIMALS) : 0,
+                executionPrice: trade.executionPrice ? bigIntToDecimal(trade.executionPrice, USD_DECIMALS) : 0,
+                priceImpactUsd: trade.priceImpactUsd ? bigIntToDecimal(trade.priceImpactUsd, USD_DECIMALS) : 0,
+                positionFeeAmount: trade.positionFeeAmount,
+                borrowingFeeAmount: trade.borrowingFeeAmount,
+                fundingFeeAmount: trade.fundingFeeAmount,
+                pnlUsd: trade.pnlUsd ? bigIntToDecimal(trade.pnlUsd, USD_DECIMALS) : trade.basePnlUsd ? bigIntToDecimal(trade.basePnlUsd, USD_DECIMALS) : 0,
+                marketInfo: trade.marketInfo,
+                indexToken: trade.indexToken,
+                collateralToken: trade.initialCollateralToken || trade.targetCollateralToken,
+            };
+        });
+
+        return processedTrades.sort((a, b) => b.timestamp - a.timestamp); // Sort by newest first
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to get trading history: ${errorMsg}`);
+    }
+};
+
+const calculatePerformanceMetrics = (trades: any[]) => {
+    if (!trades.length) {
+        return {
+            totalPnl: 0,
+            winRate: 0,
+            totalTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            averageProfit: 0,
+            averageLoss: 0,
+            largestWin: 0,
+            largestLoss: 0,
+            profitFactor: 0,
+        };
+    }
+
+    const executedTrades = trades.filter(trade => 
+        trade.pnlUsd !== undefined && 
+        trade.pnlUsd !== 0
+    );
+
+    if (!executedTrades.length) {
+        return {
+            totalPnl: 0,
+            winRate: 0,
+            totalTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            averageProfit: 0,
+            averageLoss: 0,
+            largestWin: 0,
+            largestLoss: 0,
+            profitFactor: 0,
+        };
+    }
+
+    const totalPnl = executedTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
+    const winningTrades = executedTrades.filter(trade => trade.pnlUsd > 0);
+    const losingTrades = executedTrades.filter(trade => trade.pnlUsd < 0);
+    
+    const totalProfit = winningTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
+    const totalLoss = Math.abs(losingTrades.reduce((sum, trade) => sum + trade.pnlUsd, 0));
+    
+    const averageProfit = winningTrades.length > 0 ? totalProfit / winningTrades.length : 0;
+    const averageLoss = losingTrades.length > 0 ? totalLoss / losingTrades.length : 0;
+    
+    const largestWin = winningTrades.length > 0 ? Math.max(...winningTrades.map(t => t.pnlUsd)) : 0;
+    const largestLoss = losingTrades.length > 0 ? Math.min(...losingTrades.map(t => t.pnlUsd)) : 0;
+    
+    const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : totalProfit > 0 ? Infinity : 0;
+
+    return {
+        totalPnl,
+        winRate: (winningTrades.length / executedTrades.length) * 100,
+        totalTrades: executedTrades.length,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        averageProfit,
+        averageLoss,
+        largestWin,
+        largestLoss,
+        profitFactor,
+    };
+};
+
+export const get_trading_history_str = async (sdk: GmxSdk) => {
+    try {
+        const trades = await get_trading_history(sdk);
+        
+        if (!trades || trades.length === 0) {
+            return `📊 TRADING HISTORY ANALYSIS
+═══════════════════════════════════════════════════════════
+
+🚫 No trading history found. This could indicate:
+   • New account with no previous trades
+   • All recent activity was token swaps (excluded from trading history)
+   • SDK unable to fetch historical data
+
+💡 Trading history helps analyze:
+   • Win rate and performance patterns
+   • Average profit/loss per trade
+   • Position sizing effectiveness
+   • Entry/exit timing quality
+   • Market timing skills
+
+🎯 Start trading to build performance data for analysis!
+
+═══════════════════════════════════════════════════════════`;
+        }
+
+        // Use the proper performance metrics calculation
+        const metrics = calculatePerformanceMetrics(trades);
+        const avgTradeSize = trades.reduce((sum, t) => sum + Math.abs(t.sizeDeltaUsd), 0) / trades.length;
+
+        let output = `📊 TRADING HISTORY ANALYSIS
+═══════════════════════════════════════════════════════════
+
+📈 PERFORMANCE OVERVIEW
+├─ Total Trades: ${trades.length}
+├─ Date Range: ${new Date(trades[trades.length - 1].timestamp * 1000).toLocaleDateString()} to ${new Date(trades[0].timestamp * 1000).toLocaleDateString()}
+
+`;
+
+        output += `💰 PROFIT & LOSS METRICS
+├─ Total P&L: ${metrics.totalPnl >= 0 ? '+' : ''}$${metrics.totalPnl.toFixed(2)}
+├─ Win Rate: ${metrics.winRate.toFixed(1)}% (${metrics.winningTrades}/${metrics.totalTrades})
+├─ Average Win: +$${metrics.averageProfit.toFixed(2)}
+├─ Average Loss: -$${metrics.averageLoss.toFixed(2)}
+├─ Profit Factor: ${metrics.profitFactor === Infinity ? '∞' : metrics.profitFactor.toFixed(2)}x
+├─ Average Trade Size: $${avgTradeSize.toFixed(2)}
+├─ Largest Win: +$${metrics.largestWin.toFixed(2)}
+├─ Largest Loss: $${metrics.largestLoss.toFixed(2)}
+
+`;
+
+        // Analyze by position type
+        const longTrades = trades.filter(t => t.isLong);
+        const shortTrades = trades.filter(t => !t.isLong);
+        const longMetrics = calculatePerformanceMetrics(longTrades);
+        const shortMetrics = calculatePerformanceMetrics(shortTrades);
+        
+        output += `📊 POSITION TYPE ANALYSIS
+├─ Long Positions: ${longTrades.length} trades
+│  ├─ P&L: ${longMetrics.totalPnl >= 0 ? '+' : ''}$${longMetrics.totalPnl.toFixed(2)}
+│  └─ Win Rate: ${longMetrics.winRate.toFixed(1)}%
+├─ Short Positions: ${shortTrades.length} trades
+│  ├─ P&L: ${shortMetrics.totalPnl >= 0 ? '+' : ''}$${shortMetrics.totalPnl.toFixed(2)}
+│  └─ Win Rate: ${shortMetrics.winRate.toFixed(1)}%
+
+`;
+
+        // Show recent trades (last 10)
+        output += `🕒 RECENT TRADES (Last 10)\n`;
+        const recentTrades = trades.slice(0, 10);
+        
+        recentTrades.forEach((trade, index) => {
+            const date = new Date(trade.timestamp * 1000);
+            const marketName = trade.marketInfo?.name || 'Unknown Market';
+            const side = trade.isLong ? 'LONG' : 'SHORT';
+            const pnlColor = trade.pnlUsd >= 0 ? '+' : '';
+            
+            output += `├─ ${index + 1}. ${marketName} ${side} - ${pnlColor}$${trade.pnlUsd.toFixed(2)} (${date.toLocaleDateString()})\n`;
+        });
+
+        output += `\n💡 TRADING INSIGHTS
+├─ ${metrics.winRate >= 50 ? '✅' : '⚠️'} Win Rate: ${metrics.winRate >= 50 ? 'Above 50% - Good consistency' : 'Below 50% - Focus on trade quality'}
+├─ ${metrics.profitFactor >= 1.5 ? '✅' : '⚠️'} Profit Factor: ${metrics.profitFactor >= 1.5 ? 'Excellent risk/reward management' : 'Improve average win vs loss ratio'}
+├─ ${metrics.totalPnl >= 0 ? '✅' : '❌'} Overall P&L: ${metrics.totalPnl >= 0 ? 'Profitable trading performance' : 'Focus on cutting losses and risk management'}
+
+═══════════════════════════════════════════════════════════`;
+
+        return output;
+        
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to get trading history string: ${errorMsg}`);
+    }
+};

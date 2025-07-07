@@ -17,6 +17,9 @@ export interface GmxMemory {
     // Portfolio balance
     portfolioBalance?: string;
     
+    // Trading performance data
+    tradingHistory?: string;
+    
     // Current state
     currentTask: string | null;
     lastResult: string | null;

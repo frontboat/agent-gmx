@@ -14,7 +14,7 @@ import {
     convertToUsd,
     sleep
 } from './utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str } from './queries';
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from './queries';
 import { debugLog, debugError } from './logger';
 
 export function createGmxActions(sdk: GmxSdk, env?: any) {
@@ -259,6 +259,44 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
                     message: "Failed to fetch orders"
+                };
+            }
+        }
+    }),
+
+    // Trading History - Comprehensive performance analysis
+    action({
+        name: "get_trading_history",
+        description: "Get comprehensive trading history analysis including performance metrics, win rates, profit factors, and recent trades. Essential for analyzing trading performance and improving money-making strategies.",
+        async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_trading_history action');
+            try {
+                let memory = ctx.memory as GmxMemory;
+                
+                debugLog('action', 'Fetching trading history data');
+                // Use the formatted string function from queries
+                const historyString = await get_trading_history_str(sdk);
+                debugLog('action', 'Successfully fetched trading history data', { dataLength: historyString.length });
+                
+                // Update memory with trading history insights
+                memory = {
+                    ...memory,
+                    tradingHistory: historyString,
+                    currentTask: "📊 Analyzing trading history for performance insights",
+                    lastResult: "Retrieved comprehensive trading history and performance metrics"
+                };
+
+                return {
+                    success: true,
+                    message: "Successfully retrieved trading history analysis",
+                    formattedData: historyString
+                };
+            } catch (error) {
+                debugError('action', error as Error, { action: 'get_trading_history' });
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                    message: "Failed to fetch trading history"
                 };
             }
         }

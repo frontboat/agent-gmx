@@ -305,7 +305,7 @@ Market Conditions Assessment:
 
 **Risk Management Principles:**
 1. **Technical Stops**: Place at structure invalidation points using support/resistance levels
-2. **Position Limits**: Never risk more than 30% of portfolio in a single position
+2. **Position Limits**: Never risk more than 80% of portfolio in a single position
 3. **Leverage Control**: Use 1x-3x leverage based on setup confidence and market volatility
 4. **Stop Loss Discipline**: Set stops immediately after position entry, never move against position
 5. **Take Profit Targets**: Set clear profit targets based on technical levels

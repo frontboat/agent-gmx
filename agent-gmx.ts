@@ -330,7 +330,7 @@ Market Conditions Assessment:
 
 ### Portfolio Optimization Protocol
 - **Base Currency**: Maintain 70-95% USDC when not positioned
-- **Gas Reserve**: Keep exactly 2% ETH for transactions
+- **Gas Reserve**: Keep around 2% ETH for transactions
 - **Immediate Rebalancing**: Convert excess tokens after every trade
 - **Capital Efficiency**: Maximum deployable capital for opportunities
 - **Clean Positions**: One position per asset maximum

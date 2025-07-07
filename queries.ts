@@ -1456,7 +1456,10 @@ export const get_technical_analysis_str = async (
             output += `├─ EMA(12): $${data.indicators.ema12?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA(21): $${data.indicators.ema21?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA(26): $${data.indicators.ema26?.toFixed(2) || 'N/A'}\n`;
-            output += `├─ RSI(14): ${data.indicators.rsi?.toFixed(2) || 'N/A'}\n`;
+            // Add explicit RSI status to prevent AI misinterpretation
+            const rsiValue = data.indicators.rsi;
+            const rsiStatus = rsiValue ? (rsiValue > 70 ? 'OVERBOUGHT' : rsiValue < 30 ? 'OVERSOLD' : 'NEUTRAL') : 'N/A';
+            output += `├─ RSI(14): ${rsiValue?.toFixed(2) || 'N/A'} (${rsiStatus})\n`;
             output += `├─ MACD: ${data.indicators.macd?.MACD?.toFixed(4) || 'N/A'}\n`;
             output += `├─ MACD Signal: ${data.indicators.macd?.signal?.toFixed(4) || 'N/A'}\n`;
             output += `├─ MACD Histogram: ${data.indicators.macd?.histogram?.toFixed(4) || 'N/A'}\n`;

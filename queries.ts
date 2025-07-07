@@ -1460,16 +1460,29 @@ export const get_technical_analysis_str = async (
             const rsiValue = data.indicators.rsi;
             const rsiStatus = rsiValue ? (rsiValue > 70 ? 'OVERBOUGHT' : rsiValue < 30 ? 'OVERSOLD' : 'NEUTRAL') : 'N/A';
             output += `├─ RSI(14): ${rsiValue?.toFixed(2) || 'N/A'} (${rsiStatus})\n`;
-            output += `├─ MACD: ${data.indicators.macd?.MACD?.toFixed(4) || 'N/A'}\n`;
-            output += `├─ MACD Signal: ${data.indicators.macd?.signal?.toFixed(4) || 'N/A'}\n`;
+            // Add explicit MACD signal status to prevent AI misinterpretation
+            const macdValue = data.indicators.macd?.MACD;
+            const macdSignalValue = data.indicators.macd?.signal;
+            const macdCrossover = macdValue && macdSignalValue ? 
+                (macdValue > macdSignalValue ? 'BULLISH' : 'BEARISH') : 'N/A';
+            output += `├─ MACD: ${macdValue?.toFixed(4) || 'N/A'}\n`;
+            output += `├─ MACD Signal: ${macdSignalValue?.toFixed(4) || 'N/A'}\n`;
+            output += `├─ MACD Crossover: ${macdCrossover}\n`;
             output += `├─ MACD Histogram: ${data.indicators.macd?.histogram?.toFixed(4) || 'N/A'}\n`;
             output += `├─ Bollinger Upper: $${data.indicators.bb?.upper?.toFixed(2) || 'N/A'}\n`;
             output += `├─ Bollinger Middle: $${data.indicators.bb?.middle?.toFixed(2) || 'N/A'}\n`;
             output += `├─ Bollinger Lower: $${data.indicators.bb?.lower?.toFixed(2) || 'N/A'}\n`;
             output += `├─ ATR(14): ${data.indicators.atr?.toFixed(2) || 'N/A'}\n`;
-            output += `├─ Stochastic %K: ${data.indicators.stoch?.k?.toFixed(2) || 'N/A'}\n`;
+            // Add explicit Stochastic status to prevent AI misinterpretation
+            const stochK = data.indicators.stoch?.k;
+            const stochStatus = stochK ? (stochK > 80 ? 'OVERBOUGHT' : stochK < 20 ? 'OVERSOLD' : 'NEUTRAL') : 'N/A';
+            output += `├─ Stochastic %K: ${stochK?.toFixed(2) || 'N/A'} (${stochStatus})\n`;
             output += `├─ Stochastic %D: ${data.indicators.stoch?.d?.toFixed(2) || 'N/A'}\n`;
-            output += `├─ Williams %R: ${data.indicators.williamsR?.toFixed(2) || 'N/A'}\n`;
+            
+            // Add explicit Williams %R status to prevent AI misinterpretation
+            const williamsR = data.indicators.williamsR;
+            const williamsStatus = williamsR ? (williamsR > -20 ? 'OVERBOUGHT' : williamsR < -80 ? 'OVERSOLD' : 'NEUTRAL') : 'N/A';
+            output += `├─ Williams %R: ${williamsR?.toFixed(2) || 'N/A'} (${williamsStatus})\n`;
             output += `├─ CCI(20): ${data.indicators.cci?.toFixed(2) || 'N/A'}\n`;
             output += `├─ ADX(14): ${data.indicators.adx?.adx?.toFixed(2) || 'N/A'}\n`;
             output += `├─ +DI: ${data.indicators.adx?.pdi?.toFixed(2) || 'N/A'}\n`;

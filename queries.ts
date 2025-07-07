@@ -1358,9 +1358,48 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
 
 // Technical Analysis Query - Fetch candlestick data for all timeframes and calculate indicators
 export const get_technical_analysis_str = async (
+    sdk: GmxSdk,
     tokenSymbol: 'BTC' | 'ETH'
 ): Promise<string> => {
     try {
+        // First get current market price using SDK
+        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+            throw new Error(`Failed to get market data: ${error.message || error}`);
+        });
+        
+        if (!marketsInfoData || !tokensData) {
+            throw new Error("Failed to get market and token data");
+        }
+        
+        // Find the appropriate market for the token (BTC/USD or ETH/USD)
+        let currentMarkPrice: bigint | null = null;
+        let marketFound = false;
+        
+        for (const [marketAddress, marketInfo] of Object.entries(marketsInfoData)) {
+            if (marketInfo.name && marketInfo.indexToken) {
+                const isBtcMarket = tokenSymbol === 'BTC' && 
+                    (marketInfo.name.includes('BTC/USD') || marketInfo.name.includes('BTC-USD'));
+                const isEthMarket = tokenSymbol === 'ETH' && 
+                    (marketInfo.name.includes('ETH/USD') || marketInfo.name.includes('ETH-USD'));
+                
+                if ((isBtcMarket || isEthMarket) && !marketInfo.isSpotOnly) {
+                    const indexToken = tokensData[marketInfo.indexTokenAddress];
+                    if (indexToken && indexToken.prices) {
+                        // Use mid price for technical analysis
+                        const maxPrice = indexToken.prices.maxPrice || 0n;
+                        const minPrice = indexToken.prices.minPrice || 0n;
+                        currentMarkPrice = (maxPrice + minPrice) / 2n;
+                        marketFound = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (!marketFound || !currentMarkPrice) {
+            throw new Error(`Could not find market price for ${tokenSymbol}`);
+        }
+        
         const timeframes = ['5m', '15m', '1h', '4h'] as const;
         const analysisResults: any[] = [];
         
@@ -1407,8 +1446,8 @@ export const get_technical_analysis_str = async (
             throw new Error(`No valid data available for ${tokenSymbol} technical analysis`);
         }
         
-        // Get current price from most recent data
-        const currentPrice = analysisResults[0]?.currentPrice;
+        // Use the actual mark price from SDK instead of last candle price
+        const currentPrice = bigIntToDecimal(currentMarkPrice, USD_DECIMALS);
         
         // 3. Multi-timeframe Confluence Scoring
         const calculateConfluenceScore = () => {
@@ -1437,9 +1476,9 @@ export const get_technical_analysis_str = async (
                     totalSignals++;
                 }
                 
-                // Price vs SMA signals
-                if (data.currentPrice > indicators.sma20) bullishSignals++;
-                else if (data.currentPrice < indicators.sma20) bearishSignals++;
+                // Price vs SMA signals (use real current price)
+                if (currentPrice > indicators.sma20) bullishSignals++;
+                else if (currentPrice < indicators.sma20) bearishSignals++;
                 totalSignals++;
                 
                 // ADX trend strength
@@ -1500,7 +1539,7 @@ export const get_technical_analysis_str = async (
         // Raw indicator data by timeframe
         for (const data of analysisResults) {
             output += `⏰ ${data.period.toUpperCase()} TIMEFRAME (${data.candleCount} candles)\n`;
-            output += `├─ Price: $${data.currentPrice.toFixed(2)} (${data.priceChangePercent > 0 ? '+' : ''}${data.priceChangePercent.toFixed(2)}%)\n`;
+            output += `├─ Last Candle Close: $${data.currentPrice.toFixed(2)} (${data.priceChangePercent > 0 ? '+' : ''}${data.priceChangePercent.toFixed(2)}%)\n`;
             output += `├─ SMA(20): $${data.indicators.sma20?.toFixed(2) || 'N/A'}\n`;
             output += `├─ SMA(50): $${data.indicators.sma50?.toFixed(2) || 'N/A'}\n`;
             output += `├─ EMA(5): $${data.indicators.ema5?.toFixed(2) || 'N/A'}\n`;

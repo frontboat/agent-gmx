@@ -28,11 +28,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_btc_eth_markets",
         description: "Get detailed information about BTC and ETH markets optimized for trading - includes prices, liquidity, funding rates, and market addresses for trading",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_btc_eth_markets action');
             try {
                 let memory = ctx.memory as GmxMemory;
                 
+                debugLog('action', 'Fetching BTC/ETH markets data');
                 // Use the formatted string function from queries
                 const marketsString = await get_btc_eth_markets_str(sdk);
+                debugLog('action', 'Successfully fetched markets data', { dataLength: marketsString.length });
                 
                 // Update memory
                 memory = {
@@ -48,6 +51,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     formattedData: marketsString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_btc_eth_markets' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -62,11 +66,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_daily_volumes",
         description: "Get daily volume data for BTC and ETH markets - filtered for trading focus",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_daily_volumes action');
             try {
                 let memory = ctx.memory as GmxMemory;
                 
+                debugLog('action', 'Fetching daily volumes data');
                 // Use the formatted string function from queries
                 const volumesString = await get_daily_volumes_str(sdk);
+                debugLog('action', 'Successfully fetched volumes data', { dataLength: volumesString.length });
                 
                 // Update memory
                 memory = {
@@ -82,6 +89,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     formattedData: volumesString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_daily_volumes' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -96,11 +104,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_tokens_data",
         description: "Get token data filtered for BTC/ETH/USD tokens - includes balances, prices, and addresses",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_tokens_data action');
             try {
                 let memory = ctx.memory as GmxMemory;
                 
+                debugLog('action', 'Fetching tokens data');
                 // Use the formatted string function from queries
                 const tokensString = await get_tokens_data_str(sdk);
+                debugLog('action', 'Successfully fetched tokens data', { dataLength: tokensString.length });
                 
                 // Update memory
                 memory = {
@@ -116,6 +127,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     formattedData: tokensString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_tokens_data' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -130,11 +142,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_portfolio_balance",
         description: "Get comprehensive portfolio balance including token balances, position values, and total portfolio worth. No parameters required - uses SDK account context automatically.",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_portfolio_balance action');
             try {
                 let memory = ctx.memory as GmxMemory;
                 
+                debugLog('action', 'Fetching portfolio balance');
                 // Use the formatted string function from queries
                 const portfolioString = await get_portfolio_balance_str(sdk);
+                debugLog('action', 'Successfully fetched portfolio balance', { dataLength: portfolioString.length });
                 
                 // Extract portfolio information from formatted string for memory
                 const totalValueMatch = portfolioString.match(/Total Value: \$([0-9.,]+)/);
@@ -153,6 +168,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     formattedData: portfolioString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_portfolio_balance' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -167,11 +183,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_positions",
         description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_positions action');
             try {                
+                debugLog('action', 'Waiting 3 seconds before fetching positions');
                 await sleep(3000);
 
+                debugLog('action', 'Fetching positions data');
                 // Use the formatted string function from queries
                 const positionsString = await get_positions_str(sdk);
+                debugLog('action', 'Successfully fetched positions', { dataLength: positionsString.length });
 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -189,6 +209,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     formattedData: positionsString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_positions' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -207,11 +228,15 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_orders",
         description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_orders action');
             try {
+                debugLog('action', 'Waiting 3 seconds before fetching orders');
                 await sleep(3000);
 
+                debugLog('action', 'Fetching orders data');
                 // Get formatted orders string using the query function
                 const ordersString = await get_orders_str(sdk);
+                debugLog('action', 'Successfully fetched orders', { dataLength: ordersString.length });
                 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -229,6 +254,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     ordersString: ordersString
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_orders' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -248,8 +274,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_synth_btc_predictions",
         description: "Get consolidated BTC price predictions from top-performing Synth miners",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_synth_btc_predictions action');
             try {
+                debugLog('action', 'Fetching BTC predictions from Synth');
                 const result = await get_synth_predictions_consolidated_str('BTC');
+                debugLog('action', 'Successfully fetched BTC predictions', { dataLength: result.length });
                 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -267,6 +296,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     synthBtcPredictions: result
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_synth_btc_predictions' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -281,8 +311,11 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_synth_eth_predictions",
         description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_synth_eth_predictions action');
             try {
+                debugLog('action', 'Fetching ETH predictions from Synth');
                 const result = await get_synth_predictions_consolidated_str('ETH');
+                debugLog('action', 'Successfully fetched ETH predictions', { dataLength: result.length });
                 
                 let memory = ctx.memory as GmxMemory;
                 
@@ -300,6 +333,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     synthEthPredictions: result
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_synth_eth_predictions' });
                 return {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -314,11 +348,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_btc_technical_analysis",
         description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_btc_technical_analysis action');
             try {
                 let memory = ctx.memory as GmxMemory;
                               
+                debugLog('action', 'Fetching BTC technical analysis');
                 // Get BTC technical analysis data
-                const technicalData = await get_technical_analysis_str('BTC');
+                const technicalData = await get_technical_analysis_str(sdk, 'BTC');
+                debugLog('action', 'Successfully fetched BTC technical analysis', { dataLength: technicalData.length });
                 
                 // Update memory with technical analysis
                 memory = {
@@ -334,6 +371,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     btcTechnicalAnalysis: technicalData,
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_btc_technical_analysis' });
                 const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),
@@ -350,11 +388,14 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
         name: "get_eth_technical_analysis",
         description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
         async handler(data, ctx, agent) {
+            debugLog('action', 'Starting get_eth_technical_analysis action');
             try {
                 let memory = ctx.memory as GmxMemory;
                 
+                debugLog('action', 'Fetching ETH technical analysis');
                 // Get ETH technical analysis data
-                const technicalData = await get_technical_analysis_str('ETH');
+                const technicalData = await get_technical_analysis_str(sdk, 'ETH');
+                debugLog('action', 'Successfully fetched ETH technical analysis', { dataLength: technicalData.length });
                 
                 // Update memory with technical analysis
                 memory = {
@@ -370,6 +411,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
                     ethTechnicalAnalysis: technicalData
                 };
             } catch (error) {
+                debugError('action', error as Error, { action: 'get_eth_technical_analysis' });
                 const errorResult = {
                     success: false,
                     error: error instanceof Error ? error.message : String(error),

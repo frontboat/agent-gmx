@@ -7,7 +7,9 @@
   "private": true,
   "scripts": {
     "start": "bun run agent-gmx.ts",
-    "dev": "bun run agent-gmx.ts"
+    "dev": "bun run agent-gmx.ts",
+    "boat": "bun run boatv1/agent-gmx-boat.ts",
+    "test": "bun test boatv1/tests/"
   },
   "devDependencies": {
     "@types/bun": "latest",

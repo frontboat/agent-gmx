@@ -36,7 +36,7 @@ import { z } from "zod";
 import { GmxSdk } from "@gmx-io/sdk";
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createGmxActions } from './gmx-actions';
+import { createGmxActions } from '../gmx-actions';
 import { productionOutputHandlers, setDiscordClient } from './output-handlers';
 import { TradingDiscordClient } from './discord-integration';
 import { 
@@ -46,11 +46,10 @@ import {
     get_positions_str, 
     get_tokens_data_str, 
     get_orders_str, 
-    get_synth_predictions_consolidated_str, 
     get_technical_analysis_str, 
     get_trading_history_str 
-} from "./queries";
-import { GmxMemory } from "./types";
+} from "../queries";
+import { GmxMemory } from "../types";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -69,7 +68,7 @@ const env = validateEnv(
         GMX_SUBSQUID_URL: z.string(),
         GMX_WALLET_ADDRESS: z.string(),
         GMX_PRIVATE_KEY: z.string(),
-        SYNTH_API_KEY: z.string().min(1, "SYNTH_API_KEY is required for market intelligence"),
+        SYNTH_API_KEY: z.string().optional(),
         SUPABASE_URL: z.string().min(1, "SUPABASE_URL is required for persistent memory"),
         SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required for persistent memory"),
         DISCORD_TOKEN: z.string().optional(),
@@ -200,8 +199,6 @@ const enhancedMemory: Memory<EnhancedGmxMemory> = memory({
         tradingHistory: "",
         currentTask: null,
         lastResult: null,
-        synthBtcPredictions: "",
-        synthEthPredictions: "",
         btcTechnicalAnalysis: "",
         ethTechnicalAnalysis: "",
         
@@ -421,8 +418,6 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h, 1d). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get consolidated BTC price predictions from top-performing Synth miners
-- get_synth_eth_predictions: Get consolidated ETH price predictions from top-performing Synth miners
 
 #### ⚡ Trading Execution
 - open_long_position: Open long position (market or limit order). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps, limitPrice (30 decimals).
@@ -440,8 +435,6 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 **CRITICAL - How to Call Different Action Types**:
 1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
    - get_portfolio_balance
-   - get_synth_btc_predictions
-   - get_synth_eth_predictions
    - get_btc_technical_analysis
    - get_eth_technical_analysis
    - get_btc_eth_markets
@@ -655,11 +648,12 @@ Only after position management, scan for new opportunities:
 - Which market has stronger volume and momentum?
 - Are there any correlation considerations between the two?
 
-**Q5: What are the Synth predictions telling me?**
-- Bullish vs bearish?
-- How strong is the consensus? (weight this at 10% maximum)
-- Do predictions align with my technical analysis?
-- Are there any extreme readings that warrant attention?
+**Q5: What are additional market signals telling me?**
+- If Synth predictions available: Are they bullish vs bearish? (weight at 10% maximum)
+- If no Synth data: Focus on technical confluence strength
+- Does technical analysis show strong alignment across timeframes?
+- Are there any extreme readings in RSI, volume, or volatility that warrant attention?
+- What is the overall market sentiment based on funding rates?
 
 ### CYCLE END: Execution Questions
 Before taking any new positions:
@@ -725,8 +719,6 @@ const gmxContext = context({
         volumes: z.string().describe("The agent's volumes"),
         orders: z.string().describe("The agent's pending orders"),
         trading_history: z.string().describe("The agent's trading history and performance analysis"),
-        synth_btc_predictions: z.string().describe("The agent's BTC predictions"),
-        synth_eth_predictions: z.string().describe("The agent's ETH predictions"),
         btc_technical_analysis: z.string().describe("The agent's BTC technical analysis"),
         eth_technical_analysis: z.string().describe("The agent's ETH technical analysis"),
     }),
@@ -795,8 +787,6 @@ const gmxContext = context({
             volumes: state.args.volumes,
             orders: state.args.orders,
             trading_history: state.args.trading_history,
-            synth_btc_predictions: state.args.synth_btc_predictions,
-            synth_eth_predictions: state.args.synth_eth_predictions,
             btc_technical_analysis: state.args.btc_technical_analysis,
             eth_technical_analysis: state.args.eth_technical_analysis,
         };
@@ -865,8 +855,6 @@ const gmxContext = context({
             volumes: memory.volumes,
             orders: memory.orders,
             trading_history: memory.trading_history,
-            synth_btc_predictions: memory.synth_btc_predictions,
-            synth_eth_predictions: memory.synth_eth_predictions,
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
         });
@@ -888,8 +876,7 @@ const gmxContext = context({
                     // Fetch all data concurrently
                     const [
                         marketData,
-                        positionData,
-                        predictions
+                        positionData
                     ] = await Promise.all([
                         // Market data task
                         taskRunner.enqueueTask(
@@ -900,17 +887,11 @@ const gmxContext = context({
                         taskRunner.enqueueTask(
                             checkMultiplePositionsTask,
                             {}
-                        ),
-                        // Predictions (not using task runner for these)
-                        Promise.all([
-                            get_synth_predictions_consolidated_str('BTC'),
-                            get_synth_predictions_consolidated_str('ETH')
-                        ])
+                        )
                     ]);
 
                     const [btc_technical_analysis, eth_technical_analysis] = marketData;
                     const { positions, orders, portfolio } = positionData;
-                    const [btc_predictions, eth_predictions] = predictions;
 
                     // Get additional data
                     const [markets, tokens, volumes, trading_history] = await Promise.all([
@@ -936,8 +917,6 @@ const gmxContext = context({
                         volumes: volumes,
                         orders: orders,
                         trading_history: trading_history,
-                        synth_btc_predictions: btc_predictions,
-                        synth_eth_predictions: eth_predictions,
                         btc_technical_analysis: btc_technical_analysis || "",
                         eth_technical_analysis: eth_technical_analysis || "",
                     };
@@ -1080,7 +1059,7 @@ const supabaseMemory = createSupabaseBaseMemory({
     key: env.SUPABASE_KEY,
     memoryTableName: "gmx_memory_enhanced",
     vectorTableName: "gmx_embeddings_enhanced",
-    vectorModel: openai("gpt-4o-mini"),
+    vectorModel: openai("text-embedding-3-small"),
 });
 
 console.log("✅ Enhanced memory system initialized!");
@@ -1112,7 +1091,7 @@ const agent = createDreams({
     // Multi-model support
     model: openrouter("anthropic/claude-sonnet-4"), // Main model for trading decisions
     reasoningModel: openrouter("google/gemini-2.5-flash"), // Fast model for technical analysis
-    vectorModel: openai("gpt-4o-mini"), // Embeddings model
+    vectorModel: openai("text-embedding-3-small"), // Embeddings model
     
     // Enhanced model settings
     modelSettings: {
@@ -1155,8 +1134,6 @@ await agent.start({
     volumes: await get_daily_volumes_str(sdk),
     orders: await get_orders_str(sdk),
     trading_history: await get_trading_history_str(sdk),
-    synth_btc_predictions: await get_synth_predictions_consolidated_str('BTC'),
-    synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH'),
     btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC'),
     eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH'),
 });

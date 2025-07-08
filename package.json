@@ -1,8 +1,8 @@
 {
-  "name": "gmx-trading-agent",
+  "name": "boatv1",
   "version": "1.0.0",
   "description": "A standalone GMX trading agent built with Daydreams AI framework",
-  "main": "agent-gmx.ts",
+  "main": "agent-gmx-boat.ts",
   "type": "module",
   "private": true,
   "scripts": {

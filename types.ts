@@ -23,10 +23,6 @@ export interface GmxMemory {
     // Current state
     currentTask: string | null;
     lastResult: string | null;
-
-    // Synth intelligence data - consolidated predictions from top miners
-    synthBtcPredictions: string;
-    synthEthPredictions: string;
     
     // Technical analysis data - multi-timeframe indicators
     btcTechnicalAnalysis?: string;

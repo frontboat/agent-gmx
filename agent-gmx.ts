@@ -403,7 +403,7 @@ Only after position management, scan for new opportunities:
 - Are there any correlation considerations between the two?
 
 **Q5: What are the Synth predictions telling me?**
-- What percentage of top miners are bullish vs bearish?
+- Bullish vs bearish?
 - How strong is the consensus? (weight this at 10% maximum)
 - Do predictions align with my technical analysis?
 - Are there any extreme readings that warrant attention?

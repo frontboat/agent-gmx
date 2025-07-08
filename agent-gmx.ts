@@ -387,6 +387,12 @@ Answer these first, before looking for new trades:
 - Should I partially close any positions to lock in profits?
 - Are any stops too tight and need adjustment?
 
+**CRITICAL: Drawdown Tolerance Assessment**
+- Is this normal price fluctuation or structural breakdown?
+- Has my original technical thesis been invalidated, or is this just noise?
+- Am I panicking due to temporary drawdown instead of waiting for thesis to play out?
+- Is my stop loss still at the logical technical level where I planned it?
+
 ### CYCLE MIDDLE: Market Analysis Questions
 Only after position management, scan for new opportunities:
 

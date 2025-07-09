@@ -208,11 +208,11 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 
 2. **Actions with REQUIRED parameters**: MUST provide all required fields
    - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order
-   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "limitPrice": "65000000000000000000000000000000000"}) // Limit order at $65,000
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order
-   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0x...", "limitPrice": "63000000000000000000000000000000000"}) // Limit order at $63,000
-   - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0x...", "allowedSlippageBps": 100})
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order with USDC as collateral
+   - open_long_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "limitPrice": "65000000000000000000000000000000000"}) // Limit order at $65,000 with USDC as collateral
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "allowedSlippageBps": 100, "leverage": "50000"}) // Market order with USDC as collateral
+   - open_short_position({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "limitPrice": "63000000000000000000000000000000000"}) // Limit order at $63,000 with USDC as collateral
+   - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "allowedSlippageBps": 100}) // Close position with USDC as receive token
    - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000000"}) // Take profit at $67,000
    - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000000"}) // Stop loss at $63,000
    - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EEDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
@@ -230,6 +230,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
   - Market Order: omit limitPrice parameter (immediate execution at current market price)
   - Take Profit: triggerPrice above current for LONG, below current for SHORT
   - Stop Loss: triggerPrice below current for LONG, above current for SHORT
+- **Collateral Token**: Always use USDC as collateral
+- **Receive Token**: Always use USDC as receive token
 
 ### 🔢 Decimal Conversion Rules
 **USDC (6 decimals)**:

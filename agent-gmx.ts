@@ -22,10 +22,8 @@ import {
 import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
-import { GmxSdk } from "@gmx-io/sdk";
-import { createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { createGmxActions } from './gmx-actions';
+import { createGmxWalletFromEnv } from './gmx-wallet';
 import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from "./queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -55,88 +53,8 @@ const env = validateEnv(
 // 🔐 WALLET & SDK CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Validate hex address format
-const validateHexAddress = (address: string): address is `0x${string}` => {
-    return /^0x[a-fA-F0-9]{40}$/.test(address);
-};
-
-const validatePrivateKey = (key: string): key is `0x${string}` => {
-    return /^0x[a-fA-F0-9]{64}$/.test(key);
-};
-
-// Validate private key format
-if (!validatePrivateKey(env.GMX_PRIVATE_KEY)) {
-    throw new Error("Invalid private key format. Must be 64 hex characters with 0x prefix.");
-}
-
-// Validate wallet address format
-if (!validateHexAddress(env.GMX_WALLET_ADDRESS)) {
-    throw new Error("Invalid wallet address format. Must be 40 hex characters with 0x prefix.");
-}
-
-const account = privateKeyToAccount(env.GMX_PRIVATE_KEY as `0x${string}`);
-
-// Define supported chain configurations
-const SUPPORTED_CHAINS = {
-    42161: { 
-        name: "Arbitrum One", 
-        symbol: "ETH", 
-        decimals: 18,
-        network: "arbitrum"
-    },
-    43114: { 
-        name: "Avalanche", 
-        symbol: "AVAX", 
-        decimals: 18,
-        network: "avalanche"
-    },
-    // Add more chains as needed
-} as const;
-
-const chainId = parseInt(env.GMX_CHAIN_ID);
-const chainConfig = SUPPORTED_CHAINS[chainId as keyof typeof SUPPORTED_CHAINS];
-
-if (!chainConfig) {
-    throw new Error(`Unsupported chain ID: ${chainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}`);
-}
-
-// Validate that network matches chain ID
-if (chainConfig.network !== env.GMX_NETWORK) {
-    throw new Error(`Network mismatch: Chain ID ${chainId} corresponds to ${chainConfig.network}, but GMX_NETWORK is set to ${env.GMX_NETWORK}`);
-}
-
-const walletClient = createWalletClient({
-    account,
-    transport: http(env.GMX_RPC_URL),
-    chain: { 
-        id: chainId,
-        name: chainConfig.name,
-        nativeCurrency: {
-            decimals: chainConfig.decimals,
-            name: chainConfig.name,
-            symbol: chainConfig.symbol
-        },
-        rpcUrls: {
-            default: { http: [env.GMX_RPC_URL] },
-            public: { http: [env.GMX_RPC_URL] }
-        }
-    }
-});
-
-const sdk = new GmxSdk({
-    rpcUrl: env.GMX_RPC_URL,
-    chainId: chainId,
-    oracleUrl: env.GMX_ORACLE_URL,
-    walletClient: walletClient,
-    subsquidUrl: env.GMX_SUBSQUID_URL,
-    subgraphUrl: env.GMX_SUBSQUID_URL,
-    account: account?.address || env.GMX_WALLET_ADDRESS as `0x${string}`
-});
-
-if (env.GMX_WALLET_ADDRESS) {
-    sdk.setAccount(env.GMX_WALLET_ADDRESS as `0x${string}`);
-    console.log(`💼 GMX SDK initialized with account: ${env.GMX_WALLET_ADDRESS}`);
-}
+// Initialize wallet and SDK using the new module
+const { sdk, walletClient, account, chainConfig } = createGmxWalletFromEnv(env);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🤖 VEGA CHARACTER DEFINITION
@@ -355,7 +273,7 @@ Based on Phase 1 & 2 analysis, choose execution method:
 ### Capital Allocation
 - **Core**: 90% USDC when not trading - swap WETH and BTC to USDC when not trading
 - **Active**: Deploy on high-conviction setups
-- **Reserve**: 2% ETH for gas always - swap USDC to ETH when needed
+- **Reserve**: Always keep around 2% in ETH for gas - swap USDC to ETH when needed
 - **Protection**: Reduce size after losses
 
 ---
@@ -400,6 +318,10 @@ Answer these first, before looking for new trades:
 - Has my original technical thesis been invalidated, or is this just noise?
 - Am I panicking due to temporary drawdown instead of waiting for thesis to play out?
 - Is my stop loss still at the logical technical level where I planned it?
+
+**Q3: What is the status of my current limit orders ?**
+- Has the original thesis for each limit order been invalidated?
+- Should I cancel any limit orders?
 
 ### CYCLE MIDDLE: Market Analysis Questions
 Only after position management, scan for new opportunities:

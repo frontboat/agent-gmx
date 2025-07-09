@@ -859,9 +859,9 @@ export const get_orders_str = async (sdk: GmxSdk) => {
                 let executionStatus = "⏳ Pending";
                 if (order.isLong !== undefined) {
                     if (order.isLong && markPriceUsd >= triggerPriceUsd) {
-                        executionStatus = "✅ Ready to Execute";
+                        executionStatus = "Not executed yet";
                     } else if (!order.isLong && markPriceUsd <= triggerPriceUsd) {
-                        executionStatus = "✅ Ready to Execute";
+                        executionStatus = "Not executed yet";
                     }
                 }
                 
@@ -916,8 +916,38 @@ export const get_orders_str = async (sdk: GmxSdk) => {
 
 export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
     try {
-        // Fetch best miner's prediction using the new endpoint
-        const predictionsUrl = `https://api.synthdata.co/prediction/best?asset=${asset}&time_increment=300&time_length=86400`;
+        // Step 1: Fetch top miners from leaderboard
+        const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
+        
+        // Handle rate limiting gracefully
+        if (leaderboardResponse.status === 429) {
+            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
+        }
+        
+        if (!leaderboardResponse.ok) {
+            throw new Error(`Failed to fetch predictions leaderboard: ${leaderboardResponse.statusText}`);
+        }
+        
+        const leaderboardData = await leaderboardResponse.json();
+        
+        // Extract miners from the scores data - assuming it returns an array of miners with scores
+        if (!leaderboardData || !Array.isArray(leaderboardData)) {
+            throw new Error("Invalid leaderboard data format");
+        }
+        
+        // The API returns miners already sorted by performance (best first)
+        const topMiners = leaderboardData.slice(0, 3); // Take top 3 miners
+        
+        if (topMiners.length === 0) {
+            return `📊 ${asset} SYNTH PREDICTIONS\n└─ No miners available on leaderboard\n`;
+        }
+        
+        // Step 2: Fetch predictions for all miners at once using the new API
+        const minerIds = topMiners.map((m: any) => m.neuron_uid);
+        const minerParams = minerIds.map((id: number) => `miner=${id}`).join('&');
+        
+        // Using the new prediction/latest endpoint with multiple miners
+        const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
         
         const predictionsResponse = await fetch(predictionsUrl, {
             headers: {
@@ -935,64 +965,97 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
         }
         
         const predictionsData = await predictionsResponse.json();
-
-        // Process the predictions data - API returns an array with the best miner
-        if (!predictionsData || !Array.isArray(predictionsData) || predictionsData.length === 0) {
+        
+        // Process the predictions data - the API returns an array of miner prediction objects
+        if (!predictionsData || !Array.isArray(predictionsData)) {
             throw new Error("Invalid predictions data format");
         }
         
-        // Get the first (best) miner from the array
-        const bestMiner = predictionsData[0];
+        // Step 3: Consolidate predictions by time
+        const consolidatedMap = new Map<string, any>();
         
-        // Extract miner info and predictions
-        const minerUid = bestMiner.miner_uid;
-        const startTime = bestMiner.start_time;
-        const timeIncrement = bestMiner.time_increment;
-        const timeLength = bestMiner.time_length;
-        const numSimulations = bestMiner.num_simulations;
-        const predictionAsset = bestMiner.asset;
-        
-        // Extract predictions from the nested structure
-        if (!bestMiner.prediction || !Array.isArray(bestMiner.prediction) || 
-            !bestMiner.prediction[0] || !Array.isArray(bestMiner.prediction[0])) {
-            throw new Error("Invalid prediction structure from best miner");
-        }
-        
-        // The predictions are in prediction[0] which contains an array of {time, price} objects
-        const predictions = bestMiner.prediction[0];
-        
-        if (!predictions || predictions.length === 0) {
-            return `📊 ${asset} SYNTH PREDICTIONS\n└─ No predictions available from best miner\n`;
-        }
-        
-        // Sort predictions by time
-        const sortedPredictions = predictions
-            .filter((pred: any) => pred.time && pred.price !== undefined)
-            .sort((a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        
-        // Calculate prediction duration in hours
-        const durationHours = timeLength / 3600;
-        const intervalMinutes = timeIncrement / 60;
-        
-        // Format prediction data for AI analysis
-        let resultString = `📊 ${predictionAsset} SYNTH PREDICTIONS (Best Miner)\n`;
-        resultString += `├─ Miner UID: ${minerUid}\n`;
-        resultString += `├─ Start Time: ${new Date(startTime).toLocaleString()}\n`;
-        resultString += `├─ Duration: ${durationHours}h (${intervalMinutes}min intervals)\n`;
-        resultString += `├─ Simulations: ${numSimulations}\n`;
-        resultString += `├─ Prediction Points: ${sortedPredictions.length}\n`;
-        resultString += `└─ Asset: ${predictionAsset}\n\n`;
-        
-        // Show all predictions
-        resultString += `🔮 PRICE PREDICTIONS\n`;
-        
-        sortedPredictions.forEach((pred: any, index: number) => {
-            const isLast = index === sortedPredictions.length - 1;
-            const prefix = isLast ? '└─' : '├─';
-            const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
-            const time = new Date(pred.time).toLocaleString();
+        // Process each miner's prediction data
+        predictionsData.forEach((minerPrediction: any) => {
+            // Find the rank for this miner
+            const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
+            if (!minerInfo) {
+                console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
+                return;
+            }
             
-            resultString += `${prefix} ${time}: $${price}\n`;
+            // Extract predictions from the nested array structure
+            if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
+                !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
+                console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
+                return;
+            }
+            
+            // The predictions are in prediction[0] which is an array of {time, price} objects
+            const predictions = minerPrediction.prediction[0];
+            
+            // Process each prediction point
+            predictions.forEach((pred: any) => {
+                if (!pred.time || pred.price === undefined) {
+                    return;
+                }
+                
+                const time = pred.time;
+                const price = pred.price;
+                
+                if (!consolidatedMap.has(time)) {
+                    consolidatedMap.set(time, {
+                        time,
+                        predictions: []
+                    });
+                }
+                
+                consolidatedMap.get(time)!.predictions.push({
+                    miner_uid: minerPrediction.miner_uid,
+                    rank: minerInfo.rank || (topMiners.indexOf(minerInfo) + 1),
+                    price
+                });
+            });
+        });
+        
+        // Convert to array and sort by time
+        const consolidatedArray = Array.from(consolidatedMap.values())
+            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        
+        // Format raw prediction data for AI analysis
+        let resultString = `📊 ${asset} SYNTH PREDICTIONS\n`;
+        
+        // Count unique miners that returned predictions
+        const uniqueMiners = new Set<number>();
+        consolidatedArray.forEach(timeSlot => {
+            timeSlot.predictions.forEach((pred: any) => {
+                uniqueMiners.add(pred.miner_uid);
+            });
+        });
+        
+        resultString += `├─ Active Miners: ${uniqueMiners.size}\n`;
+        resultString += `├─ Prediction Windows: ${consolidatedArray.length}\n`;
+        resultString += `└─ Asset: ${asset}\n\n`;
+        
+        // Raw prediction data by time - let AI do the analysis
+        consolidatedArray.forEach((timeSlot, index) => {
+            const isLast = index === consolidatedArray.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            
+            resultString += `${prefix} Time: ${timeSlot.time}\n`;
+            
+            // Sort miners by rank for consistent display
+            const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);
+            
+            sortedPredictions.forEach((pred: any, predIndex: number) => {
+                const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
+                const isLastPred = predIndex === sortedPredictions.length - 1;
+                const predPrefix = isLast ? (isLastPred ? '   └─' : '   ├─') : (isLastPred ? '│  └─' : '│  ├─');
+                resultString += `${predPrefix} Rank ${pred.rank} (Miner ${pred.miner_uid}): ${price}\n`;
+            });
+            
+            if (!isLast) {
+                resultString += `│\n`;
+            }
         });
         
         return resultString;

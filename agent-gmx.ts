@@ -482,6 +482,7 @@ const gmxContext = context({
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 20,
+                        maxWorkingMemorySize: 5,
                         instructions: vega_template,
                         currentTask: currentTask,
                         lastResult: lastResult,

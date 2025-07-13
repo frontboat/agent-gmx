@@ -1,25 +1,28 @@
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics } from "./utils";
-import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics } from "./gmx-utils";
+import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { GmxSdk } from "@gmx-io/sdk";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
+import type { EnhancedDataCache } from './gmx-cache';
 
-export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
-    // Get tokens data with balances and prices
-    const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+export const get_portfolio_balance_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
+    // Get tokens data with balances and prices - use cache if available
+    const tokensResult = gmxDataCache ? await gmxDataCache.getTokensData() : await sdk.tokens.getTokensData().catch(error => {
         throw new Error(`Failed to get tokens data: ${error.message || error}`);
     });
+    const { tokensData } = tokensResult;
     
     // Get markets and positions data
-    const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
         throw new Error(`Failed to get markets data: ${error.message || error}`);
     });
+    const { marketsInfoData } = marketsResult;
     
     if (!tokensData || !marketsInfoData) {
         throw new Error("Failed to get required market and token data");
     }
 
-    // Get positions data (same method as working get_positions_str function)
-    const positionsResult = await sdk.positions.getPositions({
+    // Get positions data - use cache if available
+    const positionsResult = gmxDataCache ? await gmxDataCache.getPositions(marketsInfoData, tokensData) : await sdk.positions.getPositions({
         marketsData: marketsInfoData,
         tokensData: tokensData,
         start: 0,
@@ -28,8 +31,8 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
         throw new Error(`Failed to get positions: ${error.message || error}`);
     });
 
-    // Get enhanced positions info for value calculations
-    const positionsInfoResult = await sdk.positions.getPositionsInfo({
+    // Get enhanced positions info for value calculations - use cache if available
+    const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
         marketsInfoData,
         tokensData,
         showPnlInLeverage: false
@@ -225,18 +228,16 @@ export const get_portfolio_balance_str = async (sdk: GmxSdk) => {
     return output;
 };
 
-export const get_positions_str = async (sdk: GmxSdk) => {
+export const get_positions_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     // Get required market and token data first
-    const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
         throw new Error(`Failed to get market data: ${error.message || error}`);
     });
     
-    if (!marketsInfoData || !tokensData) {
-        throw new Error("Failed to get market and token data");
-    }
-
-    // Use official SDK method with required parameters
-    const positionsResult = await sdk.positions.getPositions({
+    const { marketsInfoData, tokensData } = marketsResult;
+    
+    // Use cached positions if available
+    const positionsResult = gmxDataCache ? await gmxDataCache.getPositions(marketsInfoData, tokensData) : await sdk.positions.getPositions({
         marketsData: marketsInfoData,
         tokensData: tokensData,
         start: 0,
@@ -244,6 +245,10 @@ export const get_positions_str = async (sdk: GmxSdk) => {
     }).catch(error => {
         throw new Error(`Failed to get positions: ${error.message || error}`);
     });
+    
+    if (!marketsInfoData || !tokensData) {
+        throw new Error("Failed to get market and token data");
+    }
     
     // Extract and enhance positions data with complete calculations
     const rawPositions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
@@ -444,12 +449,13 @@ export const get_positions_str = async (sdk: GmxSdk) => {
 };
 
 // Get market data for specific BTC and ETH markets - returns formatted string
-export const get_btc_eth_markets_str = async (sdk: GmxSdk) => {
+export const get_btc_eth_markets_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     try {
         // Get all markets data
-        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+        const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
             throw new Error(`Failed to get markets data: ${error.message || error}`);
         });
+        const { marketsInfoData, tokensData } = marketsResult;
         
         if (!marketsInfoData || !tokensData) {
             throw new Error("Failed to get market and token data");
@@ -584,12 +590,13 @@ export const get_btc_eth_markets_str = async (sdk: GmxSdk) => {
 };
 
 // Get tokens data filtered for BTC/ETH/USD/USDC - returns formatted string
-export const get_tokens_data_str = async (sdk: GmxSdk) => {
+export const get_tokens_data_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     try {
-        // Get all tokens data - destructure tokensData from the response
-        const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+        // Get all tokens data - use cache if available
+        const tokensResult = gmxDataCache ? await gmxDataCache.getTokensData() : await sdk.tokens.getTokensData().catch(error => {
             throw new Error(`Failed to get tokens data: ${error.message || error}`);
         });
+        const { tokensData } = tokensResult;
         
         if (!tokensData || typeof tokensData !== 'object') {
             throw new Error("Failed to get tokens data");
@@ -681,7 +688,7 @@ export const get_tokens_data_str = async (sdk: GmxSdk) => {
 };
 
 // Get daily volumes filtered for BTC/ETH markets - returns formatted string
-export const get_daily_volumes_str = async (sdk: GmxSdk) => {
+export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     try {
         // Get daily volumes data
         let volumes;
@@ -702,9 +709,10 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
         }
         
         // Get markets info to map addresses to names
-        const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+        const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
             throw new Error(`Failed to get markets data: ${error.message || error}`);
         });
+        const { marketsInfoData } = marketsResult;
         
         if (!marketsInfoData) {
             throw new Error("Failed to get markets info for volume mapping");
@@ -784,10 +792,11 @@ export const get_daily_volumes_str = async (sdk: GmxSdk) => {
     }
 };
 
-export const get_orders_str = async (sdk: GmxSdk) => {
+export const get_orders_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     try {
         // Get required market and token data first
-        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo();
+        const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo();
+        const { marketsInfoData, tokensData } = marketsResult;
         
         if (!marketsInfoData || !tokensData) {
             throw new Error("Failed to get market and token data");
@@ -914,8 +923,13 @@ export const get_orders_str = async (sdk: GmxSdk) => {
     }
 };
 
-export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH') => {
+export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache) => {
     try {
+        // Use cache if available
+        if (gmxDataCache) {
+            return await gmxDataCache.getSynthPredictions(asset);
+        }
+        
         // Step 1: Fetch top miners from leaderboard
         const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
         
@@ -1011,7 +1025,7 @@ export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH
                 
                 consolidatedMap.get(time)!.predictions.push({
                     miner_uid: minerPrediction.miner_uid,
-                    rank: minerInfo.rank || (topMiners.indexOf(minerInfo) + 1),
+                    rank: topMiners.indexOf(minerInfo) + 1, // Position in leaderboard (0-indexed converted to 1-indexed)
                     price
                 });
             });
@@ -1331,13 +1345,15 @@ const calculateTechnicalIndicators = (candles: number[][], period: string, token
 // Technical Analysis Query - Fetch candlestick data for all timeframes and calculate indicators
 export const get_technical_analysis_str = async (
     sdk: GmxSdk,
-    tokenSymbol: 'BTC' | 'ETH'
+    tokenSymbol: 'BTC' | 'ETH',
+    gmxDataCache?: EnhancedDataCache
 ): Promise<string> => {
     try {
         // First get current market price using SDK
-        const { marketsInfoData, tokensData } = await sdk.markets.getMarketsInfo().catch(error => {
+        const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
             throw new Error(`Failed to get market data: ${error.message || error}`);
         });
+        const { marketsInfoData, tokensData } = marketsResult;
         
         if (!marketsInfoData || !tokensData) {
             throw new Error("Failed to get market and token data");
@@ -1565,16 +1581,18 @@ export const get_technical_analysis_str = async (
     }
 };
 
-export const get_trading_history_str = async (sdk: GmxSdk) => {
+export const get_trading_history_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) => {
     try {
         // Get markets and tokens data first
-        const { marketsInfoData } = await sdk.markets.getMarketsInfo().catch(error => {
+        const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
             throw new Error(`Failed to get markets data: ${error.message || error}`);
         });
+        const { marketsInfoData } = marketsResult;
         
-        const { tokensData } = await sdk.tokens.getTokensData().catch(error => {
+        const tokensResult = gmxDataCache ? await gmxDataCache.getTokensData() : await sdk.tokens.getTokensData().catch(error => {
             throw new Error(`Failed to get tokens data: ${error.message || error}`);
         });
+        const { tokensData } = tokensResult;
 
         if (!marketsInfoData || !tokensData) {
             throw new Error("Failed to get required market and token data for trading history");

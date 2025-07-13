@@ -24,7 +24,8 @@ import { openai } from "@ai-sdk/openai";
 import { z } from "zod/v4";
 import { createGmxActions } from './gmx-actions';
 import { createGmxWalletFromEnv } from './gmx-wallet';
-import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from "./queries";
+import { EnhancedDataCache } from './gmx-cache';
+import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -55,6 +56,9 @@ const env = validateEnv(
 
 // Initialize wallet and SDK using the new module
 const { sdk, walletClient, account, chainConfig } = createGmxWalletFromEnv(env);
+
+// Create enhanced data cache
+const gmxDataCache = new EnhancedDataCache(sdk);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🤖 VEGA CHARACTER DEFINITION
@@ -460,17 +464,17 @@ const gmxContext = context({
           }),
             subscribe: (send, agent) => {
                 const tradingCycle = async () => {
-                    const portfolio = await get_portfolio_balance_str(sdk);
-                    const positions = await get_positions_str(sdk);
-                    const markets = await get_btc_eth_markets_str(sdk);
-                    const tokens = await get_tokens_data_str(sdk);
-                    const volumes = await get_daily_volumes_str(sdk);
-                    const orders = await get_orders_str(sdk);
-                    const trading_history = await get_trading_history_str(sdk);
-                    const btc_predictions = await get_synth_predictions_consolidated_str('BTC');
-                    const eth_predictions = await get_synth_predictions_consolidated_str('ETH');
-                    const btc_technical_analysis = await get_technical_analysis_str(sdk, 'BTC');
-                    const eth_technical_analysis = await get_technical_analysis_str(sdk, 'ETH');
+                    const portfolio = await get_portfolio_balance_str(sdk, gmxDataCache);
+                    const positions = await get_positions_str(sdk, gmxDataCache);
+                    const markets = await get_btc_eth_markets_str(sdk, gmxDataCache);
+                    const tokens = await get_tokens_data_str(sdk, gmxDataCache);
+                    const volumes = await get_daily_volumes_str(sdk, gmxDataCache);
+                    const orders = await get_orders_str(sdk, gmxDataCache);
+                    const trading_history = await get_trading_history_str(sdk, gmxDataCache);
+                    const btc_predictions = await get_synth_predictions_consolidated_str('BTC', gmxDataCache);
+                    const eth_predictions = await get_synth_predictions_consolidated_str('ETH', gmxDataCache);
+                    const btc_technical_analysis = await get_technical_analysis_str(sdk, 'BTC', gmxDataCache);
+                    const eth_technical_analysis = await get_technical_analysis_str(sdk, 'ETH', gmxDataCache);
                     const currentTask = "Trading cycle initiated";
                     const lastResult = "Trading cycle initiated";
                     let context = {
@@ -495,7 +499,7 @@ const gmxContext = context({
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
                 }
-                const interval = setInterval(tradingCycle, 1800000); // 30 minutes
+                const interval = setInterval(tradingCycle, 300000); // 5 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {
@@ -506,8 +510,8 @@ const gmxContext = context({
         })
     });
 
-// Create GMX actions using the SDK instance
-const gmxActions = createGmxActions(sdk, env);
+// Create GMX actions using the SDK instance and enhanced data cache
+const gmxActions = createGmxActions(sdk, gmxDataCache);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔌 GMX EXTENSION DEFINITION
@@ -551,17 +555,17 @@ await agent.start({
     instructions: vega_template,
     currentTask: "Trading cycle initiated",
     lastResult: "Trading cycle initiated",
-    positions: await get_positions_str(sdk),
-    portfolio: await get_portfolio_balance_str(sdk),
-    markets: await get_btc_eth_markets_str(sdk),
-    tokens: await get_tokens_data_str(sdk),
-    volumes: await get_daily_volumes_str(sdk),
-    orders: await get_orders_str(sdk),
-    trading_history: await get_trading_history_str(sdk),
-    synth_btc_predictions: await get_synth_predictions_consolidated_str('BTC'),
-    synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH'),
-    btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC'),
-    eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH'),
+    positions: await get_positions_str(sdk, gmxDataCache),
+    portfolio: await get_portfolio_balance_str(sdk, gmxDataCache),
+    markets: await get_btc_eth_markets_str(sdk, gmxDataCache),
+    tokens: await get_tokens_data_str(sdk, gmxDataCache),
+    volumes: await get_daily_volumes_str(sdk, gmxDataCache),
+    orders: await get_orders_str(sdk, gmxDataCache),
+    trading_history: await get_trading_history_str(sdk, gmxDataCache),
+    synth_btc_predictions: await get_synth_predictions_consolidated_str('BTC', gmxDataCache),
+    synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH', gmxDataCache),
+    btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
+    eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH', gmxDataCache),
 });
 
 console.log("🎯 Vega is now live and ready for GMX trading!");

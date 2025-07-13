@@ -1,0 +1,371 @@
+import { type GmxSdk } from "@gmx-io/sdk";
+
+// Enhanced cache for all GMX data types and external APIs
+export class EnhancedDataCache {
+  // Market data cache
+  private marketCache: Map<string, { marketsInfoData: any, tokensData: any }> = new Map();
+  private lastMarketFetch: number = 0;
+  private readonly MARKET_TTL_MS = 120_000; // 2 minutes
+  private marketFetchPromise: Promise<{ marketsInfoData: any, tokensData: any }> | null = null;
+
+  // Token data cache
+  private tokenCache: Map<string, any> = new Map();
+  private lastTokenFetch: number = 0;
+  private readonly TOKEN_TTL_MS = 300_000; // 5 minutes
+  private tokenFetchPromise: Promise<any> | null = null;
+
+  // Position data cache
+  private positionCache: Map<string, any> = new Map();
+  private lastPositionFetch: number = 0;
+  private readonly POSITION_TTL_MS = 120_000; // 2 minutes
+  private positionFetchPromise: Promise<any> | null = null;
+
+  // Position info cache
+  private positionInfoCache: Map<string, any> = new Map();
+  private lastPositionInfoFetch: number = 0;
+  private readonly POSITION_INFO_TTL_MS = 120_000; // 2 minutes
+  private positionInfoFetchPromise: Promise<any> | null = null;
+
+  // Synth AI cache
+  private synthCache: Map<string, any> = new Map();
+  private synthLastFetch: Map<string, number> = new Map();
+  private readonly SYNTH_TTL_MS = 300_000; // 5 minutes
+  private synthFetchPromises: Map<string, Promise<any>> = new Map();
+
+  constructor(private sdk: GmxSdk) {}
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 📊 MARKET DATA METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  async getMarketsInfo(forceRefresh = false): Promise<{ marketsInfoData: any, tokensData: any }> {
+    const now = Date.now();
+    const cacheKey = "markets";
+
+    // Return cached data if still valid
+    if (!forceRefresh && this.marketCache.has(cacheKey) && (now - this.lastMarketFetch) < this.MARKET_TTL_MS) {
+      console.log(`[MarketCache] Returning cached market data (age: ${now - this.lastMarketFetch}ms, ttl: ${this.MARKET_TTL_MS}ms)`);
+      return this.marketCache.get(cacheKey)!;
+    }
+
+    // If a fetch is already in progress, return that promise
+    if (this.marketFetchPromise) {
+      console.log('[MarketCache] Returning in-progress market fetch');
+      return this.marketFetchPromise;
+    }
+
+    // Start new fetch
+    console.log('[MarketCache] Fetching fresh market data');
+    this.marketFetchPromise = this.fetchMarkets();
+
+    try {
+      const markets = await this.marketFetchPromise;
+      this.marketCache.set(cacheKey, markets);
+      this.lastMarketFetch = now;
+      console.log(`[MarketCache] Market data cached at ${now}`);
+      return markets;
+    } finally {
+      this.marketFetchPromise = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 🪙 TOKEN DATA METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  async getTokensData(forceRefresh = false): Promise<any> {
+    const now = Date.now();
+    const cacheKey = "tokens";
+
+    // Return cached data if still valid
+    if (!forceRefresh && this.tokenCache.has(cacheKey) && (now - this.lastTokenFetch) < this.TOKEN_TTL_MS) {
+      console.log(`[TokenCache] Returning cached token data (age: ${now - this.lastTokenFetch}ms, ttl: ${this.TOKEN_TTL_MS}ms)`);
+      return this.tokenCache.get(cacheKey)!;
+    }
+
+    // If a fetch is already in progress, return that promise
+    if (this.tokenFetchPromise) {
+      console.log('[TokenCache] Returning in-progress token fetch');
+      return this.tokenFetchPromise;
+    }
+
+    // Start new fetch
+    console.log('[TokenCache] Fetching fresh token data');
+    this.tokenFetchPromise = this.fetchTokens();
+
+    try {
+      const tokens = await this.tokenFetchPromise;
+      this.tokenCache.set(cacheKey, tokens);
+      this.lastTokenFetch = now;
+      console.log(`[TokenCache] Token data cached at ${now}`);
+      return tokens;
+    } finally {
+      this.tokenFetchPromise = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 📈 POSITION DATA METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  async getPositions(marketsData: any, tokensData: any, forceRefresh = false): Promise<any> {
+    const now = Date.now();
+    const cacheKey = "positions";
+
+    // Return cached data if still valid
+    if (!forceRefresh && this.positionCache.has(cacheKey) && (now - this.lastPositionFetch) < this.POSITION_TTL_MS) {
+      console.log(`[PositionCache] Returning cached position data (age: ${now - this.lastPositionFetch}ms, ttl: ${this.POSITION_TTL_MS}ms)`);
+      return this.positionCache.get(cacheKey)!;
+    }
+
+    // If a fetch is already in progress, return that promise
+    if (this.positionFetchPromise) {
+      console.log('[PositionCache] Returning in-progress position fetch');
+      return this.positionFetchPromise;
+    }
+
+    // Start new fetch
+    console.log('[PositionCache] Fetching fresh position data');
+    this.positionFetchPromise = this.fetchPositions(marketsData, tokensData);
+
+    try {
+      const positions = await this.positionFetchPromise;
+      this.positionCache.set(cacheKey, positions);
+      this.lastPositionFetch = now;
+      console.log(`[PositionCache] Position data cached at ${now}`);
+      return positions;
+    } finally {
+      this.positionFetchPromise = null;
+    }
+  }
+
+  async getPositionsInfo(marketsInfoData: any, tokensData: any, forceRefresh = false): Promise<any> {
+    const now = Date.now();
+    const cacheKey = "positionsInfo";
+
+    // Return cached data if still valid
+    if (!forceRefresh && this.positionInfoCache.has(cacheKey) && (now - this.lastPositionInfoFetch) < this.POSITION_INFO_TTL_MS) {
+      console.log(`[PositionInfoCache] Returning cached position info data (age: ${now - this.lastPositionInfoFetch}ms, ttl: ${this.POSITION_INFO_TTL_MS}ms)`);
+      return this.positionInfoCache.get(cacheKey)!;
+    }
+
+    // If a fetch is already in progress, return that promise
+    if (this.positionInfoFetchPromise) {
+      console.log('[PositionInfoCache] Returning in-progress position info fetch');
+      return this.positionInfoFetchPromise;
+    }
+
+    // Start new fetch
+    console.log('[PositionInfoCache] Fetching fresh position info data');
+    this.positionInfoFetchPromise = this.fetchPositionsInfo(marketsInfoData, tokensData);
+
+    try {
+      const positionsInfo = await this.positionInfoFetchPromise;
+      this.positionInfoCache.set(cacheKey, positionsInfo);
+      this.lastPositionInfoFetch = now;
+      console.log(`[PositionInfoCache] Position info data cached at ${now}`);
+      return positionsInfo;
+    } finally {
+      this.positionInfoFetchPromise = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 🤖 SYNTH AI API METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  async getSynthPredictions(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<string> {
+    const now = Date.now();
+    const cacheKey = `synth_${asset}`;
+    const lastFetch = this.synthLastFetch.get(cacheKey) || 0;
+
+    // Return cached data if still valid
+    if (!forceRefresh && this.synthCache.has(cacheKey) && (now - lastFetch) < this.SYNTH_TTL_MS) {
+      console.log(`[SynthCache] Returning cached ${asset} predictions (age: ${now - lastFetch}ms, ttl: ${this.SYNTH_TTL_MS}ms)`);
+      return this.synthCache.get(cacheKey)!;
+    }
+
+    // If a fetch is already in progress, return that promise
+    const existingPromise = this.synthFetchPromises.get(cacheKey);
+    if (existingPromise) {
+      console.log(`[SynthCache] Returning in-progress ${asset} fetch`);
+      return existingPromise;
+    }
+
+    // Start new fetch
+    console.log(`[SynthCache] Fetching fresh ${asset} predictions`);
+    const fetchPromise = this.fetchSynthPredictions(asset);
+    this.synthFetchPromises.set(cacheKey, fetchPromise);
+
+    try {
+      const predictions = await fetchPromise;
+      this.synthCache.set(cacheKey, predictions);
+      this.synthLastFetch.set(cacheKey, now);
+      console.log(`[SynthCache] ${asset} predictions cached at ${now}`);
+      return predictions;
+    } finally {
+      this.synthFetchPromises.delete(cacheKey);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 🔧 PRIVATE FETCH METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  private async fetchMarkets(): Promise<{ marketsInfoData: any, tokensData: any }> {
+    try {
+      const marketsResult = await this.sdk.markets.getMarketsInfo();
+      return marketsResult;
+    } catch (error) {
+      console.error('[MarketCache] Failed to fetch market data:', error);
+      throw error;
+    }
+  }
+
+  private async fetchTokens(): Promise<any> {
+    try {
+      const tokensResult = await this.sdk.tokens.getTokensData();
+      return tokensResult;
+    } catch (error) {
+      console.error('[TokenCache] Failed to fetch token data:', error);
+      throw error;
+    }
+  }
+
+  private async fetchPositions(marketsData: any, tokensData: any): Promise<any> {
+    try {
+      const positionsResult = await this.sdk.positions.getPositions({
+        marketsData: marketsData,
+        tokensData: tokensData,
+        start: 0,
+        end: 1000,
+      });
+      return positionsResult;
+    } catch (error) {
+      console.error('[PositionCache] Failed to fetch position data:', error);
+      throw error;
+    }
+  }
+
+  private async fetchPositionsInfo(marketsInfoData: any, tokensData: any): Promise<any> {
+    try {
+      const positionsInfoResult = await this.sdk.positions.getPositionsInfo({
+        marketsInfoData,
+        tokensData,
+        showPnlInLeverage: false
+      });
+      return positionsInfoResult;
+    } catch (error) {
+      console.error('[PositionInfoCache] Failed to fetch position info data:', error);
+      throw error;
+    }
+  }
+
+  private async fetchSynthPredictions(asset: 'BTC' | 'ETH'): Promise<string> {
+    try {
+      // Import the existing Synth API function
+      const { get_synth_predictions_consolidated_str } = await import('./gmx-queries.js');
+      const predictions = await get_synth_predictions_consolidated_str(asset);
+      return predictions;
+    } catch (error) {
+      console.error(`[SynthCache] Failed to fetch ${asset} predictions:`, error);
+      // Return cached data if available, otherwise return error message
+      const cacheKey = `synth_${asset}`;
+      const cachedData = this.synthCache.get(cacheKey);
+      if (cachedData) {
+        console.log(`[SynthCache] Returning stale ${asset} data due to fetch error`);
+        return cachedData;
+      }
+      return `⚠️ ${asset} predictions temporarily unavailable`;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 🖺 CACHE MANAGEMENT METHODS
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  invalidateAll(): void {
+    console.log('[EnhancedCache] Invalidating all caches');
+    this.marketCache.clear();
+    this.tokenCache.clear();
+    this.positionCache.clear();
+    this.positionInfoCache.clear();
+    this.synthCache.clear();
+    
+    this.lastMarketFetch = 0;
+    this.lastTokenFetch = 0;
+    this.lastPositionFetch = 0;
+    this.lastPositionInfoFetch = 0;
+    this.synthLastFetch.clear();
+    
+    this.marketFetchPromise = null;
+    this.tokenFetchPromise = null;
+    this.positionFetchPromise = null;
+    this.positionInfoFetchPromise = null;
+    this.synthFetchPromises.clear();
+  }
+
+  invalidateMarkets(): void {
+    console.log('[EnhancedCache] Invalidating market cache');
+    this.marketCache.clear();
+    this.lastMarketFetch = 0;
+    this.marketFetchPromise = null;
+  }
+
+  invalidateTokens(): void {
+    console.log('[EnhancedCache] Invalidating token cache');
+    this.tokenCache.clear();
+    this.lastTokenFetch = 0;
+    this.tokenFetchPromise = null;
+  }
+
+  invalidatePositions(): void {
+    console.log('[EnhancedCache] Invalidating position caches');
+    this.positionCache.clear();
+    this.positionInfoCache.clear();
+    this.lastPositionFetch = 0;
+    this.lastPositionInfoFetch = 0;
+    this.positionFetchPromise = null;
+    this.positionInfoFetchPromise = null;
+  }
+
+  invalidateSynth(): void {
+    console.log('[EnhancedCache] Invalidating Synth cache');
+    this.synthCache.clear();
+    this.synthLastFetch.clear();
+    this.synthFetchPromises.clear();
+  }
+
+  getCacheAges(): { markets: number, tokens: number, positions: number, positionsInfo: number } {
+    const now = Date.now();
+    return {
+      markets: now - this.lastMarketFetch,
+      tokens: now - this.lastTokenFetch,
+      positions: now - this.lastPositionFetch,
+      positionsInfo: now - this.lastPositionInfoFetch
+    };
+  }
+
+  getCacheStatus(): { 
+    markets: boolean, 
+    tokens: boolean, 
+    positions: boolean, 
+    positionsInfo: boolean,
+    synth: { btc: boolean, eth: boolean }
+  } {
+    const now = Date.now();
+    return {
+      markets: this.marketCache.has("markets") && (now - this.lastMarketFetch) < this.MARKET_TTL_MS,
+      tokens: this.tokenCache.has("tokens") && (now - this.lastTokenFetch) < this.TOKEN_TTL_MS,
+      positions: this.positionCache.has("positions") && (now - this.lastPositionFetch) < this.POSITION_TTL_MS,
+      positionsInfo: this.positionInfoCache.has("positionsInfo") && (now - this.lastPositionInfoFetch) < this.POSITION_INFO_TTL_MS,
+      synth: {
+        btc: this.synthCache.has("synth_BTC") && (now - (this.synthLastFetch.get("synth_BTC") || 0)) < this.SYNTH_TTL_MS,
+        eth: this.synthCache.has("synth_ETH") && (now - (this.synthLastFetch.get("synth_ETH") || 0)) < this.SYNTH_TTL_MS
+      }
+    };
+  }
+}
+
+// Export the enhanced cache as the main cache (backwards compatibility)
+export { EnhancedDataCache as MarketDataCache };

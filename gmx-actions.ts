@@ -1566,14 +1566,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error("Failed to get market and token data");
                 }
                 
-                // Get positions using the same method as get_positions_str
-                const positionsResult = gmxDataCache ? await gmxDataCache.getPositions(marketsInfoData, tokensData) : await sdk.positions.getPositions({
-                    marketsData: marketsInfoData,
-                    tokensData: tokensData,
-                    start: 0,
-                    end: 1000,
-                });
-                
                 const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
                     marketsInfoData,
                     tokensData,
@@ -1778,14 +1770,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     console.error('SET_STOP_LOSS', 'Invalid market data received');
                     throw new Error("Failed to get market and token data");
                 }
-                
-                // Get positions using the same method as get_positions_str
-                const positionsResult = gmxDataCache ? await gmxDataCache.getPositions(marketsInfoData, tokensData) : await sdk.positions.getPositions({
-                    marketsData: marketsInfoData,
-                    tokensData: tokensData,
-                    start: 0,
-                    end: 1000,
-                });
                 
                 const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
                     marketsInfoData,

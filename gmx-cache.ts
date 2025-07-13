@@ -5,7 +5,7 @@ export class EnhancedDataCache {
   // Market data cache
   private marketCache: Map<string, { marketsInfoData: any, tokensData: any }> = new Map();
   private lastMarketFetch: number = 0;
-  private readonly MARKET_TTL_MS = 120_000; // 2 minutes
+  private readonly MARKET_TTL_MS = 300_000; // 5 minutes
   private marketFetchPromise: Promise<{ marketsInfoData: any, tokensData: any }> | null = null;
 
   // Token data cache
@@ -17,13 +17,13 @@ export class EnhancedDataCache {
   // Position data cache
   private positionCache: Map<string, any> = new Map();
   private lastPositionFetch: number = 0;
-  private readonly POSITION_TTL_MS = 120_000; // 2 minutes
+  private readonly POSITION_TTL_MS = 300_000; // 5 minutes
   private positionFetchPromise: Promise<any> | null = null;
 
   // Position info cache
   private positionInfoCache: Map<string, any> = new Map();
   private lastPositionInfoFetch: number = 0;
-  private readonly POSITION_INFO_TTL_MS = 120_000; // 2 minutes
+  private readonly POSITION_INFO_TTL_MS = 300_000; // 5 minutes
   private positionInfoFetchPromise: Promise<any> | null = null;
 
   // Synth AI cache

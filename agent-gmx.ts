@@ -499,7 +499,7 @@ const gmxContext = context({
                     let text = "Trading cycle initiated";
                     await send(gmxContext, context, {text});
                 }
-                const interval = setInterval(tradingCycle, 300000); // 5 minutes
+                const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
                 console.log("✅ Trading cycle subscription setup complete");
                 return () => {

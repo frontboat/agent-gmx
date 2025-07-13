@@ -286,23 +286,10 @@ export class EnhancedDataCache {
 
     invalidateAll(): void {
         console.warn('[EnhancedCache] Invalidating all caches');
-        this.marketCache.clear();
-        this.tokenCache.clear();
-        this.positionCache.clear();
-        this.positionInfoCache.clear();
-        this.synthCache.clear();
-        
-        this.lastMarketFetch = 0;
-        this.lastTokenFetch = 0;
-        this.lastPositionFetch = 0;
-        this.lastPositionInfoFetch = 0;
-        this.synthLastFetch.clear();
-        
-        this.marketFetchPromise = null;
-        this.tokenFetchPromise = null;
-        this.positionFetchPromise = null;
-        this.positionInfoFetchPromise = null;
-        this.synthFetchPromises.clear();
+        this.invalidateMarkets();
+        this.invalidateTokens();
+        this.invalidatePositions();
+        this.invalidateSynth();
     }
 
     invalidateMarkets(): void {

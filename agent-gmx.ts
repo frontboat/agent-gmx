@@ -8,7 +8,7 @@
 // 📦 IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { anthropic } from "@ai-sdk/anthropic";
+import { openrouter } from "@openrouter/ai-sdk-provider";
 import { 
     createDreams, 
     context, 
@@ -537,7 +537,7 @@ console.log("⚡ Initializing Vega trading agent...");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: anthropic("claude-sonnet-4-0"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
+    model: openrouter("anthropic/claude-sonnet-4"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,

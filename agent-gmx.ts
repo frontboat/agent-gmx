@@ -545,7 +545,7 @@ console.log("⚡ Initializing Vega trading agent...");
 // Create the agent with persistent memory
 const agent = createDreams({
     model: openrouter("anthropic/claude-sonnet-4"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
-    logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
+    logger: new Logger({ level: LogLevel.INFO }), // Enable info logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,
     streaming: false, // Disable streaming to avoid the ... input issue

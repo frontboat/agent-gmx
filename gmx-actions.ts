@@ -11,11 +11,11 @@ import {
     bigIntToDecimal, 
     formatTokenAmount, 
     formatUsdAmount,
-    convertToUsd,
-    sleep
+    convertToUsd
 } from './gmx-utils';
 import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from './gmx-queries';
 import { EnhancedDataCache } from './gmx-cache';
+import { transactionQueue } from './transaction-queue';
 
 export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) {
     return [
@@ -184,13 +184,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
         async handler(data, ctx, agent) {
             console.log('[action] Starting get_positions action');
-            try {                
-                console.log('[action] Waiting 3 seconds before fetching positions');
-                await sleep(3000);
-
-                console.log('[action] Fetching positions data');
-                // Use the formatted string function from queries
-                const positionsString = await get_positions_str(sdk, gmxDataCache);
+            try {
+                // Queue the read operation to ensure fresh data after any pending writes
+                const positionsString = await transactionQueue.enqueueReadAfterWrite(
+                    "get_positions",
+                    async () => {
+                        console.log('[action] Fetching positions data');
+                        // Use the formatted string function from queries
+                        return await get_positions_str(sdk, gmxDataCache);
+                    }
+                );
                 console.log(`[action] Successfully fetched positions (dataLength: positionsString.length)`);
 
                 let memory = ctx.memory as GmxMemory;
@@ -230,12 +233,15 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         async handler(data, ctx, agent) {
             console.log('[action] Starting get_orders action');
             try {
-                console.log('[action] Waiting 3 seconds before fetching orders');
-                await sleep(3000);
-
-                console.log('[action] Fetching orders data');
-                // Get formatted orders string using the query function
-                const ordersString = await get_orders_str(sdk, gmxDataCache);
+                // Queue the read operation to ensure fresh data after any pending writes
+                const ordersString = await transactionQueue.enqueueReadAfterWrite(
+                    "get_orders",
+                    async () => {
+                        console.log('[action] Fetching orders data');
+                        // Get formatted orders string using the query function
+                        return await get_orders_str(sdk, gmxDataCache);
+                    }
+                );
                 console.log(`[action] Successfully fetched orders (dataLength: ordersString.length)`);
                 
                 let memory = ctx.memory as GmxMemory;
@@ -476,13 +482,14 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
             try {
                 console.log(`[CANCEL_ORDERS] Starting order cancellation (input: data)`);
                 
-                sleep(3000);
-                // Wait 3 seconds before write operation to prevent nonce errors
-                console.log('[CANCEL_ORDERS] Waiting 3 seconds before transaction');
-                console.log(`[CANCEL_ORDERS] Executing cancel orders transaction (orderKeys: data.orderKeys)`);
-                
-                // Use SDK's internal cancelOrders method (no manual wallet client needed)
-                const result = await sdk.orders.cancelOrders(data.orderKeys);
+                // Queue the write transaction
+                const result = await transactionQueue.enqueueWriteTransaction(
+                    "cancel_orders",
+                    async () => {
+                        console.log(`[CANCEL_ORDERS] Executing cancel orders transaction (orderKeys: data.orderKeys)`);
+                        return await sdk.orders.cancelOrders(data.orderKeys);
+                    }
+                );
 
                 console.log('CANCEL_ORDERS', 'Transaction successful', { 
                     transactionHash: result?.transactionHash || result?.hash,
@@ -604,27 +611,29 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.log('OPEN_LONG_MARKET', 'Helper params prepared', helperParams);
     
-                    // Wait 3 seconds before write operation to prevent nonce errors
-                    console.log('[OPEN_LONG_MARKET] Waiting 2 seconds before transaction');
-                    await sleep(2000);
-                    
-                    console.log('OPEN_LONG_MARKET', 'Executing long market order transaction', { 
-                        marketAddress: data.marketAddress,
-                        payAmount: data.payAmount,
-                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto'
-                    });
-    
-                    // Use the simplified helper function with enhanced error handling
-                    const result = await sdk.orders.long(helperParams).catch(error => {
-                        console.error('OPEN_LONG_MARKET', error, { 
-                            helperParams, 
-                            stage: 'sdk.orders.long',
-                            errorInfo: error.info,
-                            errorData: error.data,
-                            fullError: error
-                        });
-                        throw new Error(`Failed to open long position: ${error.message || error}`);
-                    });
+                    // Queue the write transaction
+                    const result = await transactionQueue.enqueueWriteTransaction(
+                        "open_long_market",
+                        async () => {
+                            console.log('OPEN_LONG_MARKET', 'Executing long market order transaction', { 
+                                marketAddress: data.marketAddress,
+                                payAmount: data.payAmount,
+                                leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto'
+                            });
+                            
+                            // Use the simplified helper function with enhanced error handling
+                            return await sdk.orders.long(helperParams).catch(error => {
+                                console.error('OPEN_LONG_MARKET', error, { 
+                                    helperParams, 
+                                    stage: 'sdk.orders.long',
+                                    errorInfo: error.info,
+                                    errorData: error.data,
+                                    fullError: error
+                                });
+                                throw new Error(`Failed to open long position: ${error.message || error}`);
+                            });
+                        }
+                    );
     
                     let memory = ctx.memory as GmxMemory;
                     
@@ -749,28 +758,30 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.log('OPEN_LONG_LIMIT', 'Helper params prepared', helperParams);
     
-                    // Wait 2 seconds before write operation to prevent nonce errors
-                    console.log('[OPEN_LONG_LIMIT] Waiting 2 seconds before transaction');
-                    await sleep(2000);
-                    
-                    console.log('OPEN_LONG_LIMIT', 'Executing long limit order transaction', { 
-                        marketAddress: data.marketAddress,
-                        payAmount: data.payAmount,
-                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
-                        limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
-                    });
-    
-                    // Use the simplified helper function with enhanced error handling
-                    const result = await sdk.orders.long(helperParams).catch(error => {
-                        console.error('OPEN_LONG_LIMIT', error, { 
-                            helperParams, 
-                            stage: 'sdk.orders.long',
-                            errorInfo: error.info,
-                            errorData: error.data,
-                            fullError: error
-                        });
-                        throw new Error(`Failed to open long limit order: ${error.message || error}`);
-                    });
+                    // Queue the write transaction
+                    const result = await transactionQueue.enqueueWriteTransaction(
+                        "open_long_limit",
+                        async () => {
+                            console.log('OPEN_LONG_LIMIT', 'Executing long limit order transaction', { 
+                                marketAddress: data.marketAddress,
+                                payAmount: data.payAmount,
+                                leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
+                                limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                            });
+                            
+                            // Use the simplified helper function with enhanced error handling
+                            return await sdk.orders.long(helperParams).catch(error => {
+                                console.error('OPEN_LONG_LIMIT', error, { 
+                                    helperParams, 
+                                    stage: 'sdk.orders.long',
+                                    errorInfo: error.info,
+                                    errorData: error.data,
+                                    fullError: error
+                                });
+                                throw new Error(`Failed to open long limit order: ${error.message || error}`);
+                            });
+                        }
+                    );
     
                     let memory = ctx.memory as GmxMemory;
                     
@@ -897,23 +908,25 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.log('OPEN_SHORT', 'Helper params prepared', helperParams);
     
-                    // Wait 3 seconds before write operation to prevent nonce errors
-                    console.log('[OPEN_SHORT] Waiting 3 seconds before transaction');
-                    await sleep(2000);
-                    
-                    console.log('OPEN_SHORT', 'Executing short position transaction', { 
-                        marketAddress: data.marketAddress,
-                        payAmount: data.payAmount,
-                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
-                        isLimitOrder: !!data.limitPrice,
-                        limitPrice: data.limitPrice ? `$${(Number(data.limitPrice) / 1e30).toFixed(2)}` : undefined
-                    });
-    
-                    // Use the simplified helper function with enhanced error handling
-                    const result = await sdk.orders.short(helperParams).catch(error => {
-                        console.error('OPEN_SHORT_MARKET', error, { helperParams, stage: 'sdk.orders.short' });
-                        throw new Error(`Failed to open short position: ${error.message || error}`);
-                    });
+                    // Queue the write transaction
+                    const result = await transactionQueue.enqueueWriteTransaction(
+                        "open_short_market",
+                        async () => {
+                            console.log('OPEN_SHORT', 'Executing short position transaction', { 
+                                marketAddress: data.marketAddress,
+                                payAmount: data.payAmount,
+                                leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
+                                isLimitOrder: !!data.limitPrice,
+                                limitPrice: data.limitPrice ? `$${(Number(data.limitPrice) / 1e30).toFixed(2)}` : undefined
+                            });
+                            
+                            // Use the simplified helper function with enhanced error handling
+                            return await sdk.orders.short(helperParams).catch(error => {
+                                console.error('OPEN_SHORT_MARKET', error, { helperParams, stage: 'sdk.orders.short' });
+                                throw new Error(`Failed to open short position: ${error.message || error}`);
+                            });
+                        }
+                    );
     
                     let memory = ctx.memory as GmxMemory;
                     
@@ -1037,22 +1050,23 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.log('OPEN_SHORT_LIMIT', 'Helper params prepared', helperParams);
     
-                    // Wait 2 seconds before write operation to prevent nonce errors
-                    console.log('[OPEN_SHORT_LIMIT] Waiting 2 seconds before transaction');
-                    await sleep(2000);
-                    
-                    console.log('OPEN_SHORT_LIMIT', 'Executing short limit order transaction', { 
-                        marketAddress: data.marketAddress,
-                        payAmount: data.payAmount,
-                        leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
-                        limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
-                    });
-    
-                    // Use the simplified helper function with enhanced error handling
-                    const result = await sdk.orders.short(helperParams).catch(error => {
-                        console.error('OPEN_SHORT_LIMIT', error, { helperParams, stage: 'sdk.orders.short' });
-                        throw new Error(`Failed to open short limit order: ${error.message || error}`);
-                    });
+                    const result = await transactionQueue.enqueueWriteTransaction(
+                        "open_short_limit",
+                        async () => {
+                            console.log('OPEN_SHORT_LIMIT', 'Executing short limit order transaction', { 
+                                marketAddress: data.marketAddress,
+                                payAmount: data.payAmount,
+                                leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
+                                limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                            });
+            
+                            // Use the simplified helper function with enhanced error handling
+                            return await sdk.orders.short(helperParams).catch(error => {
+                                console.error('OPEN_SHORT_LIMIT', error, { helperParams, stage: 'sdk.orders.short' });
+                                throw new Error(`Failed to open short limit order: ${error.message || error}`);
+                            });
+                        }
+                    );
     
                     let memory = ctx.memory as GmxMemory;
                     
@@ -1424,42 +1438,43 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     triggerPrice: swapParams.triggerPrice?.toString()
                 });
 
-                // Wait 3 seconds before write operation to prevent nonce errors
-                console.log('[SWAP_TOKENS] Waiting 3 seconds before transaction');
-                await sleep(3000);
+                const result = await transactionQueue.enqueueWriteTransaction(
+                    "swap_tokens",
+                    async () => {
+                        console.log('SWAP_TOKENS', 'Executing swap transaction', { 
+                            fromToken: fromToken.symbol,
+                            toToken: toToken.symbol,
+                            orderType,
+                            fromAmount: data.fromAmount,
+                            toAmount: data.toAmount,
+                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`,
+                            triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
+                        });
 
-                console.log('SWAP_TOKENS', 'Executing swap transaction', { 
-                    fromToken: fromToken.symbol,
-                    toToken: toToken.symbol,
-                    orderType,
-                    fromAmount: data.fromAmount,
-                    toAmount: data.toAmount,
-                    slippage: `${(data.allowedSlippageBps || 125) / 100}%`,
-                    triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
-                });
-
-                // Execute the swap using the SDK helper
-                const result = await sdk.orders.swap(swapParams).catch(error => {
-                    console.error('SWAP_TOKENS', error, { 
-                        swapParams,
-                        stage: 'sdk.orders.swap',
-                        errorInfo: error.info,
-                        errorData: error.data,
-                        fullError: error
-                    });
-                    
-                    let errorMessage = `Failed to execute swap: ${error.message || error}`;
-                    
-                    if (error?.message?.includes("insufficient")) {
-                        errorMessage = "Insufficient balance for swap";
-                    } else if (error?.message?.includes("slippage")) {
-                        errorMessage = "Slippage tolerance exceeded - try increasing allowedSlippageBps";
-                    } else if (error?.message?.includes("synthetic")) {
-                        errorMessage = "Synthetic tokens are not supported for swaps";
+                        // Execute the swap using the SDK helper
+                        return await sdk.orders.swap(swapParams).catch(error => {
+                            console.error('SWAP_TOKENS', error, { 
+                                swapParams,
+                                stage: 'sdk.orders.swap',
+                                errorInfo: error.info,
+                                errorData: error.data,
+                                fullError: error
+                            });
+                            
+                            let errorMessage = `Failed to execute swap: ${error.message || error}`;
+                            
+                            if (error?.message?.includes("insufficient")) {
+                                errorMessage = "Insufficient balance for swap";
+                            } else if (error?.message?.includes("slippage")) {
+                                errorMessage = "Slippage tolerance exceeded - try increasing allowedSlippageBps";
+                            } else if (error?.message?.includes("synthetic")) {
+                                errorMessage = "Synthetic tokens are not supported for swaps";
+                            }
+                            
+                            throw new Error(errorMessage);
+                        });
                     }
-                    
-                    throw new Error(errorMessage);
-                });
+                );
 
                 // Calculate swap amounts for display
                 let swapAmountDisplay = '';
@@ -1532,9 +1547,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.log(`[SET_TAKE_PROFIT] Starting take profit order creation (input: data)`);
 
-                // Wait 3 seconds at the beginning to allow previous transactions to be processed
-                console.log('[SET_TAKE_PROFIT] Waiting 3 seconds for previous transactions to process');
-                await sleep(3000);
 
                 // Use existing get_positions_str function to get position data properly
                 const positionsData = await get_positions_str(sdk, gmxDataCache);
@@ -1657,28 +1669,31 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionSize: formatUsdAmount(positionSizeUsd, 2)
                 });
                 
-                console.log('SET_TAKE_PROFIT', 'Executing take profit order transaction', { 
-                    market: marketInfo.name,
-                    direction,
-                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
-                    currentPrice: `$${currentPrice.toFixed(2)}`,
-                    positionSize: formatUsdAmount(positionSizeUsd, 2),
-                    profitTarget: isLong ? 
-                        `+${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%` :
-                        `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`
-                });
-                
-                // Create the take profit order
-                const result = await sdk.orders.createDecreaseOrder({
-                    marketsInfoData,
-                    tokensData,
-                    marketInfo,
-                    decreaseAmounts,
-                    collateralToken,
-                    allowedSlippage: data.allowedSlippageBps || 125,
-                    isLong: isLong,
-                    referralCode: undefined,
-                    isTrigger: true // This is a trigger order
+                const result = await transactionQueue.enqueueWriteTransaction(
+                    "set_take_profit",
+                    async () => {
+                        console.log('SET_TAKE_PROFIT', 'Executing take profit order transaction', { 
+                            market: marketInfo.name,
+                            direction,
+                            triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
+                            currentPrice: `$${currentPrice.toFixed(2)}`,
+                            positionSize: formatUsdAmount(positionSizeUsd, 2),
+                            profitTarget: isLong ? 
+                                `+${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%` :
+                                `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`
+                        });
+                        
+                        // Create the take profit order
+                        return await sdk.orders.createDecreaseOrder({
+                            marketsInfoData,
+                            tokensData,
+                            marketInfo,
+                            decreaseAmounts,
+                            collateralToken,
+                            allowedSlippage: data.allowedSlippageBps || 125,
+                            isLong: isLong,
+                            referralCode: undefined,
+                            isTrigger: true // This is a trigger order
                 }).catch(error => {
                     console.error('SET_TAKE_PROFIT', error, { 
                         direction,
@@ -1687,6 +1702,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     });
                     throw new Error(`Failed to create take profit order: ${error.message || error}`);
                 });
+                    }
+                );
                 
                 // Update memory
                 memory = {
@@ -1745,9 +1762,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.log(`[SET_STOP_LOSS] Starting stop loss order creation (input: data)`);
 
-                // Wait 3 seconds at the beginning to allow previous transactions to be processed
-                console.log('[SET_STOP_LOSS] Waiting 6 seconds for previous transactions to process');
-                await sleep(6000);
 
                 // Use existing get_positions_str function to get position data properly
                 const positionsData = await get_positions_str(sdk, gmxDataCache);
@@ -1881,25 +1895,30 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         `-${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%`
                 });
                 
-                // Create the stop loss order
-                const result = await sdk.orders.createDecreaseOrder({
-                    marketsInfoData,
-                    tokensData,
-                    marketInfo,
-                    decreaseAmounts,
-                    collateralToken,
-                    allowedSlippage: data.allowedSlippageBps || 125,
-                    isLong: isLong,
-                    referralCode: undefined,
-                    isTrigger: true // This is a trigger order
-                }).catch(error => {
-                    console.error('SET_STOP_LOSS', error, { 
-                        direction,
-                        triggerPrice: triggerPriceDecimal,
-                        decreaseAmounts 
-                    });
-                    throw new Error(`Failed to create stop loss order: ${error.message || error}`);
-                });
+                const result = await transactionQueue.enqueueWriteTransaction(
+                    "set_stop_loss",
+                    async () => {
+                        // Create the stop loss order
+                        return await sdk.orders.createDecreaseOrder({
+                            marketsInfoData,
+                            tokensData,
+                            marketInfo,
+                            decreaseAmounts,
+                            collateralToken,
+                            allowedSlippage: data.allowedSlippageBps || 125,
+                            isLong: isLong,
+                            referralCode: undefined,
+                            isTrigger: true // This is a trigger order
+                        }).catch(error => {
+                            console.error('SET_STOP_LOSS', error, { 
+                                direction,
+                                triggerPrice: triggerPriceDecimal,
+                                decreaseAmounts 
+                            });
+                            throw new Error(`Failed to create stop loss order: ${error.message || error}`);
+                        });
+                    }
+                );
                 
                 // Update memory
                 memory = {

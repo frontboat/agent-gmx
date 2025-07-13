@@ -384,7 +384,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Get BTC Technical Analysis - Multi-timeframe indicators
     action({
         name: "get_btc_technical_analysis",
-        description: "Get comprehensive BTC technical indicators across multiple timeframes (5m, 15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
+        description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
         async handler(data, ctx, agent) {
             debugLog('action', 'Starting get_btc_technical_analysis action');
             try {
@@ -424,7 +424,7 @@ export function createGmxActions(sdk: GmxSdk, env?: any) {
     // Get ETH Technical Analysis - Multi-timeframe indicators
     action({
         name: "get_eth_technical_analysis",
-        description: "Get comprehensive ETH technical indicators across multiple timeframes (5m, 15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
+        description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
         async handler(data, ctx, agent) {
             debugLog('action', 'Starting get_eth_technical_analysis action');
             try {

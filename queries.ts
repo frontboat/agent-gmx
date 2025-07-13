@@ -1372,7 +1372,7 @@ export const get_technical_analysis_str = async (
             throw new Error(`Could not find market price for ${tokenSymbol}`);
         }
         
-        const timeframes = ['5m', '15m', '1h', '4h'] as const;
+        const timeframes = ['15m', '1h', '4h'] as const;
         const analysisResults: any[] = [];
         
         // Fetch data for all timeframes in parallel

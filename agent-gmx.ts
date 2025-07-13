@@ -8,11 +8,11 @@
 // 📦 IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { openrouter } from "@openrouter/ai-sdk-provider";
+import { anthropic } from "@ai-sdk/anthropic";
 import { 
     createDreams, 
     context, 
-    render, 
+    render,
     input,
     extension,
     validateEnv, 
@@ -307,6 +307,7 @@ Answer these first, before looking for new trades:
 - Are any positions showing signs of reversal?
 - Should I partially close any positions to lock in profits?
 - Are any stops too tight and need adjustment?
+- How good is my entry ?
 
 **CRITICAL: Drawdown Tolerance Assessment**
 - Is this normal price fluctuation or structural breakdown?
@@ -317,7 +318,6 @@ Answer these first, before looking for new trades:
 **Q3: What is the status of my current limit orders ?**
 - Has the original thesis for each limit order been invalidated?
 - Should I cancel any limit orders?
-- Do I need to add limit orders to scale in?
 
 ### CYCLE MIDDLE: Market Analysis Questions
 Only after position management, scan for new opportunities:
@@ -356,10 +356,8 @@ Before taking any new positions:
 - What is my maximum position size for this trade?
 - Where will I place my stop loss and take profit?
 
-**Q8: What is my proactive plan ?**
+**Q8: What is my proactive plan for entering new positions?**
 - Are there key levels I should place limit orders at?
-- What news or events should I watch for?
-- Are there any time-based patterns I should prepare for?
 - Where will I add to positions if they move favorably?
 
 ---
@@ -539,7 +537,7 @@ console.log("⚡ Initializing Vega trading agent...");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("anthropic/claude-sonnet-4"), //google/gemini-2.5-flash-preview-05-20 anthropic/claude-sonnet-4
+    model: anthropic("claude-sonnet-4-0"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,

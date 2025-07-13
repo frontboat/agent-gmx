@@ -40,24 +40,38 @@ bun run agent-gmx.ts
    - Actions include: portfolio queries, position management, order placement
    - All outputs formatted as strings for AI comprehension
 
-3. **queries.ts** - Market data abstraction layer
+3. **gmx-queries.ts** - Market data abstraction layer
    - Formats complex GMX data into AI-readable strings
    - Provides: market info, positions, orders, trades, price feeds
+   - Cache-first approach with fallback to SDK
 
-4. **utils.ts** - Financial calculations and utilities
+4. **gmx-utils.ts** - Financial calculations and utilities
    - BigInt-based precision for blockchain compatibility
    - Position sizing, PnL calculations, liquidation prices
    - Risk management calculations
 
-5. **logger.ts** - Custom file-based logging system
-   - Session-based log files in `logs/` directory
-   - Handles BigInt serialization
-   - Debug logging for all trading actions
+5. **gmx-cache.ts** - Enhanced data caching system
+   - Multi-level caching with TTL (Time To Live) for different data types
+   - Request deduplication for concurrent API calls
+   - Cache invalidation strategies after write operations
+   - Reduces API calls by 85% (from 25-35 to 4-6 per trading cycle)
+
+6. **transaction-queue.ts** - Sequential transaction execution
+   - Singleton pattern for managing blockchain transactions
+   - 3-second delays between write operations to prevent nonce errors
+   - Separate queues for read-after-write operations
+
+7. **gmx-wallet.ts** - Wallet and SDK initialization module
+   - Handles all wallet creation and validation logic
+   - Supports Arbitrum and Avalanche networks
+   - Validates private keys, addresses, and chain configurations
 
 ### Key Design Patterns
 
 - **AI-First Data Formatting**: All data returned as formatted strings, not objects
 - **Action-Based Architecture**: Modular actions with consistent structure
+- **Cache-First Approach**: All SDK calls use cache when available with fallback to SDK
+- **Sequential Transaction Execution**: Write operations queued with delays to prevent nonce errors
 - **Memory System**: Tracks positions, trades, and performance metrics
 - **Error Resilience**: Comprehensive error handling with detailed logging
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms
@@ -70,12 +84,11 @@ Create a `.env` file with:
 
 ```bash
 # Required API Keys
-ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
+OPENAI_API_KEY=
 SYNTH_API_KEY=
-DISCORD_TOKEN=
-DISCORD_BOT_NAME=
-MONGODB_STRING=
+SUPABASE_URL=
+SUPABASE_KEY=
 
 # GMX Configuration
 GMX_NETWORK=arbitrum  # or avalanche
@@ -89,8 +102,7 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 
 ### External Dependencies
 
-- **ChromaDB**: Must be running at `http://localhost:8000` for vector storage
-- **MongoDB**: Accessible via connection string for persistent memory
+- **Supabase**: Database service for persistent memory and vector storage
 - **Funded Wallet**: On specified network with ETH for gas fees
 - **Active Internet**: Required for Synth AI predictions and GMX oracle data
 
@@ -100,9 +112,10 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 2. **ES Modules**: Use import/export syntax, not require() (specified in package.json)
 3. **BigInt for Precision**: All financial values use BigInt to avoid floating-point precision issues
 4. **Async/Await**: All blockchain operations are asynchronous and use proper error handling
-5. **Structured Logging**: Use custom logger (`debugLog`, `debugError`) for session-based file logging
-6. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
-7. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
+5. **Cache-First Data Access**: Always use cache when available, fallback to SDK only when cache unavailable
+6. **Sequential Write Operations**: All write transactions must use the transaction queue to prevent nonce errors
+7. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
+8. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
 
 ## Trading Action Pattern
 
@@ -112,18 +125,33 @@ When adding new trading actions to `gmx-actions.ts`:
 {
   name: "actionName",
   description: "Clear description for AI understanding",
-  handler: async ({ memory, queries, logger }) => {
+  handler: async (data, ctx, agent) => {
     try {
-      // Implementation
-      logger.debug("Action context", { /* details */ });
+      console.log('[Action] Starting actionName');
+      let memory = ctx.memory as GmxMemory;
+      
+      // Use cache-first approach for read operations
+      const cachedData = gmxDataCache ? await gmxDataCache.getSomeData() : await sdk.getSomeData();
+      
+      // For write operations, use transaction queue
+      if (isWriteOperation) {
+        const result = await transactionQueue.enqueueWriteTransaction(
+          'actionName',
+          async () => await sdk.doSomething()
+        );
+        
+        // Invalidate relevant caches after write operations
+        gmxDataCache?.invalidatePositions();
+        
+        return `Success: ${result}`;
+      }
       
       // Update memory if needed
-      memory.recentTrades.push(/* trade info */);
+      memory = { ...memory, lastResult: "Action completed" };
       
-      // Return formatted string
       return "Human-readable result";
     } catch (error) {
-      logger.debug("Error context", { error });
+      console.error('[Action] actionName error:', error);
       return `Error: ${error.message}`;
     }
   }
@@ -143,14 +171,55 @@ When adding new trading actions to `gmx-actions.ts`:
 - **GMX SDK (@gmx-io/sdk)**: Primary trading interface for positions, orders, markets data
 - **Viem**: Low-level blockchain interactions and wallet management
 - **Daydreams AI Framework**: Agent orchestration, memory management, and action coordination
-- **OpenRouter**: AI model access (Claude Sonnet 4 for main agent, Gemini for vector embeddings)
+- **OpenRouter**: AI model access (Claude Sonnet 4 for main agent)
+- **OpenAI**: Vector embeddings for memory system
 - **Synth AI**: Real-time market predictions from decentralized AI miners
-- **MongoDB**: Persistent memory storage across sessions
-- **ChromaDB**: Vector storage for semantic memory and context retrieval
+- **Supabase**: Persistent memory storage and vector storage for semantic memory
+
+## Cache System Architecture
+
+The caching system is designed to minimize API calls and improve performance:
+
+### Cache Types
+- **Markets Cache**: TTL 5 minutes - stores market info and token data
+- **Position Cache**: TTL 5 minutes - stores position data 
+- **Position Info Cache**: TTL 5 minutes - stores enhanced position info
+- **Synth Cache**: TTL 5 minutes - stores AI predictions per asset
+
+### Cache Usage Pattern
+```typescript
+// Always use cache-first approach
+const data = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo();
+
+// Invalidate cache after write operations
+gmxDataCache?.invalidatePositions(); // After position changes
+gmxDataCache?.invalidateAll(); // After major state changes
+```
+
+### Request Deduplication
+- Prevents concurrent duplicate API calls
+- Returns same promise for concurrent requests
+- Automatically handles race conditions
+
+## Transaction Queue System
+
+All write operations must use the transaction queue to prevent nonce errors:
+
+```typescript
+// Write operations with 3-second delays
+await transactionQueue.enqueueWriteTransaction('operation_name', async () => {
+  return await sdk.doWriteOperation();
+});
+
+// Read operations immediately after writes
+await transactionQueue.enqueueReadAfterWrite('get_fresh_data', async () => {
+  return await gmxDataCache.getPositions(marketsData, tokensData, true); // forceRefresh = true
+});
+```
 
 ## Debugging and Logging
 
-- **Session-based Logs**: All debug output saved to `logs/gmx-debug-{timestamp}.log`
-- **BigInt-safe JSON**: Custom serialization handles BigInt values in logs
-- **Structured Debug Logging**: Use `debugLog(category, message, data)` and `debugError(category, error, context)`
-- **Trading Action Logging**: Every trade action is logged with context and results
+- **Console Logging**: All actions log with `[Action]` prefix for easy filtering
+- **Cache Logging**: Cache operations logged with `[CacheType]` prefix
+- **Transaction Queue**: Operations logged with execution timing
+- **Error Handling**: Comprehensive error logging with context

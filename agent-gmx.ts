@@ -31,7 +31,7 @@ import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_s
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-console.log("🚀 Starting GMX Trading Agent...");
+console.warn("🚀 Starting GMX Trading Agent...");
 
 const env = validateEnv(
     z.object({
@@ -438,7 +438,7 @@ const gmxContext = context({
       },
 
     render({ memory }) {
-        console.log(memory);
+        console.warn(memory);
 
         return render(vega_template, {
             instructions: memory.instructions,
@@ -504,9 +504,9 @@ const gmxContext = context({
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
-                console.log("✅ Trading cycle subscription setup complete");
+                console.warn("✅ Trading cycle subscription setup complete");
                 return () => {
-                    console.log("🛑 Trading cycle subscription cleanup");
+                    console.warn("🛑 Trading cycle subscription cleanup");
                     clearInterval(interval);
                 };
             }
@@ -528,10 +528,10 @@ const gmx = extension({
     actions: gmxActions,
 });
 
-console.log("⚡ Initializing Vega trading agent...");
+console.warn("⚡ Initializing Vega trading agent...");
 
  // Initialize complete Supabase memory system
- console.log("🗄️ Setting up Supabase memory system..." );
+ console.warn("🗄️ Setting up Supabase memory system..." );
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
@@ -540,18 +540,18 @@ console.log("⚡ Initializing Vega trading agent...");
      vectorModel: openai("gpt-4o-mini"),
  });
 
- console.log("✅ Memory system initialized!");
+ console.warn("✅ Memory system initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
     model: openrouter("anthropic/claude-sonnet-4"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
-    logger: new Logger({ level: LogLevel.INFO }), // Enable info logging
+    logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,
     streaming: false, // Disable streaming to avoid the ... input issue
 });
 
-console.log("✅ Agent created successfully!");
+console.warn("✅ Agent created successfully!");
 
 // Start the agent with GMX context arguments
 await agent.start({
@@ -571,4 +571,4 @@ await agent.start({
     eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH', gmxDataCache),
 });
 
-console.log("🎯 Vega is now live and ready for GMX trading!");
+console.warn("🎯 Vega is now live and ready for GMX trading!");

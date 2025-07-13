@@ -265,7 +265,7 @@ export class EnhancedDataCache {
     try {
       // Import the existing Synth API function
       const { get_synth_predictions_consolidated_str } = await import('./gmx-queries.js');
-      const predictions = await get_synth_predictions_consolidated_str(asset);
+      const predictions = await get_synth_predictions_consolidated_str(asset, this);
       return predictions;
     } catch (error) {
       console.error(`[SynthCache] Failed to fetch ${asset} predictions:`, error);

@@ -2,9 +2,15 @@
 // 🔄 TRANSACTION QUEUE SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════
 
+export enum TransactionType {
+    WRITE = 'write',
+    READ_AFTER_WRITE = 'read_after_write'
+}
+
 export interface QueuedTransaction {
     id: string;
     name: string;
+    type: TransactionType;
     execute: () => Promise<any>;
     resolve: (value: any) => void;
     reject: (error: any) => void;
@@ -37,6 +43,7 @@ export class TransactionQueue {
             const transaction: QueuedTransaction = {
                 id: `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 name,
+                type: TransactionType.WRITE,
                 execute: executeFunction,
                 resolve,
                 reject,
@@ -44,7 +51,7 @@ export class TransactionQueue {
             };
 
             this.queue.push(transaction);
-            console.log(`[QUEUE] Added transaction: ${name} (Queue size: ${this.queue.length})`);
+            console.warn(`[QUEUE] Added transaction: ${name} (Queue size: ${this.queue.length})`);
             
             // Start processing if not already running
             if (!this.isProcessing) {
@@ -64,6 +71,7 @@ export class TransactionQueue {
             const transaction: QueuedTransaction = {
                 id: `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 name,
+                type: TransactionType.READ_AFTER_WRITE,
                 execute: executeFunction,
                 resolve,
                 reject,
@@ -71,7 +79,7 @@ export class TransactionQueue {
             };
 
             this.queue.push(transaction);
-            console.log(`[QUEUE] Added read-after-write: ${name} (Queue size: ${this.queue.length})`);
+            console.warn(`[QUEUE] Added read-after-write: ${name} (Queue size: ${this.queue.length})`);
             
             // Start processing if not already running
             if (!this.isProcessing) {
@@ -89,28 +97,28 @@ export class TransactionQueue {
         }
 
         this.isProcessing = true;
-        console.log(`[QUEUE] Starting to process ${this.queue.length} transactions`);
+        console.warn(`[QUEUE] Starting to process ${this.queue.length} transactions`);
 
         while (this.queue.length > 0) {
             const transaction = this.queue.shift()!;
             
             try {
-                console.log(`[QUEUE] Executing: ${transaction.name} (ID: ${transaction.id})`);
+                console.warn(`[QUEUE] Executing: ${transaction.name} (ID: ${transaction.id})`);
                 const startTime = Date.now();
                 
                 // Execute the transaction
                 const result = await transaction.execute();
                 
                 const executionTime = Date.now() - startTime;
-                console.log(`[QUEUE] Completed: ${transaction.name} in ${executionTime}ms`);
+                console.warn(`[QUEUE] Completed: ${transaction.name} in ${executionTime}ms`);
                 
                 // Resolve the promise
                 transaction.resolve(result);
                 
-                // Wait before processing next transaction (if there are more)
-                // Only wait for write transactions, not read-after-write operations
-                if (this.queue.length > 0 && !transaction.name.includes('get_positions') && !transaction.name.includes('get_orders')) {
-                    console.log(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms before next transaction`);
+                // Wait after write transactions before processing next transaction
+                // This prevents nonce conflicts and rate limiting
+                if (this.queue.length > 0 && transaction.type === TransactionType.WRITE) {
+                    console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after write transaction before next`);
                     await this.sleep(this.TRANSACTION_DELAY_MS);
                 }
                 
@@ -118,17 +126,16 @@ export class TransactionQueue {
                 console.error(`[QUEUE] Failed: ${transaction.name} - ${error}`);
                 transaction.reject(error);
                 
-                // Still wait before next transaction to avoid overwhelming the network
-                // Only wait for write transactions, not read-after-write operations
-                if (this.queue.length > 0 && !transaction.name.includes('get_positions') && !transaction.name.includes('get_orders')) {
-                    console.log(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after error before next transaction`);
+                // Wait after failed write transactions to avoid overwhelming the network
+                if (this.queue.length > 0 && transaction.type === TransactionType.WRITE) {
+                    console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after failed write transaction`);
                     await this.sleep(this.TRANSACTION_DELAY_MS);
                 }
             }
         }
 
         this.isProcessing = false;
-        console.log(`[QUEUE] Queue processing completed`);
+        console.warn(`[QUEUE] Queue processing completed`);
     }
 
     /**
@@ -155,7 +162,7 @@ export class TransactionQueue {
             transaction.reject(new Error('Queue cleared'));
         });
         this.queue = [];
-        console.log(`[QUEUE] Cleared ${clearedCount} pending transactions`);
+        console.warn(`[QUEUE] Cleared ${clearedCount} pending transactions`);
     }
 
     private sleep(ms: number): Promise<void> {

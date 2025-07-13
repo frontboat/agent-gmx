@@ -18,6 +18,14 @@ export const PRECISION = 10n ** 30n;
 // 🔧 UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Safely convert string to BigInt (removes 'n' suffix if present)
+ */
+export function safeBigInt(value: string): bigint {
+    const cleanValue = value.endsWith('n') ? value.slice(0, -1) : value;
+    return BigInt(cleanValue);
+}
+
 // Utility function to add delay before write operations to prevent nonce errors
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

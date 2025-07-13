@@ -15,7 +15,7 @@ export interface GmxMemory {
     volumes: string;
         
     // Portfolio balance
-    portfolioBalance?: string;
+    portfolio: string;
     
     // Trading performance data
     tradingHistory?: string;

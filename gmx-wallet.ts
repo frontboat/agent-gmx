@@ -172,8 +172,8 @@ export const createGmxWallet = (config: WalletConfig): InitializedWallet => {
     // Set the account in the SDK
     sdk.setAccount(config.walletAddress as `0x${string}`);
     
-    console.log(`💼 GMX SDK initialized with account: ${config.walletAddress}`);
-    console.log(`🔗 Connected to ${chainConfig.name} (Chain ID: ${config.chainId})`);
+    console.warn(`💼 GMX SDK initialized with account: ${config.walletAddress}`);
+    console.warn(`🔗 Connected to ${chainConfig.name} (Chain ID: ${config.chainId})`);
     
     return {
         sdk,

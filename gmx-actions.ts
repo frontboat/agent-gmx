@@ -742,6 +742,29 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         collateralToken: collateralToken.symbol 
                     });
                     
+                    // Get index token and current market price
+                    const indexToken = tokensData[marketInfo.indexTokenAddress];
+                    if (!indexToken) {
+                        throw new Error(`Index token not found: ${marketInfo.indexTokenAddress}`);
+                    }
+                    
+                    // For long positions, use maxPrice (the price at which we'd buy)
+                    const currentMarketPrice = indexToken.prices?.maxPrice || 0n;
+                    const limitPriceBigInt = BigInt(data.limitPrice);
+                    
+                    // Failsafe: For long limit orders, limit price must be LOWER than current market price
+                    if (limitPriceBigInt >= currentMarketPrice) {
+                        const currentPriceFormatted = formatUsdAmount(currentMarketPrice, 2);
+                        const limitPriceFormatted = formatUsdAmount(limitPriceBigInt, 2);
+                        throw new Error(`Invalid long limit order: limit price (${limitPriceFormatted}) must be lower than current market price (${currentPriceFormatted})`);
+                    }
+                    
+                    console.warn('OPEN_LONG_LIMIT', 'Price validation passed', {
+                        currentMarketPrice: formatUsdAmount(currentMarketPrice, 2),
+                        limitPrice: formatUsdAmount(limitPriceBigInt, 2),
+                        priceCheck: 'limitPrice < currentPrice ✓'
+                    });
+                    
                     // Prepare parameters for helper function
                     const helperParams: any = {
                         payAmount: BigInt(data.payAmount),
@@ -767,7 +790,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 marketAddress: data.marketAddress,
                                 payAmount: data.payAmount,
                                 leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
-                                limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                                limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2)
                             });
                             
                             // Use the simplified helper function with enhanced error handling
@@ -791,7 +814,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     memory = {
                         ...memory,
                         currentTask: "🎯 Placing LONG limit order",
-                        lastResult: `Placed long limit order${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''} at $${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                        lastResult: `Placed long limit order${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''} at ${formatUsdAmount(BigInt(data.limitPrice), 2)}`
                     }
     
                     const successResult = {
@@ -804,7 +827,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             payAmount: data.payAmount,
                             payToken: data.payTokenAddress,
                             collateralToken: data.collateralTokenAddress,
-                            limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`,
+                            limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2),
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
                             slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },
@@ -1028,6 +1051,28 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         collateralToken: collateralToken.symbol 
                     });
                     
+                    // Get index token and current market price
+                    const indexToken = tokensData[marketInfo.indexTokenAddress];
+                    if (!indexToken) {
+                        throw new Error(`Index token not found: ${marketInfo.indexTokenAddress}`);
+                    }
+                    
+                    // For short positions, use minPrice (the price at which we'd sell)
+                    const currentMarketPrice = indexToken.prices?.minPrice || 0n;
+                    const limitPriceBigInt = BigInt(data.limitPrice);
+                    
+                    // Failsafe: For short limit orders, limit price must be HIGHER than current market price
+                    if (limitPriceBigInt <= currentMarketPrice) {
+                        const currentPriceFormatted = formatUsdAmount(currentMarketPrice, 2);
+                        const limitPriceFormatted = formatUsdAmount(limitPriceBigInt, 2);
+                        throw new Error(`Invalid short limit order: limit price (${limitPriceFormatted}) must be higher than current market price (${currentPriceFormatted})`);
+                    }
+                    
+                    console.warn('OPEN_SHORT_LIMIT', 'Price validation passed', {
+                        currentMarketPrice: formatUsdAmount(currentMarketPrice, 2),
+                        limitPrice: formatUsdAmount(limitPriceBigInt, 2),
+                        priceCheck: 'limitPrice > currentPrice ✓'
+                    });
     
                     // Prepare parameters for helper function
                     const helperParams: any = {
@@ -1053,7 +1098,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 marketAddress: data.marketAddress,
                                 payAmount: data.payAmount,
                                 leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto',
-                                limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                                limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2)
                             });
             
                             // Use the simplified helper function with enhanced error handling
@@ -1071,7 +1116,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     memory = {
                         ...memory,
                         currentTask: "🎯 Placing SHORT limit order",
-                        lastResult: `Placed short limit order${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''} at $${(Number(data.limitPrice) / 1e30).toFixed(2)}`
+                        lastResult: `Placed short limit order${typeof leverageX === 'number' ? ` with ${leverageX}x leverage` : ''} at ${formatUsdAmount(BigInt(data.limitPrice), 2)}`
                     }
     
                     const successResult = {
@@ -1084,7 +1129,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             payAmount: data.payAmount,
                             payToken: data.payTokenAddress,
                             collateralToken: data.collateralTokenAddress,
-                            limitPrice: `$${(Number(data.limitPrice) / 1e30).toFixed(2)}`,
+                            limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2),
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
                             slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },

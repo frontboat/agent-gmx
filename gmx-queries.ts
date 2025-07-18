@@ -923,160 +923,527 @@ export const get_orders_str = async (sdk: GmxSdk, gmxDataCache?: EnhancedDataCac
     }
 };
 
-export const get_synth_predictions_consolidated_str = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache) => {
+// Helper function to get current asset price
+const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache): Promise<number> => {
     try {
-        // Use cache if available
-        if (gmxDataCache) {
-            return await gmxDataCache.getSynthPredictions(asset);
+        const marketsResult = gmxDataCache ?  await gmxDataCache.getMarketsInfo() : null;
+        
+        if (!marketsResult) {
+            throw new Error("Failed to get market data");
         }
         
-        // Step 1: Fetch top miners from leaderboard
-        const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
+        const { marketsInfoData, tokensData } = marketsResult;
         
-        // Handle rate limiting gracefully
-        if (leaderboardResponse.status === 429) {
-            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
-        }
+        // Find the correct market for the asset
+        const targetMarketName = asset === 'BTC' ? 'BTC/USD [BTC-USDC]' : 'ETH/USD [WETH-USDC]';
         
-        if (!leaderboardResponse.ok) {
-            throw new Error(`Failed to fetch predictions leaderboard: ${leaderboardResponse.statusText}`);
-        }
-        
-        const leaderboardData = await leaderboardResponse.json();
-        
-        // Extract miners from the scores data - assuming it returns an array of miners with scores
-        if (!leaderboardData || !Array.isArray(leaderboardData)) {
-            throw new Error("Invalid leaderboard data format");
-        }
-        
-        // The API returns miners already sorted by performance (best first)
-        const topMiners = leaderboardData.slice(0, 3); // Take top 3 miners
-        
-        if (topMiners.length === 0) {
-            return `📊 ${asset} SYNTH PREDICTIONS\n└─ No miners available on leaderboard\n`;
-        }
-        
-        // Step 2: Fetch predictions for all miners at once using the new API
-        const minerIds = topMiners.map((m: any) => m.neuron_uid);
-        const minerParams = minerIds.map((id: number) => `miner=${id}`).join('&');
-        
-        // Using the new prediction/latest endpoint with multiple miners
-        const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
-        
-        const predictionsResponse = await fetch(predictionsUrl, {
-            headers: {
-                'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+        for (const [marketAddress, marketInfo] of Object.entries(marketsInfoData)) {
+            if ((marketInfo as any).name === targetMarketName) {
+                const indexToken = tokensData[(marketInfo as any).indexTokenAddress];
+                if (indexToken?.prices?.maxPrice && indexToken?.prices?.minPrice) {
+                    const maxPrice = bigIntToDecimal(indexToken.prices.maxPrice, USD_DECIMALS);
+                    const minPrice = bigIntToDecimal(indexToken.prices.minPrice, USD_DECIMALS);
+                    return (maxPrice + minPrice) / 2;
+                }
             }
+        }
+        throw new Error(`Market not found for ${asset}`);
+    } catch (error) {
+        throw new Error(`Failed to get current ${asset} price: ${error instanceof Error ? error.message : error}`);
+    }
+};
+
+// Helper function to analyze synth predictions
+const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH', currentPrice: number) => {
+    const timestamp = new Date().toISOString();
+    
+    // Calculate timeframe predictions with realistic confidence based on miner agreement
+    const getClosestPrediction = (targetMinutes: number) => {
+        const targetTime = Date.now() + (targetMinutes * 60 * 1000);
+        let closest = consolidatedArray[0];
+        let minDiff = Math.abs(new Date(closest?.time || 0).getTime() - targetTime);
+        
+        for (const slot of consolidatedArray) {
+            const diff = Math.abs(new Date(slot.time).getTime() - targetTime);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = slot;
+            }
+        }
+        
+        if (closest?.predictions?.length > 0) {
+            const predictions = closest.predictions;
+            const avgPrice = predictions.reduce((sum: number, p: any) => sum + (p.price || 0), 0) / predictions.length;
+            
+            // Calculate realistic confidence based on prediction variance
+            const variance = predictions.reduce((sum: number, p: any) => sum + Math.pow((p.price || 0) - avgPrice, 2), 0) / predictions.length;
+            const stdDev = Math.sqrt(variance) / avgPrice;
+            // Convert std dev to confidence: lower variance = higher confidence
+            const confidencePct = Math.max(0, Math.min(100, 100 * (1 - stdDev * 10)));
+            
+            return { price: avgPrice, confidence: confidencePct, minerCount: predictions.length };
+        }
+        return { price: currentPrice, confidence: 50, minerCount: 0 };
+    };
+    
+    const timeframes = {
+        '15min': getClosestPrediction(15),
+        '30min': getClosestPrediction(30),
+        '1h': getClosestPrediction(60),
+        '2h': getClosestPrediction(120),
+        '4h': getClosestPrediction(240),
+        '8h': getClosestPrediction(480),
+        '24h': getClosestPrediction(1440)
+    };
+    
+    // Enhanced consensus calculation
+    const allPredictions = consolidatedArray.flatMap(slot => slot.predictions || []);
+    const allPrices = allPredictions.map((p: any) => p.price || 0).filter(p => p > 0);
+    const avgPrediction = allPrices.length > 0 ? 
+        allPrices.reduce((sum: number, p: number) => sum + p, 0) / allPrices.length : currentPrice;
+    
+    const bullishCount = allPrices.filter(p => p > currentPrice).length;
+    const bearishCount = allPrices.filter(p => p < currentPrice).length;
+    const totalPredictions = allPrices.length;
+    
+    const consensus = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'NEUTRAL';
+    const agreementRatio = totalPredictions > 0 ? Math.max(bullishCount, bearishCount) / totalPredictions : 0;
+    
+    // More nuanced confidence based on actual agreement
+    const confidence = agreementRatio > 0.85 ? 'HIGH' : agreementRatio > 0.65 ? 'MODERATE' : 'LOW';
+    
+    // Enhanced volatility analysis
+    const priceVariance = allPrices.length > 1 ? 
+        allPrices.reduce((sum, p) => sum + Math.pow(p - avgPrediction, 2), 0) / allPrices.length : 0;
+    const volatilityPct = Math.sqrt(priceVariance) / currentPrice * 100;
+    const volRegime = volatilityPct > 2.5 ? 'high' : volatilityPct > 1.0 ? 'moderate' : 'low';
+    
+    // Volatility trend analysis
+    const recentSlots = consolidatedArray.slice(-20); // Last 20 time slots
+    const olderSlots = consolidatedArray.slice(-40, -20);
+    
+    const getSlotVolatility = (slots: any[]) => {
+        const slotPrices = slots.flatMap(slot => (slot.predictions || []).map((p: any) => p.price || 0));
+        if (slotPrices.length < 2) return 0;
+        const slotAvg = slotPrices.reduce((sum, p) => sum + p, 0) / slotPrices.length;
+        const slotVar = slotPrices.reduce((sum, p) => sum + Math.pow(p - slotAvg, 2), 0) / slotPrices.length;
+        return Math.sqrt(slotVar) / slotAvg * 100;
+    };
+    
+    const recentVol = getSlotVolatility(recentSlots);
+    const olderVol = getSlotVolatility(olderSlots);
+    const volTrend = recentVol > olderVol * 1.2 ? 'expanding' : recentVol < olderVol * 0.8 ? 'contracting' : 'stable';
+    
+    // Fix uncertainty correlation with volatility
+    const uncertaintyLevel = volRegime === 'high' ? 'high' : volRegime === 'moderate' ? 'moderate' : 'low';
+    
+    // Find support/resistance levels with weighted clustering
+    const priceCluster = (prices: number[], tolerance = 0.008) => {
+        const clusters: { price: number, count: number, weight: number }[] = [];
+        
+        for (const price of prices) {
+            let foundCluster = false;
+            for (const cluster of clusters) {
+                if (Math.abs(price - cluster.price) / cluster.price <= tolerance) {
+                    const newWeight = cluster.weight + 1;
+                    cluster.price = (cluster.price * cluster.weight + price) / newWeight;
+                    cluster.count++;
+                    cluster.weight = newWeight;
+                    foundCluster = true;
+                    break;
+                }
+            }
+            if (!foundCluster) {
+                clusters.push({ price, count: 1, weight: 1 });
+            }
+        }
+        
+        return clusters.sort((a, b) => b.weight - a.weight).slice(0, 3);
+    };
+    
+    const resistanceLevels = priceCluster(allPrices.filter(p => p > currentPrice));
+    const supportLevels = priceCluster(allPrices.filter(p => p < currentPrice));
+    
+    // Enhanced momentum analysis with different confidence per timeframe
+    const getMomentum = (tf: any[], label: string) => {
+        const avgPrice = tf.reduce((sum, t) => sum + t.price, 0) / tf.length;
+        const direction = avgPrice > currentPrice ? 'BULLISH' : 'BEARISH';
+        const strength = Math.abs(avgPrice - currentPrice) / currentPrice * 100;
+        
+        // Realistic confidence based on actual timeframe data
+        const avgConfidence = tf.reduce((sum, t) => sum + t.confidence, 0) / tf.length;
+        const minerCoverage = tf.reduce((sum, t) => sum + t.minerCount, 0) / tf.length / 10; // Normalize to 10 miners
+        const finalConfidence = Math.min(100, avgConfidence * minerCoverage);
+        
+        return { direction, strength, confidence: finalConfidence };
+    };
+    
+    const shortTerm = [timeframes['15min'], timeframes['30min'], timeframes['1h']];
+    const mediumTerm = [timeframes['1h'], timeframes['2h'], timeframes['4h']];
+    const longTerm = [timeframes['4h'], timeframes['8h'], timeframes['24h']];
+    
+    const shortMomentum = getMomentum(shortTerm, 'short');
+    const mediumMomentum = getMomentum(mediumTerm, 'medium');
+    const longMomentum = getMomentum(longTerm, 'long');
+    
+    // Enhanced stop/take profit calculation with minimum 2:1 R:R
+    const baseStopDistance = Math.max(volatilityPct * 0.8, 0.8); // Base stop distance
+    
+    // Adjust stops and targets to achieve minimum 2:1 R:R
+    const minRiskReward = 2.0;
+    const aggressiveStopPct = baseStopDistance;
+    const conservativeStopPct = baseStopDistance * 1.5;
+    
+    // Calculate take profits ensuring good R:R
+    const longStops = {
+        aggressive: currentPrice * (1 - aggressiveStopPct * 0.01),
+        conservative: currentPrice * (1 - conservativeStopPct * 0.01)
+    };
+    
+    const shortStops = {
+        aggressive: currentPrice * (1 + aggressiveStopPct * 0.01),
+        conservative: currentPrice * (1 + conservativeStopPct * 0.01)
+    };
+    
+    // Base stops/targets on actual prediction levels
+    const maxPrediction = Math.max(...allPrices);
+    const minPrediction = Math.min(...allPrices);
+    const predictionSpread = maxPrediction - minPrediction;
+    
+    // If prediction range is too small, adjust targets to minimum viable levels
+    const minViableRange = currentPrice * 0.015; // 1.5% minimum range needed
+    const useActualLevels = predictionSpread >= minViableRange;
+    
+    let longTPs: number[], shortTPs: number[];
+    
+    if (useActualLevels && resistanceLevels.length >= 2) {
+        // Use actual prediction-based resistance levels
+        longTPs = [
+            resistanceLevels[0]?.price || currentPrice * 1.02,
+            resistanceLevels[1]?.price || currentPrice * 1.03,
+            resistanceLevels[2]?.price || maxPrediction
+        ];
+    } else {
+        // Fallback to minimum viable targets
+        const minTarget = currentPrice * (1 + aggressiveStopPct * minRiskReward * 0.01);
+        longTPs = [
+            minTarget,
+            minTarget * 1.5,
+            minTarget * 2
+        ];
+    }
+    
+    if (useActualLevels && supportLevels.length >= 2) {
+        // Use actual prediction-based support levels
+        shortTPs = [
+            supportLevels[0]?.price || currentPrice * 0.98,
+            supportLevels[1]?.price || currentPrice * 0.97,
+            supportLevels[2]?.price || minPrediction
+        ];
+    } else {
+        // Fallback to minimum viable targets
+        const minTarget = currentPrice * (1 - aggressiveStopPct * minRiskReward * 0.01);
+        shortTPs = [
+            minTarget,
+            minTarget * 0.985,
+            minTarget * 0.97
+        ];
+    }
+    
+    // Calculate R:R ratios for each TP level
+    const longRRs = longTPs.map(tp => (tp - currentPrice) / (currentPrice - longStops.aggressive));
+    const shortRRs = shortTPs.map(tp => (currentPrice - tp) / (shortStops.aggressive - currentPrice));
+    
+    // Enhanced position sizing with multiple factors
+    const baseSize = 20;
+    const confidenceMultiplier = agreementRatio; // 0.5 to 1.0
+    const rrMultiplier = Math.min(1.5, Math.max(0.5, longRRs[0] / 2)); // Scale based on R:R
+    const volAdjustment = volRegime === 'low' ? 1.3 : volRegime === 'moderate' ? 1.0 : 0.6;
+    const timeframeAlignment = (shortMomentum.direction === mediumMomentum.direction) ? 1.2 : 0.8;
+    
+    const optimalSize = Math.round(baseSize * confidenceMultiplier * rrMultiplier * volAdjustment * timeframeAlignment);
+    
+    // Calculate prediction range for quality assessment
+    const predictionRange = Math.max(...allPrices) - Math.min(...allPrices);
+    const rangePct = predictionRange / currentPrice * 100;
+    
+    // Realistic Trade Quality Score (A, B, C, D)
+    let qualityFactors = [];
+    
+    // Factor 1: Prediction Range Quality (40%)
+    const rangeScore = rangePct >= 2.0 ? 40 : rangePct >= 1.0 ? 30 : rangePct >= 0.5 ? 20 : 10;
+    qualityFactors.push({name: 'Range', score: rangeScore, weight: 0.4});
+    
+    // Factor 2: Confidence Quality (30%)
+    const confidenceScore = confidence === 'HIGH' ? 30 : confidence === 'MODERATE' ? 20 : 10;
+    qualityFactors.push({name: 'Confidence', score: confidenceScore, weight: 0.3});
+    
+    // Factor 3: Timeframe Alignment (20%)
+    const hasConflicts = shortMomentum.direction !== mediumMomentum.direction || mediumMomentum.direction !== longMomentum.direction;
+    const alignmentScore = hasConflicts ? 5 : timeframeAlignment > 1 ? 20 : 15;
+    qualityFactors.push({name: 'Alignment', score: alignmentScore, weight: 0.2});
+    
+    // Factor 4: Actual vs Artificial Levels (10%)
+    const levelsScore = useActualLevels ? 10 : 5;
+    qualityFactors.push({name: 'Levels', score: levelsScore, weight: 0.1});
+    
+    const totalScore = qualityFactors.reduce((sum, factor) => sum + (factor.score * factor.weight), 0);
+    
+    // More realistic quality grades
+    const tradeQuality = totalScore >= 25 ? 'A' : totalScore >= 20 ? 'B+' : totalScore >= 15 ? 'B' : totalScore >= 10 ? 'C' : 'D';
+    
+    // Use the previously calculated predictionRange and rangePct
+    
+    // Check for clear directional bias in predictions
+    const nearTermDirection = timeframes['15min'].price > currentPrice && timeframes['30min'].price > currentPrice && timeframes['1h'].price > currentPrice;
+    const nearTermBearish = timeframes['15min'].price < currentPrice && timeframes['30min'].price < currentPrice && timeframes['1h'].price < currentPrice;
+    
+    // Logical setup evaluation
+    let bestSetup = 'WAIT';
+    let setupReason = '';
+    
+    if (rangePct < 0.5) {
+        bestSetup = 'WAIT';
+        setupReason = 'insufficient prediction range';
+    } else if (shortMomentum.direction !== mediumMomentum.direction || mediumMomentum.direction !== longMomentum.direction) {
+        bestSetup = 'WAIT';
+        setupReason = 'conflicting timeframe signals';
+    } else if (confidence === 'LOW') {
+        bestSetup = 'WAIT';
+        setupReason = 'low prediction confidence';
+    } else if (nearTermDirection && consensus === 'BULLISH' && confidence !== 'LOW') {
+        bestSetup = 'LONG';
+        setupReason = 'aligned bullish signals';
+    } else if (nearTermBearish && consensus === 'BEARISH' && confidence !== 'LOW') {
+        bestSetup = 'SHORT';
+        setupReason = 'aligned bearish signals';
+    } else {
+        bestSetup = 'WAIT';
+        setupReason = 'mixed signals';
+    }
+    
+    // Conviction should match confidence - no contradictions!
+    const convictionLevel = confidence === 'HIGH' ? 'HIGH' : confidence === 'MODERATE' ? 'MODERATE' : 'LOW';
+    
+    // Format the analysis
+    let result = `=== SYNTH INTELLIGENCE RECAP [${timestamp}] ===\n\n`;
+    
+    result += `CURRENT SITUATION:\n`;
+    result += `- ${asset} Price: $${currentPrice.toFixed(2)}\n`;
+    result += `- Active Miners: ${new Set(allPredictions.map((p: any) => p.miner_uid)).size}\n`;
+    result += `- Top Miners Consensus: ${consensus} (${confidence} confidence)\n\n`;
+    
+    result += `MULTI-TIMEFRAME PREDICTIONS:\n`;
+    Object.entries(timeframes).forEach(([tf, data]) => {
+        const change = ((data.price - currentPrice) / currentPrice * 100);
+        result += `${tf}: $${data.price.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}% change)\n`;
+    });
+    result += '\n';
+    
+    result += `PREDICTION MOMENTUM:\n`;
+    result += `Short-term (15m-1h): ${shortMomentum.direction} - Strength: ${shortMomentum.strength.toFixed(1)}% - Confidence: ${shortMomentum.confidence.toFixed(0)}%\n`;
+    result += `Medium-term (1h-4h): ${mediumMomentum.direction} - Strength: ${mediumMomentum.strength.toFixed(1)}% - Confidence: ${mediumMomentum.confidence.toFixed(0)}%\n`;
+    result += `Long-term (4h+): ${longMomentum.direction} - Strength: ${longMomentum.strength.toFixed(1)}% - Confidence: ${longMomentum.confidence.toFixed(0)}%\n\n`;
+    
+    result += `CRITICAL LEVELS:\n`;
+    result += `Resistance: ${resistanceLevels.map(r => `$${r.price.toFixed(0)}`).join(', ') || 'No clear levels'}\n`;
+    result += `Support: ${supportLevels.map(s => `$${s.price.toFixed(0)}`).join(', ') || 'No clear levels'}\n\n`;
+    
+    // Only show detailed TP/SL levels for actionable setups
+    if (bestSetup !== 'WAIT') {
+        result += `DYNAMIC STOP/TAKE PROFIT LEVELS:\n`;
+        result += `For LONG positions:\n`;
+        result += `- Aggressive Stop: $${longStops.aggressive.toFixed(0)} (${((longStops.aggressive - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
+        result += `- Conservative Stop: $${longStops.conservative.toFixed(0)} (${((longStops.conservative - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
+        longTPs.slice(0, 3).forEach((tp, i) => {
+            const label = ['First', 'Second', 'Final'][i];
+            const rrRatio = longRRs[i];
+            result += `- ${label} Take Profit: $${tp.toFixed(0)} (+${((tp - currentPrice) / currentPrice * 100).toFixed(2)}% gain) [${rrRatio.toFixed(1)}:1 R:R]\n`;
         });
+        result += '\n';
         
-        // Handle rate limiting gracefully
-        if (predictionsResponse.status === 429) {
-            return `📊 ${asset} SYNTH PREDICTIONS\n└─ ⚠️ Rate limited - predictions temporarily unavailable. Please try again later.\n`;
+        result += `For SHORT positions:\n`;
+        result += `- Aggressive Stop: $${shortStops.aggressive.toFixed(0)} (+${((shortStops.aggressive - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
+        result += `- Conservative Stop: $${shortStops.conservative.toFixed(0)} (+${((shortStops.conservative - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
+        shortTPs.slice(0, 3).forEach((tp, i) => {
+            const label = ['First', 'Second', 'Final'][i];
+            const rrRatio = shortRRs[i];
+            result += `- ${label} Take Profit: $${tp.toFixed(0)} (${((tp - currentPrice) / currentPrice * 100).toFixed(2)}% gain) [${rrRatio.toFixed(1)}:1 R:R]\n`;
+        });
+        result += '\n';
+    }
+    
+    result += `POSITION MANAGEMENT SIGNALS:\n`;
+    // Only show trade metrics for actionable setups
+    if (bestSetup !== 'WAIT') {
+        result += `- Risk/Reward Ratio: ${longRRs[0].toFixed(1)}:1 (First TP), ${longRRs[2].toFixed(1)}:1 (Final TP)\n`;
+        result += `- Trade Quality: ${tradeQuality}\n`;
+        result += `- Optimal Position Size: ${optimalSize}% of capital\n`;
+    }
+    result += `- Best Setup: ${bestSetup}${bestSetup !== 'WAIT' ? ` above $${currentPrice.toFixed(0)}` : ` - ${setupReason}`}\n`;
+    result += `- Conviction Level: ${convictionLevel}\n`;
+    if (bestSetup !== 'WAIT') {
+        result += `- Hold Duration: ${volRegime === 'high' ? 'short' : volRegime === 'moderate' ? 'medium' : 'long'}-term\n`;
+    }
+    result += '\n';
+    
+    result += `VOLATILITY SIGNALS:\n`;
+    result += `Current Predicted Vol: ${volatilityPct.toFixed(2)}%\n`;
+    result += `Vol Regime: ${volRegime} (${volTrend})\n`;
+    result += `Uncertainty Level: ${uncertaintyLevel}\n\n`;
+    
+    // Check for divergences
+    const divergences = [];
+    if (shortMomentum.direction !== mediumMomentum.direction) {
+        divergences.push(`SHORT_VS_MEDIUM: ${shortMomentum.direction} short-term vs ${mediumMomentum.direction} medium-term (${Math.abs(shortMomentum.strength - mediumMomentum.strength) > 1 ? 'strong' : 'weak'} strength)`);
+    }
+    if (mediumMomentum.direction !== longMomentum.direction) {
+        divergences.push(`MEDIUM_VS_LONG: ${mediumMomentum.direction} medium-term vs ${longMomentum.direction} long-term (${Math.abs(mediumMomentum.strength - longMomentum.strength) > 1 ? 'strong' : 'weak'} strength)`);
+    }
+    
+    if (divergences.length > 0) {
+        result += `DIVERGENCE SIGNALS:\n`;
+        divergences.forEach(div => result += `- ${div}\n`);
+        result += '\n';
+    }
+    
+    result += `SUMMARY:\n`;
+    // Determine actual momentum bias from timeframe analysis
+    const actualBias = shortMomentum.direction === mediumMomentum.direction && mediumMomentum.direction === longMomentum.direction 
+        ? shortMomentum.direction 
+        : consensus; // fallback to consensus if timeframes conflict
+    
+    result += `${actualBias} bias with ${confidence} confidence. `;
+    result += `Best Setup: ${bestSetup}. `;
+    
+    // Only show trade quality for actionable setups
+    if (bestSetup !== 'WAIT') {
+        result += `Trade Quality: ${tradeQuality}. `;
+    }
+    
+    result += `Key level: $${resistanceLevels[0]?.price?.toFixed(0) || supportLevels[0]?.price?.toFixed(0) || currentPrice.toFixed(0)}.\n\n`;
+    
+    result += `=== END SYNTH RECAP ===`;
+    
+    return result;
+};
+
+// Fetch synth data - used by cache and direct calls
+export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
+    // Step 1: Fetch top miners from leaderboard
+    const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
+    
+    if (leaderboardResponse.status === 429) {
+        throw new Error('Rate limited - predictions temporarily unavailable');
+    }
+    
+    if (!leaderboardResponse.ok) {
+        throw new Error(`Failed to fetch predictions leaderboard: ${leaderboardResponse.statusText}`);
+    }
+    
+    const leaderboardData = await leaderboardResponse.json();
+    
+    if (!leaderboardData || !Array.isArray(leaderboardData)) {
+        throw new Error("Invalid leaderboard data format");
+    }
+    
+    const topMiners = leaderboardData.slice(0, 10);
+    
+    if (topMiners.length === 0) {
+        throw new Error('No miners available on leaderboard');
+    }
+    
+    // Step 2: Fetch predictions for all miners
+    const minerIds = topMiners.map((m: any) => m.neuron_uid);
+    const minerParams = minerIds.map((id: number) => `miner=${id}`).join('&');
+    
+    const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
+    
+    const predictionsResponse = await fetch(predictionsUrl, {
+        headers: {
+            'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+        }
+    });
+    
+    if (predictionsResponse.status === 429) {
+        throw new Error('Rate limited - predictions temporarily unavailable');
+    }
+    
+    if (!predictionsResponse.ok) {
+        throw new Error(`Failed to fetch predictions: ${predictionsResponse.statusText}`);
+    }
+    
+    const predictionsData = await predictionsResponse.json();
+    
+    if (!predictionsData || !Array.isArray(predictionsData)) {
+        throw new Error("Invalid predictions data format");
+    }
+    
+    // Step 3: Consolidate predictions by time
+    const consolidatedMap = new Map<string, any>();
+    
+    predictionsData.forEach((minerPrediction: any) => {
+        const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
+        if (!minerInfo) {
+            console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
+            return;
         }
         
-        if (!predictionsResponse.ok) {
-            throw new Error(`Failed to fetch predictions: ${predictionsResponse.statusText}`);
+        if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
+            !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
+            console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
+            return;
         }
         
-        const predictionsData = await predictionsResponse.json();
+        const predictions = minerPrediction.prediction[0];
         
-        // Process the predictions data - the API returns an array of miner prediction objects
-        if (!predictionsData || !Array.isArray(predictionsData)) {
-            throw new Error("Invalid predictions data format");
-        }
-        
-        // Step 3: Consolidate predictions by time
-        const consolidatedMap = new Map<string, any>();
-        
-        // Process each miner's prediction data
-        predictionsData.forEach((minerPrediction: any) => {
-            // Find the rank for this miner
-            const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
-            if (!minerInfo) {
-                console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
+        predictions.forEach((pred: any) => {
+            if (!pred.time || pred.price === undefined) {
                 return;
             }
             
-            // Extract predictions from the nested array structure
-            if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
-                !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
-                console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
-                return;
-            }
+            const time = pred.time;
+            const price = pred.price;
             
-            // The predictions are in prediction[0] which is an array of {time, price} objects
-            const predictions = minerPrediction.prediction[0];
-            
-            // Process each prediction point
-            predictions.forEach((pred: any) => {
-                if (!pred.time || pred.price === undefined) {
-                    return;
-                }
-                
-                const time = pred.time;
-                const price = pred.price;
-                
-                if (!consolidatedMap.has(time)) {
-                    consolidatedMap.set(time, {
-                        time,
-                        predictions: []
-                    });
-                }
-                
-                consolidatedMap.get(time)!.predictions.push({
-                    miner_uid: minerPrediction.miner_uid,
-                    rank: topMiners.indexOf(minerInfo) + 1, // Position in leaderboard (0-indexed converted to 1-indexed)
-                    price
+            if (!consolidatedMap.has(time)) {
+                consolidatedMap.set(time, {
+                    time,
+                    predictions: []
                 });
-            });
-        });
-        
-        // Convert to array and sort by time
-        const consolidatedArray = Array.from(consolidatedMap.values())
-            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        
-        // Format raw prediction data for AI analysis
-        let resultString = `📊 ${asset} SYNTH PREDICTIONS\n`;
-        
-        // Count unique miners that returned predictions
-        const uniqueMiners = new Set<number>();
-        consolidatedArray.forEach(timeSlot => {
-            timeSlot.predictions.forEach((pred: any) => {
-                uniqueMiners.add(pred.miner_uid);
-            });
-        });
-        
-        resultString += `├─ Active Miners: ${uniqueMiners.size}\n`;
-        resultString += `├─ Prediction Windows: ${consolidatedArray.length}\n`;
-        resultString += `└─ Asset: ${asset}\n\n`;
-        
-        // Raw prediction data by time - let AI do the analysis
-        consolidatedArray.forEach((timeSlot, index) => {
-            const isLast = index === consolidatedArray.length - 1;
-            const prefix = isLast ? '└─' : '├─';
-            
-            resultString += `${prefix} Time: ${timeSlot.time}\n`;
-            
-            // Sort miners by rank for consistent display
-            const sortedPredictions = timeSlot.predictions.sort((a: any, b: any) => a.rank - b.rank);
-            
-            sortedPredictions.forEach((pred: any, predIndex: number) => {
-                const price = typeof pred.price === 'number' ? pred.price.toFixed(2) : pred.price;
-                const isLastPred = predIndex === sortedPredictions.length - 1;
-                const predPrefix = isLast ? (isLastPred ? '   └─' : '   ├─') : (isLastPred ? '│  └─' : '│  ├─');
-                resultString += `${predPrefix} Rank ${pred.rank} (Miner ${pred.miner_uid}): ${price}\n`;
-            });
-            
-            if (!isLast) {
-                resultString += `│\n`;
             }
+            
+            consolidatedMap.get(time)!.predictions.push({
+                miner_uid: minerPrediction.miner_uid,
+                rank: topMiners.indexOf(minerInfo) + 1,
+                price
+            });
         });
+    });
+    
+    // Convert to array and sort by time
+    const consolidatedArray = Array.from(consolidatedMap.values())
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    
+    return consolidatedArray;
+};
+
+export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache) => {
+    try {
+        // Get consolidated array from cache if available, fallback to direct fetch
+        const consolidatedArray = gmxDataCache ? 
+            await gmxDataCache.getSynthConsolidatedArray(asset) : 
+            await fetchSynthData(asset);
         
-        return resultString;
+        // Get current price from cache
+        const currentPrice = await getCurrentAssetPrice(asset, gmxDataCache);
+        
+        // Analyze and return formatted string
+        return analyzeSynthPredictions(consolidatedArray, asset, currentPrice);
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to fetch Synth predictions for ${asset}: ${errorMsg}`);
+        console.error(`[SYNTH_ANALYSIS] Failed to get ${asset} analysis:`, errorMsg);
+        return `=== SYNTH INTELLIGENCE RECAP [${new Date().toISOString()}] ===\n\n⚠️ Error: ${errorMsg}\n\n=== END SYNTH RECAP ===`;
     }
 };
 

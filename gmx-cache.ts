@@ -1,5 +1,5 @@
 import { type GmxSdk } from "@gmx-io/sdk";
-import { get_synth_predictions_consolidated_str } from './gmx-queries';
+import { fetchSynthData } from './gmx-queries';
 
 // Enhanced cache for all GMX data types and external APIs
 export class EnhancedDataCache {
@@ -27,11 +27,11 @@ export class EnhancedDataCache {
     private readonly POSITION_INFO_TTL_MS = 300_000; // 5 minutes
     private positionInfoFetchPromise: Promise<any> | null = null;
 
-    // Synth AI cache
-    private synthCache: Map<string, any> = new Map();
+    // Synth AI cache - stores consolidated arrays
+    private synthCache: Map<string, any[]> = new Map();
     private synthLastFetch: Map<string, number> = new Map();
     private readonly SYNTH_TTL_MS = 300_000; // 5 minutes
-    private synthFetchPromises: Map<string, Promise<any>> = new Map();
+    private synthFetchPromises: Map<string, Promise<any[]>> = new Map();
 
     constructor(private sdk: GmxSdk) {}
 
@@ -175,39 +175,41 @@ export class EnhancedDataCache {
     // 🤖 SYNTH AI API METHODS
     // ═══════════════════════════════════════════════════════════════════════════════
 
-    async getSynthPredictions(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<string> {
+    // Get cached consolidated array (raw data)
+    async getSynthConsolidatedArray(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<any[]> {
         const now = Date.now();
         const cacheKey = `synth_${asset}`;
         const lastFetch = this.synthLastFetch.get(cacheKey) || 0;
 
         // Return cached data if still valid
         if (!forceRefresh && this.synthCache.has(cacheKey) && (now - lastFetch) < this.SYNTH_TTL_MS) {
-            console.warn(`[SynthCache] Returning cached ${asset} predictions (age: ${now - lastFetch}ms, ttl: ${this.SYNTH_TTL_MS}ms)`);
+            console.warn(`[SynthCache] Returning cached ${asset} consolidated array (age: ${now - lastFetch}ms, ttl: ${this.SYNTH_TTL_MS}ms)`);
             return this.synthCache.get(cacheKey)!;
         }
 
         // If a fetch is already in progress, return that promise
         const existingPromise = this.synthFetchPromises.get(cacheKey);
         if (existingPromise) {
-            console.warn(`[SynthCache] Returning in-progress ${asset} fetch`);
+            console.warn(`[SynthCache] Returning in-progress ${asset} consolidated array fetch`);
             return existingPromise;
         }
 
         // Start new fetch
-        console.warn(`[SynthCache] Fetching fresh ${asset} predictions`);
-        const fetchPromise = this.fetchSynthPredictions(asset);
+        console.warn(`[SynthCache] Fetching fresh ${asset} consolidated array`);
+        const fetchPromise = this.fetchSynthConsolidatedArray(asset);
         this.synthFetchPromises.set(cacheKey, fetchPromise);
 
         try {
-            const predictions = await fetchPromise;
-            this.synthCache.set(cacheKey, predictions);
+            const consolidatedArray = await fetchPromise;
+            this.synthCache.set(cacheKey, consolidatedArray);
             this.synthLastFetch.set(cacheKey, now);
-            console.warn(`[SynthCache] ${asset} predictions cached at ${now}`);
-            return predictions;
+            console.warn(`[SynthCache] ${asset} consolidated array cached at ${now} (timeSlots: ${consolidatedArray.length})`);
+            return consolidatedArray;
         } finally {
             this.synthFetchPromises.delete(cacheKey);
         }
     }
+
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 🔧 PRIVATE FETCH METHODS
@@ -262,21 +264,21 @@ export class EnhancedDataCache {
         }
     }
 
-    private async fetchSynthPredictions(asset: 'BTC' | 'ETH'): Promise<string> {
+    private async fetchSynthConsolidatedArray(asset: 'BTC' | 'ETH'): Promise<any[]> {
         try {
-            // Import the existing Synth API function
-            const predictions = await get_synth_predictions_consolidated_str(asset);
-            return predictions;
+            // Use the exported function from queries
+            const consolidatedArray = await fetchSynthData(asset);
+            return consolidatedArray;
         } catch (error) {
-            console.error(`[SynthCache] Failed to fetch ${asset} predictions:`, error);
-            // Return cached data if available, otherwise return error message
+            console.error(`[SynthCache] Failed to fetch ${asset} consolidated array:`, error);
+            // Return cached data if available, otherwise empty array
             const cacheKey = `synth_${asset}`;
             const cachedData = this.synthCache.get(cacheKey);
-            if (cachedData) {
-                console.warn(`[SynthCache] Returning stale ${asset} data due to fetch error`);
+            if (cachedData && Array.isArray(cachedData)) {
+                console.warn(`[SynthCache] Returning stale ${asset} consolidated array due to fetch error`);
                 return cachedData;
             }
-            return `⚠️ ${asset} predictions temporarily unavailable`;
+            return [];
         }
     }
 

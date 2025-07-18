@@ -25,7 +25,7 @@ import { z } from "zod/v4";
 import { createGmxActions } from './gmx-actions';
 import { createGmxWalletFromEnv } from './gmx-wallet';
 import { EnhancedDataCache } from './gmx-cache';
-import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
+import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -96,8 +96,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get consolidated BTC price predictions from top-performing Synth miners
-- get_synth_eth_predictions: Get consolidated ETH price predictions from top-performing Synth miners
+- get_synth_btc_predictions: Get intelligent BTC analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners
+- get_synth_eth_predictions: Get intelligent ETH analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
@@ -471,8 +471,8 @@ const gmxContext = context({
                     const volumes = await get_daily_volumes_str(sdk, gmxDataCache);
                     const orders = await get_orders_str(sdk, gmxDataCache);
                     const trading_history = await get_trading_history_str(sdk, gmxDataCache);
-                    const btc_predictions = await get_synth_predictions_consolidated_str('BTC', gmxDataCache);
-                    const eth_predictions = await get_synth_predictions_consolidated_str('ETH', gmxDataCache);
+                    const btc_predictions = await get_synth_analysis_str('BTC', gmxDataCache);
+                    const eth_predictions = await get_synth_analysis_str('ETH', gmxDataCache);
                     const btc_technical_analysis = await get_technical_analysis_str(sdk, 'BTC', gmxDataCache);
                     const eth_technical_analysis = await get_technical_analysis_str(sdk, 'ETH', gmxDataCache);
                     const currentTask = "Trading cycle initiated";
@@ -500,7 +500,7 @@ const gmxContext = context({
                     await send(gmxContext, context, {text});
                 }
                 //initial run
-                tradingCycle();
+                //tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
@@ -565,8 +565,8 @@ await agent.start({
     volumes: await get_daily_volumes_str(sdk, gmxDataCache),
     orders: await get_orders_str(sdk, gmxDataCache),
     trading_history: await get_trading_history_str(sdk, gmxDataCache),
-    synth_btc_predictions: await get_synth_predictions_consolidated_str('BTC', gmxDataCache),
-    synth_eth_predictions: await get_synth_predictions_consolidated_str('ETH', gmxDataCache),
+    synth_btc_predictions: await get_synth_analysis_str('BTC', gmxDataCache),
+    synth_eth_predictions: await get_synth_analysis_str('ETH', gmxDataCache),
     btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
     eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH', gmxDataCache),
 });

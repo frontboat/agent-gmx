@@ -14,7 +14,7 @@ import {
     convertToUsd,
     safeBigInt
 } from './gmx-utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_predictions_consolidated_str, get_technical_analysis_str, get_trading_history_str } from './gmx-queries';
+import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from './gmx-queries';
 import { EnhancedDataCache } from './gmx-cache';
 import { transactionQueue } from './transaction-queue';
 
@@ -317,12 +317,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // Get BTC Predictions - Consolidated from top miners
     action({
         name: "get_synth_btc_predictions",
-        description: "Get consolidated BTC price predictions from top-performing Synth miners",
+        description: "Get intelligent BTC analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners",
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_synth_btc_predictions action');
             try {
                 console.warn('[action] Fetching BTC predictions from Synth');
-                const result = await get_synth_predictions_consolidated_str('BTC', gmxDataCache);
+                const result = await get_synth_analysis_str('BTC', gmxDataCache);
                 console.warn(`[action] Successfully fetched BTC predictions (dataLength: ${result.length})`);
                 
                 let memory = ctx.memory as GmxMemory;
@@ -354,12 +354,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // Get ETH Predictions - Consolidated from top miners
     action({
         name: "get_synth_eth_predictions",
-        description: "Get consolidated ETH price predictions from top-performing Synth miners (rank > 0.08 and top CRPS scorer)",
+        description: "Get intelligent ETH analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners",
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_synth_eth_predictions action');
             try {
                 console.warn('[action] Fetching ETH predictions from Synth');
-                const result = await get_synth_predictions_consolidated_str('ETH', gmxDataCache);
+                const result = await get_synth_analysis_str('ETH', gmxDataCache);
                 console.warn(`[action] Successfully fetched ETH predictions (dataLength: ${result.length})`);
                 
                 let memory = ctx.memory as GmxMemory;

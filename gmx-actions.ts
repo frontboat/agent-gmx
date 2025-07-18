@@ -1635,6 +1635,25 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
                 
+                // FAILSAFE: Validate price direction for take profit
+                const triggerPriceBigInt = BigInt(data.triggerPrice);
+                const currentPriceFormatted = currentPrice.toFixed(2);
+                const triggerPriceFormatted = triggerPriceDecimal.toFixed(2);
+                
+                if (isLong && triggerPriceBigInt <= markPrice) {
+                    throw new Error(`Invalid take profit for LONG: price ($${triggerPriceFormatted}) must be higher than current price ($${currentPriceFormatted})`);
+                }
+                if (!isLong && triggerPriceBigInt >= markPrice) {
+                    throw new Error(`Invalid take profit for SHORT: price ($${triggerPriceFormatted}) must be lower than current price ($${currentPriceFormatted})`);
+                }
+                
+                // FAILSAFE: Minimum distance check (0.1%)
+                const priceDiff = Math.abs(triggerPriceDecimal - currentPrice);
+                const minDistance = currentPrice * 0.001; // 0.1%
+                if (priceDiff < minDistance) {
+                    throw new Error(`Take profit price too close to current price. Minimum distance: 0.1% (at least $${minDistance.toFixed(2)} from current $${currentPriceFormatted})`);
+                }
+                
                 console.warn('SET_TAKE_PROFIT', 'Position and price data retrieved', {
                     market: marketInfo.name,
                     direction,
@@ -1839,6 +1858,25 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const markPrice = position.markPrice;
                 const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
+                
+                // FAILSAFE: Validate price direction for stop loss
+                const triggerPriceBigInt = BigInt(data.triggerPrice);
+                const currentPriceFormatted = currentPrice.toFixed(2);
+                const triggerPriceFormatted = triggerPriceDecimal.toFixed(2);
+                
+                if (isLong && triggerPriceBigInt >= markPrice) {
+                    throw new Error(`Invalid stop loss for LONG: price ($${triggerPriceFormatted}) must be lower than current price ($${currentPriceFormatted})`);
+                }
+                if (!isLong && triggerPriceBigInt <= markPrice) {
+                    throw new Error(`Invalid stop loss for SHORT: price ($${triggerPriceFormatted}) must be higher than current price ($${currentPriceFormatted})`);
+                }
+                
+                // FAILSAFE: Minimum distance check (0.1%)
+                const priceDiff = Math.abs(triggerPriceDecimal - currentPrice);
+                const minDistance = currentPrice * 0.001; // 0.1%
+                if (priceDiff < minDistance) {
+                    throw new Error(`Stop loss price too close to current price. Minimum distance: 0.1% (at least $${minDistance.toFixed(2)} from current $${currentPriceFormatted})`);
+                }
                 
                 console.warn('SET_STOP_LOSS', 'Position and price data retrieved', {
                     market: marketInfo.name,

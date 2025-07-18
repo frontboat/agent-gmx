@@ -8,7 +8,7 @@
 // 📦 IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { openrouter } from "@openrouter/ai-sdk-provider";
+import { anthropic } from "@ai-sdk/anthropic";
 import { 
     createDreams, 
     context, 
@@ -35,7 +35,7 @@ console.warn("🚀 Starting GMX Trading Agent...");
 
 const env = validateEnv(
     z.object({
-        OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
+        ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
         OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
         GMX_NETWORK: z.enum(["arbitrum", "avalanche"]).default("arbitrum"),
         GMX_CHAIN_ID: z.string(),
@@ -544,7 +544,7 @@ console.warn("⚡ Initializing Vega trading agent...");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openrouter("anthropic/claude-sonnet-4"), //anthropic/claude-sonnet-4 google/gemini-2.5-flash-preview-05-20
+    model: anthropic("claude-sonnet-4-20250514"),
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,

@@ -44,6 +44,7 @@ bun run agent-gmx.ts
    - Formats complex GMX data into AI-readable strings
    - Provides: market info, positions, orders, trades, price feeds
    - Cache-first approach with fallback to SDK
+   - Contains advanced Synth AI analysis with intelligent trading signals
 
 4. **gmx-utils.ts** - Financial calculations and utilities
    - BigInt-based precision for blockchain compatibility
@@ -74,7 +75,8 @@ bun run agent-gmx.ts
 - **Sequential Transaction Execution**: Write operations queued with delays to prevent nonce errors
 - **Memory System**: Tracks positions, trades, and performance metrics
 - **Error Resilience**: Comprehensive error handling with detailed logging
-- **Risk Management**: Built-in position sizing and stop-loss mechanisms
+- **Risk Management**: Built-in position sizing and stop-loss mechanisms with failsafe validations
+- **Intelligent Analysis**: Advanced Synth AI integration with momentum analysis and dynamic levels
 
 ## Development Requirements
 
@@ -84,7 +86,7 @@ Create a `.env` file with:
 
 ```bash
 # Required API Keys
-OPENROUTER_API_KEY=
+ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 SYNTH_API_KEY=
 SUPABASE_URL=
@@ -171,7 +173,7 @@ When adding new trading actions to `gmx-actions.ts`:
 - **GMX SDK (@gmx-io/sdk)**: Primary trading interface for positions, orders, markets data
 - **Viem**: Low-level blockchain interactions and wallet management
 - **Daydreams AI Framework**: Agent orchestration, memory management, and action coordination
-- **OpenRouter**: AI model access (Claude Sonnet 4 for main agent)
+- **Anthropic**: Direct AI model access (Claude Sonnet 4 for main agent)
 - **OpenAI**: Vector embeddings for memory system
 - **Synth AI**: Real-time market predictions from decentralized AI miners
 - **Supabase**: Persistent memory storage and vector storage for semantic memory
@@ -184,7 +186,7 @@ The caching system is designed to minimize API calls and improve performance:
 - **Markets Cache**: TTL 5 minutes - stores market info and token data
 - **Position Cache**: TTL 5 minutes - stores position data 
 - **Position Info Cache**: TTL 5 minutes - stores enhanced position info
-- **Synth Cache**: TTL 5 minutes - stores AI predictions per asset
+- **Synth Cache**: TTL 5 minutes - stores consolidated AI prediction arrays per asset
 
 ### Cache Usage Pattern
 ```typescript
@@ -217,9 +219,83 @@ await transactionQueue.enqueueReadAfterWrite('get_fresh_data', async () => {
 });
 ```
 
+## Enhanced Risk Management System
+
+### Failsafe Validations (v1.69+)
+All take profit and stop loss actions now include comprehensive failsafe mechanisms:
+
+#### Take Profit Failsafes:
+- **Price Direction Validation**: LONG positions require TP price > current price, SHORT positions require TP price < current price
+- **Minimum Distance Check**: 0.1% minimum distance from current price to prevent accidental triggering
+- **Liquidation Protection**: Ensures TP levels don't conflict with liquidation thresholds
+
+#### Stop Loss Failsafes:
+- **Price Direction Validation**: LONG positions require SL price < current price, SHORT positions require SL price > current price
+- **Minimum Distance Check**: 0.1% minimum distance from current price
+- **Maximum Loss Protection**: Prevents setting stops that would result in catastrophic losses
+
+```typescript
+// Example failsafe validation in action
+if (isLong && triggerPriceBigInt <= markPrice) {
+    throw new Error(`Invalid take profit for LONG: price (${triggerPriceFormatted}) must be higher than current price (${currentPriceFormatted})`);
+}
+
+const minimumDistance = markPrice * 1n / 1000n; // 0.1%
+if (isLong && triggerPriceBigInt < markPrice + minimumDistance) {
+    throw new Error(`Take profit too close to current price. Minimum distance: 0.1%`);
+}
+```
+
+## Advanced Synth AI Integration
+
+### Intelligent Analysis System (v1.68+)
+The `get_synth_analysis_str` function provides comprehensive market intelligence:
+
+#### Multi-Timeframe Momentum Analysis:
+- **Short-term (15m-1h)**: High-frequency signals for entry timing
+- **Medium-term (1h-4h)**: Trend confirmation and direction bias
+- **Long-term (4h+)**: Overall market structure and major levels
+
+#### Dynamic Stop/Take Profit Recommendations:
+- **Prediction-Based Levels**: Uses actual AI prediction clusters instead of arbitrary percentages
+- **Risk/Reward Optimization**: Ensures minimum 2:1 R:R ratios
+- **Volatility Adjustment**: Adapts stops based on current market volatility regime
+
+#### Smart Setup Detection:
+- **WAIT**: When timeframes conflict or insufficient prediction range
+- **LONG/SHORT**: Only when multiple signals align with sufficient confidence
+- **Trade Quality Grading**: A, B+, B, C, D based on setup confluence
+
+```typescript
+// Example analysis output structure
+BEARISH bias with MODERATE confidence. Best Setup: WAIT. Key level: $3532.
+
+// Only shows detailed metrics for actionable setups (not WAIT)
+BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level: $3587.
+```
+
+### Synth Data Flow Architecture:
+1. **Cache Layer**: Stores consolidated prediction arrays from top 10 miners
+2. **Analysis Function**: Processes raw data into intelligent trading signals
+3. **Action Layer**: Consumes analyzed recommendations for trading decisions
+
 ## Debugging and Logging
 
 - **Console Logging**: All actions log with `[Action]` prefix for easy filtering
 - **Cache Logging**: Cache operations logged with `[CacheType]` prefix
 - **Transaction Queue**: Operations logged with execution timing
 - **Error Handling**: Comprehensive error logging with context
+- **Failsafe Logging**: Detailed validation error messages for debugging risk management
+
+## Recent Upgrades (v1.68-v1.69)
+
+### Version 1.69 - Enhanced Safety
+- **Failsafe Limit Orders**: Complete validation system for all order types
+- **Risk Management**: Comprehensive stop/take profit validations
+- **Error Prevention**: Eliminates common trading errors through pre-validation
+
+### Version 1.68 - Intelligent Analysis  
+- **Synth AI Integration**: Advanced analysis with momentum and confluence
+- **Dynamic Levels**: Prediction-based stops and targets
+- **Smart Setup Detection**: Logical trade quality assessment
+- **Architectural Cleanup**: Optimized data flow and reduced circular dependencies

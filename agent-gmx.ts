@@ -96,8 +96,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get intelligent BTC analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners
-- get_synth_eth_predictions: Get intelligent ETH analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners
+- get_synth_btc_predictions: Get BTC analysis from top 10 Synth AI miners. Returns percentile-based zones (0.5%-99.5%), current market position, trading signals (LONG/SHORT/WAIT), forecasted 24h volatility, and zone-based entry/exit levels
+- get_synth_eth_predictions: Get ETH analysis from top 10 Synth AI miners. Returns percentile-based zones (0.5%-99.5%), current market position, trading signals (LONG/SHORT/WAIT), forecasted 24h volatility, and zone-based entry/exit levels
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
@@ -217,15 +217,17 @@ Only proceed if Phase 1 shows opportunity:
 Based on Phase 1 & 2 analysis, choose execution method:
 
 **Confluence Score Checklist:**
-□ **MANDATORY for market orders** : Near key support level for LONG / Near key resistance level for SHORT
-□ Multiple timeframes agree on direction
-□ At least 3 technical indicators confirm
-□ Risk:reward ratio exceeds 2:1
+□ **MANDATORY for market orders**: Near key support level for LONG / Near key resistance level for SHORT
+□ **Zone Alignment**: Synth zone signal matches intended direction (e.g., BEARISH zones for LONG, BULLISH zones for SHORT)
+□ Multiple timeframes agree on direction (technical indicators)
+□ At least 2 technical indicators confirm the setup
+□ Risk:reward ratio exceeds 2:1 (use zone boundaries for natural stops/targets)
 □ Price momentum aligns with trade direction
 
 **Entry Method Selection:**
 - **All boxes checked + strong momentum** → Market order single entry
-- **4 boxes checked + clear setup** → Scale in with limit orders  
+- **5 boxes checked + strong synth signal** → Scale in with market orders
+- **4 boxes checked + synth signal** → Scale in with limit orders
 - **3 or fewer boxes** → NO TRADE
 
 **Position Building Execution:**
@@ -258,15 +260,15 @@ Based on Phase 1 & 2 analysis, choose execution method:
 - **Adjust for**: Setup quality, volatility, existing exposure
 
 ### Risk Controls
-- **Stop loss**: ALWAYS set at technical invalidation
-- **Take profit**: Set at logical resistance/support
+- **Stop loss**: Set at technical invalidation and synth zone boundaries
+- **Take profit**: Set at logical resistance/support and synth zone boundaries
 - **Portfolio heat**: Monitor total risk exposure
 - **Correlation**: Avoid concentrated directional bias
 
 ### Scaled Position Management
 - **Combined risk**: Total position risk stays within original plan
 - **Stop adjustment**: One stop for entire position at key level
-- **Profit taking**: Can scale out in reverse (1/3 at each target)
+- **Profit taking**: Can scale out in reverse - setup take profit limit orders between 20-40% of the position at each zone boundary
 - **Record keeping**: Track average entry and total size
 
 ### Capital Allocation
@@ -339,11 +341,11 @@ Only after position management, scan for new opportunities:
 - Are there any correlation considerations between the two?
 
 **Q5: What are the Synth predictions telling me?**
-- Bullish vs bearish?
-- How strong is the consensus?
-- Do predictions align with my technical analysis?
-- Are there any extreme readings that warrant attention?
-- Predictions are not always accurate, but they can be a good indicator of the market sentiment
+- Which percentile zone is the current price in (0.5-5%, 5-20%, etc.)?
+- What's the trading signal (LONG/SHORT/WAIT) and quality (A+, A, B, etc.)?
+- What's the forecasted 24h volatility?
+- Are we in an extreme zone (strong opportunity) or neutral zone (wait)?
+- Do the zone-based targets align with my technical analysis?
 
 ### CYCLE END: Execution Questions
 Before taking any new positions:
@@ -500,7 +502,7 @@ const gmxContext = context({
                     await send(gmxContext, context, {text});
                 }
                 //initial run
-                //tradingCycle();
+                tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 

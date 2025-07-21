@@ -953,378 +953,332 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache?: Enhance
     }
 };
 
-// Helper function to analyze synth predictions
+// Helper function to analyze synth predictions using percentile-based method
 const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH', currentPrice: number) => {
     const timestamp = new Date().toISOString();
     
-    // Calculate timeframe predictions with realistic confidence based on miner agreement
-    const getClosestPrediction = (targetMinutes: number) => {
-        const targetTime = Date.now() + (targetMinutes * 60 * 1000);
-        let closest = consolidatedArray[0];
-        let minDiff = Math.abs(new Date(closest?.time || 0).getTime() - targetTime);
-        
-        for (const slot of consolidatedArray) {
-            const diff = Math.abs(new Date(slot.time).getTime() - targetTime);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closest = slot;
-            }
-        }
-        
-        if (closest?.predictions?.length > 0) {
-            const predictions = closest.predictions;
-            const avgPrice = predictions.reduce((sum: number, p: any) => sum + (p.price || 0), 0) / predictions.length;
-            
-            // Calculate realistic confidence based on prediction variance
-            const variance = predictions.reduce((sum: number, p: any) => sum + Math.pow((p.price || 0) - avgPrice, 2), 0) / predictions.length;
-            const stdDev = Math.sqrt(variance) / avgPrice;
-            // Convert std dev to confidence: lower variance = higher confidence
-            const confidencePct = Math.max(0, Math.min(100, 100 * (1 - stdDev * 10)));
-            
-            return { price: avgPrice, confidence: confidencePct, minerCount: predictions.length };
-        }
-        return { price: currentPrice, confidence: 50, minerCount: 0 };
-    };
+    // Extract all predictions across all time slots
+    const allPredictions: { time: Date, price: number, minerUid: number }[] = [];
     
-    const timeframes = {
-        '15min': getClosestPrediction(15),
-        '30min': getClosestPrediction(30),
-        '1h': getClosestPrediction(60),
-        '2h': getClosestPrediction(120),
-        '4h': getClosestPrediction(240),
-        '8h': getClosestPrediction(480),
-        '24h': getClosestPrediction(1440)
-    };
-    
-    // Enhanced consensus calculation
-    const allPredictions = consolidatedArray.flatMap(slot => slot.predictions || []);
-    const allPrices = allPredictions.map((p: any) => p.price || 0).filter(p => p > 0);
-    const avgPrediction = allPrices.length > 0 ? 
-        allPrices.reduce((sum: number, p: number) => sum + p, 0) / allPrices.length : currentPrice;
-    
-    const bullishCount = allPrices.filter(p => p > currentPrice).length;
-    const bearishCount = allPrices.filter(p => p < currentPrice).length;
-    const totalPredictions = allPrices.length;
-    
-    const consensus = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'NEUTRAL';
-    const agreementRatio = totalPredictions > 0 ? Math.max(bullishCount, bearishCount) / totalPredictions : 0;
-    
-    // More nuanced confidence based on actual agreement
-    const confidence = agreementRatio > 0.85 ? 'HIGH' : agreementRatio > 0.65 ? 'MODERATE' : 'LOW';
-    
-    // Enhanced volatility analysis
-    const priceVariance = allPrices.length > 1 ? 
-        allPrices.reduce((sum, p) => sum + Math.pow(p - avgPrediction, 2), 0) / allPrices.length : 0;
-    const volatilityPct = Math.sqrt(priceVariance) / currentPrice * 100;
-    const volRegime = volatilityPct > 2.5 ? 'high' : volatilityPct > 1.0 ? 'moderate' : 'low';
-    
-    // Volatility trend analysis
-    const recentSlots = consolidatedArray.slice(-20); // Last 20 time slots
-    const olderSlots = consolidatedArray.slice(-40, -20);
-    
-    const getSlotVolatility = (slots: any[]) => {
-        const slotPrices = slots.flatMap(slot => (slot.predictions || []).map((p: any) => p.price || 0));
-        if (slotPrices.length < 2) return 0;
-        const slotAvg = slotPrices.reduce((sum, p) => sum + p, 0) / slotPrices.length;
-        const slotVar = slotPrices.reduce((sum, p) => sum + Math.pow(p - slotAvg, 2), 0) / slotPrices.length;
-        return Math.sqrt(slotVar) / slotAvg * 100;
-    };
-    
-    const recentVol = getSlotVolatility(recentSlots);
-    const olderVol = getSlotVolatility(olderSlots);
-    const volTrend = recentVol > olderVol * 1.2 ? 'expanding' : recentVol < olderVol * 0.8 ? 'contracting' : 'stable';
-    
-    // Fix uncertainty correlation with volatility
-    const uncertaintyLevel = volRegime === 'high' ? 'high' : volRegime === 'moderate' ? 'moderate' : 'low';
-    
-    // Find support/resistance levels with weighted clustering
-    const priceCluster = (prices: number[], tolerance = 0.008) => {
-        const clusters: { price: number, count: number, weight: number }[] = [];
-        
-        for (const price of prices) {
-            let foundCluster = false;
-            for (const cluster of clusters) {
-                if (Math.abs(price - cluster.price) / cluster.price <= tolerance) {
-                    const newWeight = cluster.weight + 1;
-                    cluster.price = (cluster.price * cluster.weight + price) / newWeight;
-                    cluster.count++;
-                    cluster.weight = newWeight;
-                    foundCluster = true;
-                    break;
+    for (const slot of consolidatedArray) {
+        if (slot.predictions && Array.isArray(slot.predictions)) {
+            const slotTime = new Date(slot.time);
+            for (const pred of slot.predictions) {
+                if (pred.price && pred.price > 0) {
+                    allPredictions.push({
+                        time: slotTime,
+                        price: pred.price,
+                        minerUid: pred.miner_uid || pred.minerUid || 0
+                    });
                 }
             }
-            if (!foundCluster) {
-                clusters.push({ price, count: 1, weight: 1 });
+        }
+    }
+    
+    if (allPredictions.length === 0) {
+        return `${asset} Analysis @ ${timestamp}\nNo predictions available.`;
+    }
+    
+    // Sort all prices for percentile calculation
+    const allPrices = allPredictions.map(p => p.price);
+    const sortedPrices = [...allPrices].sort((a, b) => a - b);
+    
+    // Calculate percentiles for zone analysis
+    const getPercentile = (arr: number[], percentile: number): number => {
+        const index = Math.ceil(arr.length * percentile / 100) - 1;
+        return arr[Math.max(0, Math.min(index, arr.length - 1))];
+    };
+    
+    const p0_5 = getPercentile(sortedPrices, 0.5);
+    const p5 = getPercentile(sortedPrices, 5);
+    const p20 = getPercentile(sortedPrices, 20);
+    const p35 = getPercentile(sortedPrices, 35);
+    const p50 = getPercentile(sortedPrices, 50); // Median
+    const p65 = getPercentile(sortedPrices, 65);
+    const p80 = getPercentile(sortedPrices, 80);
+    const p95 = getPercentile(sortedPrices, 95);
+    const p99_5 = getPercentile(sortedPrices, 99.5);
+    
+    // Define market zones based on percentile ranges
+    const zones = [
+        { name: 'EXTREME_BEARISH', range: '0.5-5%', min: p0_5, max: p5, signal: 'STRONG_BUY' },
+        { name: 'STRONG_BEARISH', range: '5-20%', min: p5, max: p20, signal: 'BUY' },
+        { name: 'MODERATE_BEARISH', range: '20-35%', min: p20, max: p35, signal: 'WEAK_BUY' },
+        { name: 'WEAK_BEARISH', range: '35-50%', min: p35, max: p50, signal: 'NEUTRAL_BUY' },
+        { name: 'WEAK_BULLISH', range: '50-65%', min: p50, max: p65, signal: 'NEUTRAL_SELL' },
+        { name: 'MODERATE_BULLISH', range: '65-80%', min: p65, max: p80, signal: 'WEAK_SELL' },
+        { name: 'STRONG_BULLISH', range: '80-95%', min: p80, max: p95, signal: 'SELL' },
+        { name: 'EXTREME_BULLISH', range: '95-99.5%', min: p95, max: p99_5, signal: 'STRONG_SELL' }
+    ];
+    
+    // Find current zone
+    let currentZone = null;
+    for (const zone of zones) {
+        if (currentPrice >= zone.min && currentPrice <= zone.max) {
+            currentZone = zone;
+            break;
+        }
+    }
+    
+    // If price is outside all zones, determine if it's below or above
+    if (!currentZone) {
+        if (currentPrice < p0_5) {
+            currentZone = { name: 'ULTRA_BEARISH', range: '<0.5%', min: 0, max: p0_5, signal: 'EXTREME_BUY' };
+        } else if (currentPrice > p99_5) {
+            currentZone = { name: 'ULTRA_BULLISH', range: '>99.5%', min: p99_5, max: Infinity, signal: 'EXTREME_SELL' };
+        }
+    }
+    
+    // Calculate FORECASTED VOLATILITY from Synth predictions for next 24 hours
+    const forecastedPricePath: { time: number, price: number }[] = [];
+    
+    for (const slot of consolidatedArray) {
+        if (slot.predictions && slot.predictions.length > 0) {
+            const slotPrices = slot.predictions.map((p: any) => p.price || 0).filter((p: number) => p > 0);
+            if (slotPrices.length > 0) {
+                // Use median price for each time slot as the consensus forecast
+                const sortedSlotPrices = [...slotPrices].sort((a, b) => a - b);
+                const medianPrice = sortedSlotPrices[Math.floor(sortedSlotPrices.length / 2)];
+                forecastedPricePath.push({
+                    time: new Date(slot.time).getTime(),
+                    price: medianPrice
+                });
             }
         }
-        
-        return clusters.sort((a, b) => b.weight - a.weight).slice(0, 3);
-    };
-    
-    const resistanceLevels = priceCluster(allPrices.filter(p => p > currentPrice));
-    const supportLevels = priceCluster(allPrices.filter(p => p < currentPrice));
-    
-    // Enhanced momentum analysis with different confidence per timeframe
-    const getMomentum = (tf: any[], label: string) => {
-        const avgPrice = tf.reduce((sum, t) => sum + t.price, 0) / tf.length;
-        const direction = avgPrice > currentPrice ? 'BULLISH' : 'BEARISH';
-        const strength = Math.abs(avgPrice - currentPrice) / currentPrice * 100;
-        
-        // Realistic confidence based on actual timeframe data
-        const avgConfidence = tf.reduce((sum, t) => sum + t.confidence, 0) / tf.length;
-        const minerCoverage = tf.reduce((sum, t) => sum + t.minerCount, 0) / tf.length / 10; // Normalize to 10 miners
-        const finalConfidence = Math.min(100, avgConfidence * minerCoverage);
-        
-        return { direction, strength, confidence: finalConfidence };
-    };
-    
-    const shortTerm = [timeframes['15min'], timeframes['30min'], timeframes['1h']];
-    const mediumTerm = [timeframes['1h'], timeframes['2h'], timeframes['4h']];
-    const longTerm = [timeframes['4h'], timeframes['8h'], timeframes['24h']];
-    
-    const shortMomentum = getMomentum(shortTerm, 'short');
-    const mediumMomentum = getMomentum(mediumTerm, 'medium');
-    const longMomentum = getMomentum(longTerm, 'long');
-    
-    // Enhanced stop/take profit calculation with minimum 2:1 R:R
-    const baseStopDistance = Math.max(volatilityPct * 0.8, 0.8); // Base stop distance
-    
-    // Adjust stops and targets to achieve minimum 2:1 R:R
-    const minRiskReward = 2.0;
-    const aggressiveStopPct = baseStopDistance;
-    const conservativeStopPct = baseStopDistance * 1.5;
-    
-    // Calculate take profits ensuring good R:R
-    const longStops = {
-        aggressive: currentPrice * (1 - aggressiveStopPct * 0.01),
-        conservative: currentPrice * (1 - conservativeStopPct * 0.01)
-    };
-    
-    const shortStops = {
-        aggressive: currentPrice * (1 + aggressiveStopPct * 0.01),
-        conservative: currentPrice * (1 + conservativeStopPct * 0.01)
-    };
-    
-    // Base stops/targets on actual prediction levels
-    const maxPrediction = Math.max(...allPrices);
-    const minPrediction = Math.min(...allPrices);
-    const predictionSpread = maxPrediction - minPrediction;
-    
-    // If prediction range is too small, adjust targets to minimum viable levels
-    const minViableRange = currentPrice * 0.015; // 1.5% minimum range needed
-    const useActualLevels = predictionSpread >= minViableRange;
-    
-    let longTPs: number[], shortTPs: number[];
-    
-    if (useActualLevels && resistanceLevels.length >= 2) {
-        // Use actual prediction-based resistance levels
-        longTPs = [
-            resistanceLevels[0]?.price || currentPrice * 1.02,
-            resistanceLevels[1]?.price || currentPrice * 1.03,
-            resistanceLevels[2]?.price || maxPrediction
-        ];
-    } else {
-        // Fallback to minimum viable targets
-        const minTarget = currentPrice * (1 + aggressiveStopPct * minRiskReward * 0.01);
-        longTPs = [
-            minTarget,
-            minTarget * 1.5,
-            minTarget * 2
-        ];
     }
     
-    if (useActualLevels && supportLevels.length >= 2) {
-        // Use actual prediction-based support levels
-        shortTPs = [
-            supportLevels[0]?.price || currentPrice * 0.98,
-            supportLevels[1]?.price || currentPrice * 0.97,
-            supportLevels[2]?.price || minPrediction
-        ];
-    } else {
-        // Fallback to minimum viable targets
-        const minTarget = currentPrice * (1 - aggressiveStopPct * minRiskReward * 0.01);
-        shortTPs = [
-            minTarget,
-            minTarget * 0.985,
-            minTarget * 0.97
-        ];
+    // Sort by time to ensure correct order
+    forecastedPricePath.sort((a, b) => a.time - b.time);
+    
+    // Calculate expected returns between consecutive future time periods
+    const forecastedReturns: number[] = [];
+    for (let i = 1; i < forecastedPricePath.length; i++) {
+        const timeDiffMs = forecastedPricePath[i].time - forecastedPricePath[i-1].time;
+        const timeDiffMinutes = timeDiffMs / (1000 * 60);
+        
+        // Only use slots that are roughly 5 minutes apart (3-7 minutes tolerance)
+        if (timeDiffMinutes >= 3 && timeDiffMinutes <= 7) {
+            const returnPct = (forecastedPricePath[i].price - forecastedPricePath[i-1].price) / forecastedPricePath[i-1].price;
+            forecastedReturns.push(returnPct);
+        }
     }
     
-    // Calculate R:R ratios for each TP level
-    const longRRs = longTPs.map(tp => (tp - currentPrice) / (currentPrice - longStops.aggressive));
-    const shortRRs = shortTPs.map(tp => (currentPrice - tp) / (shortStops.aggressive - currentPrice));
+    // Calculate forecasted volatility
+    let forecastedVolatility24h = 0;
+    let forecastedVolatilityAnnualized = 0;
     
-    // Enhanced position sizing with multiple factors
-    const baseSize = 20;
-    const confidenceMultiplier = agreementRatio; // 0.5 to 1.0
-    const rrMultiplier = Math.min(1.5, Math.max(0.5, longRRs[0] / 2)); // Scale based on R:R
-    const volAdjustment = volRegime === 'low' ? 1.3 : volRegime === 'moderate' ? 1.0 : 0.6;
-    const timeframeAlignment = (shortMomentum.direction === mediumMomentum.direction) ? 1.2 : 0.8;
-    
-    const optimalSize = Math.round(baseSize * confidenceMultiplier * rrMultiplier * volAdjustment * timeframeAlignment);
-    
-    // Calculate prediction range for quality assessment
-    const predictionRange = Math.max(...allPrices) - Math.min(...allPrices);
-    const rangePct = predictionRange / currentPrice * 100;
-    
-    // Realistic Trade Quality Score (A, B, C, D)
-    let qualityFactors = [];
-    
-    // Factor 1: Prediction Range Quality (40%)
-    const rangeScore = rangePct >= 2.0 ? 40 : rangePct >= 1.0 ? 30 : rangePct >= 0.5 ? 20 : 10;
-    qualityFactors.push({name: 'Range', score: rangeScore, weight: 0.4});
-    
-    // Factor 2: Confidence Quality (30%)
-    const confidenceScore = confidence === 'HIGH' ? 30 : confidence === 'MODERATE' ? 20 : 10;
-    qualityFactors.push({name: 'Confidence', score: confidenceScore, weight: 0.3});
-    
-    // Factor 3: Timeframe Alignment (20%)
-    const hasConflicts = shortMomentum.direction !== mediumMomentum.direction || mediumMomentum.direction !== longMomentum.direction;
-    const alignmentScore = hasConflicts ? 5 : timeframeAlignment > 1 ? 20 : 15;
-    qualityFactors.push({name: 'Alignment', score: alignmentScore, weight: 0.2});
-    
-    // Factor 4: Actual vs Artificial Levels (10%)
-    const levelsScore = useActualLevels ? 10 : 5;
-    qualityFactors.push({name: 'Levels', score: levelsScore, weight: 0.1});
-    
-    const totalScore = qualityFactors.reduce((sum, factor) => sum + (factor.score * factor.weight), 0);
-    
-    // More realistic quality grades
-    const tradeQuality = totalScore >= 25 ? 'A' : totalScore >= 20 ? 'B+' : totalScore >= 15 ? 'B' : totalScore >= 10 ? 'C' : 'D';
-    
-    // Use the previously calculated predictionRange and rangePct
-    
-    // Check for clear directional bias in predictions
-    const nearTermDirection = timeframes['15min'].price > currentPrice && timeframes['30min'].price > currentPrice && timeframes['1h'].price > currentPrice;
-    const nearTermBearish = timeframes['15min'].price < currentPrice && timeframes['30min'].price < currentPrice && timeframes['1h'].price < currentPrice;
-    
-    // Logical setup evaluation
-    let bestSetup = 'WAIT';
-    let setupReason = '';
-    
-    if (rangePct < 0.5) {
-        bestSetup = 'WAIT';
-        setupReason = 'insufficient prediction range';
-    } else if (shortMomentum.direction !== mediumMomentum.direction || mediumMomentum.direction !== longMomentum.direction) {
-        bestSetup = 'WAIT';
-        setupReason = 'conflicting timeframe signals';
-    } else if (confidence === 'LOW') {
-        bestSetup = 'WAIT';
-        setupReason = 'low prediction confidence';
-    } else if (nearTermDirection && consensus === 'BULLISH' && confidence !== 'LOW') {
-        bestSetup = 'LONG';
-        setupReason = 'aligned bullish signals';
-    } else if (nearTermBearish && consensus === 'BEARISH' && confidence !== 'LOW') {
-        bestSetup = 'SHORT';
-        setupReason = 'aligned bearish signals';
-    } else {
-        bestSetup = 'WAIT';
-        setupReason = 'mixed signals';
+    if (forecastedReturns.length >= 10) {
+        // Calculate mean expected return
+        const meanReturn = forecastedReturns.reduce((sum, r) => sum + r, 0) / forecastedReturns.length;
+        
+        // Calculate variance of expected returns
+        const variance = forecastedReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / forecastedReturns.length;
+        
+        // Standard deviation (volatility per 5-minute period)
+        const stdDevPer5Min = Math.sqrt(variance);
+        
+        // Scale to 24-hour volatility (288 5-minute periods in a day)
+        forecastedVolatility24h = stdDevPer5Min * Math.sqrt(288) * 100;
+        
+        // Annualize (365 days for crypto)
+        forecastedVolatilityAnnualized = forecastedVolatility24h * Math.sqrt(365);
+        
+        // Clamp to reasonable ranges
+        forecastedVolatility24h = Math.min(15, Math.max(0.5, forecastedVolatility24h));
+        forecastedVolatilityAnnualized = Math.min(250, Math.max(10, forecastedVolatilityAnnualized));
     }
     
-    // Conviction should match confidence - no contradictions!
-    const convictionLevel = confidence === 'HIGH' ? 'HIGH' : confidence === 'MODERATE' ? 'MODERATE' : 'LOW';
+    // Also calculate the dispersion of predictions at each time slot
+    let predictionDispersion = 0;
+    const dispersions: number[] = [];
     
-    // Format the analysis
+    for (const slot of consolidatedArray) {
+        if (slot.predictions && slot.predictions.length >= 3) {
+            const slotPrices = slot.predictions.map((p: any) => p.price || 0).filter((p: number) => p > 0);
+            if (slotPrices.length >= 3) {
+                const slotMean = slotPrices.reduce((sum, p) => sum + p, 0) / slotPrices.length;
+                const slotVariance = slotPrices.reduce((sum, p) => sum + Math.pow(p - slotMean, 2), 0) / slotPrices.length;
+                const slotStdDev = Math.sqrt(slotVariance);
+                const slotDispersionPct = (slotStdDev / slotMean) * 100;
+                dispersions.push(slotDispersionPct);
+            }
+        }
+    }
+    
+    if (dispersions.length > 0) {
+        predictionDispersion = dispersions.reduce((sum, d) => sum + d, 0) / dispersions.length;
+    }
+    
+    // Determine market regime based on FORECASTED volatility
+    const marketRegime = forecastedVolatilityAnnualized > 80 ? 'HIGH_VOLATILITY' :
+                        forecastedVolatilityAnnualized > 40 ? 'MODERATE_VOLATILITY' : 'LOW_VOLATILITY';
+    
+    // Adjust regime if prediction dispersion is very high
+    const uncertaintyLevel = predictionDispersion > 5 ? 'HIGH' : 
+                           predictionDispersion > 2.5 ? 'MODERATE' : 'LOW';
+    
+    // Calculate spread metrics for reference (but not for regime)
+    const totalSpread = p99_5 - p0_5;
+    const totalSpreadPct = (totalSpread / currentPrice) * 100;
+    const coreSpread = p80 - p20;
+    const coreSpreadPct = (coreSpread / currentPrice) * 100;
+    
+    // Calculate bias based on current zone
+    let bias = 'NEUTRAL';
+    let confidence = 'MODERATE';
+    
+    if (currentZone) {
+        if (currentZone.name.includes('BEARISH')) {
+            bias = currentZone.name.includes('EXTREME') || currentZone.name.includes('STRONG') ? 'STRONG_BULLISH' : 'MODERATE_BULLISH';
+            confidence = currentZone.name.includes('EXTREME') ? 'HIGH' : currentZone.name.includes('STRONG') ? 'HIGH' : 'MODERATE';
+        } else if (currentZone.name.includes('BULLISH')) {
+            bias = currentZone.name.includes('EXTREME') || currentZone.name.includes('STRONG') ? 'STRONG_BEARISH' : 'MODERATE_BEARISH';
+            confidence = currentZone.name.includes('EXTREME') ? 'HIGH' : currentZone.name.includes('STRONG') ? 'HIGH' : 'MODERATE';
+        } else if (currentZone.name.includes('ULTRA')) {
+            bias = currentZone.name.includes('ULTRA_BEARISH') ? 'EXTREME_BULLISH' : 'EXTREME_BEARISH';
+            confidence = 'VERY_HIGH';
+        }
+    }
+    
+    // Time-based analysis
+    const timeSlots = consolidatedArray.length;
+    const firstSlotTime = new Date(consolidatedArray[0]?.time || Date.now());
+    const lastSlotTime = new Date(consolidatedArray[consolidatedArray.length - 1]?.time || Date.now());
+    const timeSpanHours = (lastSlotTime.getTime() - firstSlotTime.getTime()) / (1000 * 60 * 60);
+    
+    // Trading recommendation logic based on zones
+    let tradingSetup = 'WAIT';
+    let tradeQuality = 'N/A';
+    
+    if (currentZone) {
+        const signal = currentZone.signal;
+        
+        // Adjust quality based on volatility regime
+        let volAdjustment = 0;
+        if (marketRegime === 'LOW_VOLATILITY') volAdjustment = 1; // Upgrade quality in low vol
+        else if (marketRegime === 'HIGH_VOLATILITY') volAdjustment = -1; // Downgrade in high vol
+        
+        if (signal === 'EXTREME_BUY' || signal === 'STRONG_BUY') {
+            tradingSetup = 'LONG';
+            const baseQuality = signal === 'EXTREME_BUY' ? 3 : 2; // A+ = 3, A = 2
+            const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
+            tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
+        } else if (signal === 'BUY') {
+            tradingSetup = 'LONG';
+            const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
+            tradeQuality = adjustedQuality;
+        } else if (signal === 'WEAK_BUY' && (confidence === 'HIGH' || marketRegime === 'LOW_VOLATILITY')) {
+            tradingSetup = 'LONG';
+            tradeQuality = volAdjustment > 0 ? 'B' : 'C';
+        } else if (signal === 'EXTREME_SELL' || signal === 'STRONG_SELL') {
+            tradingSetup = 'SHORT';
+            const baseQuality = signal === 'EXTREME_SELL' ? 3 : 2;
+            const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
+            tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
+        } else if (signal === 'SELL') {
+            tradingSetup = 'SHORT';
+            const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
+            tradeQuality = adjustedQuality;
+        } else if (signal === 'WEAK_SELL' && (confidence === 'HIGH' || marketRegime === 'LOW_VOLATILITY')) {
+            tradingSetup = 'SHORT';
+            tradeQuality = volAdjustment > 0 ? 'B' : 'C';
+        }
+        
+        // Don't trade in extreme volatility unless in extreme zones
+        if (marketRegime === 'HIGH_VOLATILITY' && !signal.includes('EXTREME') && !signal.includes('STRONG')) {
+            tradingSetup = 'WAIT';
+            tradeQuality = 'N/A';
+        }
+    }
+    
+    // Calculate targets and stops based on zones
+    let entryZone = currentZone;
+    let target1Zone = null;
+    let target2Zone = null;
+    let stopZone = null;
+    
+    if (tradingSetup === 'LONG') {
+        // For longs, target higher zones, stop at lower zones
+        const currentIndex = zones.findIndex(z => z.name === currentZone?.name);
+        if (currentIndex >= 0) {
+            target1Zone = currentIndex < 4 ? zones[4] : zones[Math.min(currentIndex + 2, zones.length - 1)]; // Target weak bullish or higher
+            target2Zone = zones[Math.min(currentIndex + 3, zones.length - 1)];
+            stopZone = currentIndex > 0 ? zones[Math.max(currentIndex - 1, 0)] : null;
+        }
+    } else if (tradingSetup === 'SHORT') {
+        // For shorts, target lower zones, stop at higher zones
+        const currentIndex = zones.findIndex(z => z.name === currentZone?.name);
+        if (currentIndex >= 0) {
+            target1Zone = currentIndex > 3 ? zones[3] : zones[Math.max(currentIndex - 2, 0)]; // Target weak bearish or lower
+            target2Zone = zones[Math.max(currentIndex - 3, 0)];
+            stopZone = currentIndex < zones.length - 1 ? zones[Math.min(currentIndex + 1, zones.length - 1)] : null;
+        }
+    }
+    
+    // Format output for Vega's consumption
     let result = `=== SYNTH INTELLIGENCE RECAP [${timestamp}] ===\n\n`;
     
-    result += `CURRENT SITUATION:\n`;
-    result += `- ${asset} Price: $${currentPrice.toFixed(2)}\n`;
-    result += `- Active Miners: ${new Set(allPredictions.map((p: any) => p.miner_uid)).size}\n`;
-    result += `- Top Miners Consensus: ${consensus} (${confidence} confidence)\n\n`;
+    result += `🎯 TRADING SIGNAL: ${tradingSetup}`;
+    if (tradingSetup !== 'WAIT') {
+        result += ` | Quality: ${tradeQuality}`;
+    }
+    result += `\n\n`;
     
-    result += `MULTI-TIMEFRAME PREDICTIONS:\n`;
-    Object.entries(timeframes).forEach(([tf, data]) => {
-        const change = ((data.price - currentPrice) / currentPrice * 100);
-        result += `${tf}: $${data.price.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}% change)\n`;
-    });
-    result += '\n';
+    result += `📍 CURRENT MARKET DATA\n`;
+    result += `├─ Price: $${currentPrice.toFixed(0)}\n`;
+    result += `├─ Zone: ${currentZone?.name || 'UNKNOWN'} (${currentZone?.range || 'N/A'})\n`;
+    result += `├─ Zone Signal: ${currentZone?.signal || 'N/A'}\n`;
+    result += `├─ Bias: ${bias} (${confidence} confidence)\n`;
+    result += `└─ Market Regime: ${marketRegime}\n\n`;
     
-    result += `PREDICTION MOMENTUM:\n`;
-    result += `Short-term (15m-1h): ${shortMomentum.direction} - Strength: ${shortMomentum.strength.toFixed(1)}% - Confidence: ${shortMomentum.confidence.toFixed(0)}%\n`;
-    result += `Medium-term (1h-4h): ${mediumMomentum.direction} - Strength: ${mediumMomentum.strength.toFixed(1)}% - Confidence: ${mediumMomentum.confidence.toFixed(0)}%\n`;
-    result += `Long-term (4h+): ${longMomentum.direction} - Strength: ${longMomentum.strength.toFixed(1)}% - Confidence: ${longMomentum.confidence.toFixed(0)}%\n\n`;
-    
-    result += `CRITICAL LEVELS:\n`;
-    result += `Resistance: ${resistanceLevels.map(r => `$${r.price.toFixed(0)}`).join(', ') || 'No clear levels'}\n`;
-    result += `Support: ${supportLevels.map(s => `$${s.price.toFixed(0)}`).join(', ') || 'No clear levels'}\n\n`;
-    
-    // Only show detailed TP/SL levels for actionable setups
-    if (bestSetup !== 'WAIT') {
-        result += `DYNAMIC STOP/TAKE PROFIT LEVELS:\n`;
-        result += `For LONG positions:\n`;
-        result += `- Aggressive Stop: $${longStops.aggressive.toFixed(0)} (${((longStops.aggressive - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
-        result += `- Conservative Stop: $${longStops.conservative.toFixed(0)} (${((longStops.conservative - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
-        longTPs.slice(0, 3).forEach((tp, i) => {
-            const label = ['First', 'Second', 'Final'][i];
-            const rrRatio = longRRs[i];
-            result += `- ${label} Take Profit: $${tp.toFixed(0)} (+${((tp - currentPrice) / currentPrice * 100).toFixed(2)}% gain) [${rrRatio.toFixed(1)}:1 R:R]\n`;
-        });
-        result += '\n';
+    result += `📊 PERCENTILE ZONE MAP\n`;
+    zones.slice().reverse().forEach((zone, index) => {
+        const isCurrentZone = currentZone?.name === zone.name;
+        const marker = isCurrentZone ? ' ⭐ CURRENT' : '';
+        const prefix = index === zones.length - 1 ? '└─' : '├─';
         
-        result += `For SHORT positions:\n`;
-        result += `- Aggressive Stop: $${shortStops.aggressive.toFixed(0)} (+${((shortStops.aggressive - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
-        result += `- Conservative Stop: $${shortStops.conservative.toFixed(0)} (+${((shortStops.conservative - currentPrice) / currentPrice * 100).toFixed(2)}% risk)\n`;
-        shortTPs.slice(0, 3).forEach((tp, i) => {
-            const label = ['First', 'Second', 'Final'][i];
-            const rrRatio = shortRRs[i];
-            result += `- ${label} Take Profit: $${tp.toFixed(0)} (${((tp - currentPrice) / currentPrice * 100).toFixed(2)}% gain) [${rrRatio.toFixed(1)}:1 R:R]\n`;
-        });
-        result += '\n';
+        result += `${prefix} ${zone.range}: $${zone.min.toFixed(0)}-$${zone.max.toFixed(0)} [${zone.signal}]${marker}\n`;
+    });
+    
+    // Add ultra zones if applicable
+    if (currentZone?.name === 'ULTRA_BULLISH') {
+        result += `├─ >99.5%: $${p99_5.toFixed(0)}+ [EXTREME_SELL] ⭐ CURRENT\n`;
+    } else if (currentZone?.name === 'ULTRA_BEARISH') {
+        result += `└─ <0.5%: <$${p0_5.toFixed(0)} [EXTREME_BUY] ⭐ CURRENT\n`;
+    }
+    result += `\n`;
+    
+    if (tradingSetup !== 'WAIT') {
+        result += `💡 TRADE PLAN\n`;
+        result += `├─ Entry: $${currentPrice.toFixed(2)} (${currentZone?.name || 'current zone'})\n`;
+        
+        if (target1Zone) {
+            const target1Price = tradingSetup === 'LONG' ? target1Zone.min : target1Zone.max;
+            const target1Pct = ((target1Price - currentPrice) / currentPrice * 100);
+            result += `├─ Target 1: $${target1Price.toFixed(2)} (${target1Pct > 0 ? '+' : ''}${target1Pct.toFixed(1)}%) - ${target1Zone.name}\n`;
+        }
+        
+        if (target2Zone) {
+            const target2Price = tradingSetup === 'LONG' ? target2Zone.min : target2Zone.max;
+            const target2Pct = ((target2Price - currentPrice) / currentPrice * 100);
+            result += `├─ Target 2: $${target2Price.toFixed(2)} (${target2Pct > 0 ? '+' : ''}${target2Pct.toFixed(1)}%) - ${target2Zone.name}\n`;
+        }
+        
+        if (stopZone) {
+            const stopPrice = tradingSetup === 'LONG' ? stopZone.max : stopZone.min;
+            const stopPct = ((stopPrice - currentPrice) / currentPrice * 100);
+            const riskReward = target1Zone ? Math.abs((target1Zone.min - currentPrice) / (currentPrice - stopPrice)) : 0;
+            result += `├─ Stop: $${stopPrice.toFixed(2)} (${stopPct.toFixed(1)}%) - ${stopZone.name}\n`;
+            result += `└─ Risk/Reward: 1:${riskReward.toFixed(1)}\n`;
+        }
+        result += `\n`;
     }
     
-    result += `POSITION MANAGEMENT SIGNALS:\n`;
-    // Only show trade metrics for actionable setups
-    if (bestSetup !== 'WAIT') {
-        result += `- Risk/Reward Ratio: ${longRRs[0].toFixed(1)}:1 (First TP), ${longRRs[2].toFixed(1)}:1 (Final TP)\n`;
-        result += `- Trade Quality: ${tradeQuality}\n`;
-        result += `- Optimal Position Size: ${optimalSize}% of capital\n`;
-    }
-    result += `- Best Setup: ${bestSetup}${bestSetup !== 'WAIT' ? ` above $${currentPrice.toFixed(0)}` : ` - ${setupReason}`}\n`;
-    result += `- Conviction Level: ${convictionLevel}\n`;
-    if (bestSetup !== 'WAIT') {
-        result += `- Hold Duration: ${volRegime === 'high' ? 'short' : volRegime === 'moderate' ? 'medium' : 'long'}-term\n`;
-    }
-    result += '\n';
-    
-    result += `VOLATILITY SIGNALS:\n`;
-    result += `Current Predicted Vol: ${volatilityPct.toFixed(2)}%\n`;
-    result += `Vol Regime: ${volRegime} (${volTrend})\n`;
-    result += `Uncertainty Level: ${uncertaintyLevel}\n\n`;
-    
-    // Check for divergences
-    const divergences = [];
-    if (shortMomentum.direction !== mediumMomentum.direction) {
-        divergences.push(`SHORT_VS_MEDIUM: ${shortMomentum.direction} short-term vs ${mediumMomentum.direction} medium-term (${Math.abs(shortMomentum.strength - mediumMomentum.strength) > 1 ? 'strong' : 'weak'} strength)`);
-    }
-    if (mediumMomentum.direction !== longMomentum.direction) {
-        divergences.push(`MEDIUM_VS_LONG: ${mediumMomentum.direction} medium-term vs ${longMomentum.direction} long-term (${Math.abs(mediumMomentum.strength - longMomentum.strength) > 1 ? 'strong' : 'weak'} strength)`);
-    }
-    
-    if (divergences.length > 0) {
-        result += `DIVERGENCE SIGNALS:\n`;
-        divergences.forEach(div => result += `- ${div}\n`);
-        result += '\n';
-    }
-    
-    result += `SUMMARY:\n`;
-    // Determine actual momentum bias from timeframe analysis
-    const actualBias = shortMomentum.direction === mediumMomentum.direction && mediumMomentum.direction === longMomentum.direction 
-        ? shortMomentum.direction 
-        : consensus; // fallback to consensus if timeframes conflict
-    
-    result += `${actualBias} bias with ${confidence} confidence. `;
-    result += `Best Setup: ${bestSetup}. `;
-    
-    // Only show trade quality for actionable setups
-    if (bestSetup !== 'WAIT') {
-        result += `Trade Quality: ${tradeQuality}. `;
-    }
-    
-    result += `Key level: $${resistanceLevels[0]?.price?.toFixed(0) || supportLevels[0]?.price?.toFixed(0) || currentPrice.toFixed(0)}.\n\n`;
-    
-    result += `=== END SYNTH RECAP ===`;
-    
+    result += `📊 KEY METRICS\n`;
+    result += `├─ Forecasted Vol (24h): ${forecastedVolatilityAnnualized.toFixed(0)}%\n`;
+    result += `├─ Prediction Spread: ${totalSpreadPct.toFixed(1)}%\n`;
+    result += `└─ Median Price: $${p50.toFixed(0)} (${((p50 - currentPrice) / currentPrice * 100).toFixed(2)}%)\n\n`;
+        
     return result;
 };
 

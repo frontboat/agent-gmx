@@ -1659,7 +1659,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
-                const marketInfo = marketsInfoData[data.marketAddress];
                 
                 // Use the position's mark price (this is the current market price for the position)
                 const markPrice = position.markPrice;
@@ -1889,7 +1888,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
-                const marketInfo = marketsInfoData[data.marketAddress];
                 
                 // Use the position's mark price (this is the current market price for the position)
                 const markPrice = position.markPrice;

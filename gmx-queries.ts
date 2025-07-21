@@ -1001,14 +1001,14 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     
     // Define market zones based on percentile ranges
     const zones = [
-        { name: 'EXTREME_BEARISH', range: '0.5-5%', min: p0_5, max: p5, signal: 'STRONG_BUY' },
-        { name: 'STRONG_BEARISH', range: '5-20%', min: p5, max: p20, signal: 'BUY' },
-        { name: 'MODERATE_BEARISH', range: '20-35%', min: p20, max: p35, signal: 'WEAK_BUY' },
-        { name: 'WEAK_BEARISH', range: '35-50%', min: p35, max: p50, signal: 'NEUTRAL_BUY' },
-        { name: 'WEAK_BULLISH', range: '50-65%', min: p50, max: p65, signal: 'NEUTRAL_SELL' },
-        { name: 'MODERATE_BULLISH', range: '65-80%', min: p65, max: p80, signal: 'WEAK_SELL' },
-        { name: 'STRONG_BULLISH', range: '80-95%', min: p80, max: p95, signal: 'SELL' },
-        { name: 'EXTREME_BULLISH', range: '95-99.5%', min: p95, max: p99_5, signal: 'STRONG_SELL' }
+        { name: 'EXTREME_BEARISH', range: '0.5-5%', min: p0_5, max: p5, signal: 'VERY_STRONG_BUY' },
+        { name: 'STRONG_BEARISH', range: '5-20%', min: p5, max: p20, signal: 'STRONG_BUY' },
+        { name: 'MODERATE_BEARISH', range: '20-35%', min: p20, max: p35, signal: 'MODERATE_BUY' },
+        { name: 'WEAK_BEARISH', range: '35-50%', min: p35, max: p50, signal: 'WEAK_BUY' },
+        { name: 'WEAK_BULLISH', range: '50-65%', min: p50, max: p65, signal: 'WEAK_SELL' },
+        { name: 'MODERATE_BULLISH', range: '65-80%', min: p65, max: p80, signal: 'MODERATE_SELL' },
+        { name: 'STRONG_BULLISH', range: '80-95%', min: p80, max: p95, signal: 'STRONG_SELL' },
+        { name: 'EXTREME_BULLISH', range: '95-99.5%', min: p95, max: p99_5, signal: 'VERY_STRONG_SELL' }
     ];
     
     // Find current zone
@@ -1112,40 +1112,7 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     // Determine market regime based on FORECASTED volatility
     const marketRegime = forecastedVolatilityAnnualized > 80 ? 'HIGH_VOLATILITY' :
                         forecastedVolatilityAnnualized > 40 ? 'MODERATE_VOLATILITY' : 'LOW_VOLATILITY';
-    
-    // Adjust regime if prediction dispersion is very high
-    const uncertaintyLevel = predictionDispersion > 5 ? 'HIGH' : 
-                           predictionDispersion > 2.5 ? 'MODERATE' : 'LOW';
-    
-    // Calculate spread metrics for reference (but not for regime)
-    const totalSpread = p99_5 - p0_5;
-    const totalSpreadPct = (totalSpread / currentPrice) * 100;
-    const coreSpread = p80 - p20;
-    const coreSpreadPct = (coreSpread / currentPrice) * 100;
-    
-    // Calculate bias based on current zone
-    let bias = 'NEUTRAL';
-    let confidence = 'MODERATE';
-    
-    if (currentZone) {
-        if (currentZone.name.includes('BEARISH')) {
-            bias = currentZone.name.includes('EXTREME') || currentZone.name.includes('STRONG') ? 'STRONG_BULLISH' : 'MODERATE_BULLISH';
-            confidence = currentZone.name.includes('EXTREME') ? 'HIGH' : currentZone.name.includes('STRONG') ? 'HIGH' : 'MODERATE';
-        } else if (currentZone.name.includes('BULLISH')) {
-            bias = currentZone.name.includes('EXTREME') || currentZone.name.includes('STRONG') ? 'STRONG_BEARISH' : 'MODERATE_BEARISH';
-            confidence = currentZone.name.includes('EXTREME') ? 'HIGH' : currentZone.name.includes('STRONG') ? 'HIGH' : 'MODERATE';
-        } else if (currentZone.name.includes('ULTRA')) {
-            bias = currentZone.name.includes('ULTRA_BEARISH') ? 'EXTREME_BULLISH' : 'EXTREME_BEARISH';
-            confidence = 'VERY_HIGH';
-        }
-    }
-    
-    // Time-based analysis
-    const timeSlots = consolidatedArray.length;
-    const firstSlotTime = new Date(consolidatedArray[0]?.time || Date.now());
-    const lastSlotTime = new Date(consolidatedArray[consolidatedArray.length - 1]?.time || Date.now());
-    const timeSpanHours = (lastSlotTime.getTime() - firstSlotTime.getTime()) / (1000 * 60 * 60);
-    
+        
     // Trading recommendation logic based on zones
     let tradingSetup = 'WAIT';
     let tradeQuality = 'N/A';
@@ -1158,28 +1125,28 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
         if (marketRegime === 'LOW_VOLATILITY') volAdjustment = 1; // Upgrade quality in low vol
         else if (marketRegime === 'HIGH_VOLATILITY') volAdjustment = -1; // Downgrade in high vol
         
-        if (signal === 'EXTREME_BUY' || signal === 'STRONG_BUY') {
+        if (signal === 'EXTREME_BUY' || signal === 'VERY_STRONG_BUY') {
             tradingSetup = 'LONG';
             const baseQuality = signal === 'EXTREME_BUY' ? 3 : 2; // A+ = 3, A = 2
             const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
             tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
-        } else if (signal === 'BUY') {
+        } else if (signal === 'STRONG_BUY') {
             tradingSetup = 'LONG';
             const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
             tradeQuality = adjustedQuality;
-        } else if (signal === 'WEAK_BUY' && (confidence === 'HIGH' || marketRegime === 'LOW_VOLATILITY')) {
+        } else if (signal === 'MODERATE_BUY' && marketRegime === 'LOW_VOLATILITY') {
             tradingSetup = 'LONG';
             tradeQuality = volAdjustment > 0 ? 'B' : 'C';
-        } else if (signal === 'EXTREME_SELL' || signal === 'STRONG_SELL') {
+        } else if (signal === 'EXTREME_SELL' || signal === 'VERY_STRONG_SELL') {
             tradingSetup = 'SHORT';
             const baseQuality = signal === 'EXTREME_SELL' ? 3 : 2;
             const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
             tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
-        } else if (signal === 'SELL') {
+        } else if (signal === 'STRONG_SELL') {
             tradingSetup = 'SHORT';
             const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
             tradeQuality = adjustedQuality;
-        } else if (signal === 'WEAK_SELL' && (confidence === 'HIGH' || marketRegime === 'LOW_VOLATILITY')) {
+        } else if (signal === 'MODERATE_SELL' && marketRegime === 'LOW_VOLATILITY') {
             tradingSetup = 'SHORT';
             tradeQuality = volAdjustment > 0 ? 'B' : 'C';
         }
@@ -1192,7 +1159,6 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     }
     
     // Calculate targets and stops based on zones
-    let entryZone = currentZone;
     let target1Zone = null;
     let target2Zone = null;
     let stopZone = null;
@@ -1228,7 +1194,6 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     result += `├─ Price: $${currentPrice.toFixed(0)}\n`;
     result += `├─ Zone: ${currentZone?.name || 'UNKNOWN'} (${currentZone?.range || 'N/A'})\n`;
     result += `├─ Zone Signal: ${currentZone?.signal || 'N/A'}\n`;
-    result += `├─ Bias: ${bias} (${confidence} confidence)\n`;
     result += `└─ Market Regime: ${marketRegime}\n\n`;
     
     result += `📊 PERCENTILE ZONE MAP\n`;
@@ -1275,8 +1240,7 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     }
     
     result += `📊 KEY METRICS\n`;
-    result += `├─ Forecasted Vol (24h): ${forecastedVolatilityAnnualized.toFixed(0)}%\n`;
-    result += `├─ Prediction Spread: ${totalSpreadPct.toFixed(1)}%\n`;
+    result += `├─ Forecasted Volatility (next 24h): ${forecastedVolatilityAnnualized.toFixed(0)}%\n`;
     result += `└─ Median Price: $${p50.toFixed(0)} (${((p50 - currentPrice) / currentPrice * 100).toFixed(2)}%)\n\n`;
         
     return result;

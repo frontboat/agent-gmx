@@ -573,7 +573,7 @@ const gmxContext = context({
                     await send(gmxContext, context, {text});
                 }
                 //initial run
-                //tradingCycle();
+                tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 

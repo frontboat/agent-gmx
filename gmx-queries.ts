@@ -1242,8 +1242,28 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
         const maxSpread = Math.max(...timestampPercentiles.map(t => t.spread));
         const maxSpreadTime = timestampPercentiles.find(t => t.spread === maxSpread);
         
-        result += `├─ Max Support Level: ${maxSupportTime.time.toISOString().substring(11, 16)} (P1: $${maxSupportTime.p1.toFixed(0)}) - Extreme SL\n`;
-        result += `├─ Max Resistance Level: ${maxResistanceTime.time.toISOString().substring(11, 16)} (P99: $${maxResistanceTime.p99.toFixed(0)}) - Extreme TP\n`;
+        // Find additional support/resistance levels for practical TP/SL
+        let strongSupportTime = timestampPercentiles[0];
+        let strongResistanceTime = timestampPercentiles[0];
+        let moderateSupportTime = timestampPercentiles[0];
+        let moderateResistanceTime = timestampPercentiles[0];
+        
+        for (const t of timestampPercentiles) {
+            if (t.p5 < strongSupportTime.p5) strongSupportTime = t;
+            if (t.p95 > strongResistanceTime.p95) strongResistanceTime = t;
+            if (t.p20 < moderateSupportTime.p20) moderateSupportTime = t;
+            if (t.p80 > moderateResistanceTime.p80) moderateResistanceTime = t;
+        }
+        
+        result += `├─ EXTREME LEVELS (Max Risk/Reward)\n`;
+        result += `│  ├─ Max Support: ${maxSupportTime.time.toISOString().substring(11, 16)} (P1: $${maxSupportTime.p1.toFixed(0)}) - Extreme SL\n`;
+        result += `│  └─ Max Resistance: ${maxResistanceTime.time.toISOString().substring(11, 16)} (P99: $${maxResistanceTime.p99.toFixed(0)}) - Extreme TP\n`;
+        result += `├─ STRONG LEVELS (High Confidence)\n`;
+        result += `│  ├─ Strong Support: ${strongSupportTime.time.toISOString().substring(11, 16)} (P5: $${strongSupportTime.p5.toFixed(0)}) - Conservative SL\n`;
+        result += `│  └─ Strong Resistance: ${strongResistanceTime.time.toISOString().substring(11, 16)} (P95: $${strongResistanceTime.p95.toFixed(0)}) - Conservative TP\n`;
+        result += `├─ MODERATE LEVELS (Reasonable Risk/Reward)\n`;
+        result += `│  ├─ Moderate Support: ${moderateSupportTime.time.toISOString().substring(11, 16)} (P20: $${moderateSupportTime.p20.toFixed(0)}) - Moderate SL\n`;
+        result += `│  └─ Moderate Resistance: ${moderateResistanceTime.time.toISOString().substring(11, 16)} (P80: $${moderateResistanceTime.p80.toFixed(0)}) - Moderate TP\n`;
         result += `├─ Median Trend: ${medianTrend > 0 ? '+' : ''}${medianTrend.toFixed(1)}% over period\n`;
         result += `├─ Max Volatility: ${maxSpreadTime?.time.toISOString().substring(11, 16)} (${maxSpread.toFixed(1)}% spread)\n`;
         

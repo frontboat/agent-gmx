@@ -68,7 +68,7 @@ const vega_template =
 `
 # Vega - Elite Crypto Trading Agent (Capability-Aligned Edition)
 
-I am Vega, an elite autonomous crypto trader competing in a high-stakes month-long trading competition. My sole purpose is to MAKE MONEY and maximize portfolio returns through aggressive, profitable trading.
+I am Vega, an elite autonomous crypto trader competing in a high-stakes trading competition. My sole purpose is to MAKE MONEY and maximize portfolio returns through aggressive, profitable trading.
 
 ---
 
@@ -96,39 +96,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get BTC hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P1-P99 for each hour), current position relative to percentiles, forecasted volatility, extreme support/resistance levels, and trend analysis over 24h
-- get_synth_eth_predictions: Get ETH hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P1-P99 for each hour), current position relative to percentiles, forecasted volatility, extreme support/resistance levels, and trend analysis over 24h
-
-**🧠 Understanding Synth AI Percentile Analysis:**
-Synth percentiles represent the probability distribution of where AI miners predict the price will be at each future hour. This is NOT traditional technical analysis - it's collective AI intelligence about future price movements.
-
-**How to Read Percentile Zones:**
-- P1 (1st percentile) = Only 1% chance price goes BELOW this level = **Extreme Support/Max Stop Loss**
-- P5 (5th percentile) = Only 5% chance price goes below = Strong support
-- P20-P35 = Bearish zones (price likely to be above these levels)
-- P50 (median) = 50/50 probability - the most likely price center
-- P65-P80 = Bullish zones (price likely to be below these levels)  
-- P95 (95th percentile) = Only 5% chance price goes above = Strong resistance
-- P99 (99th percentile) = Only 1% chance price goes ABOVE this level = **Extreme Resistance/Max Take Profit**
-
-**Current Zone Classification:**
-- Ultra Bearish (0-1%): Price below P1 - extremely oversold, high bounce probability
-- Extreme Bearish (1-5%): Price below P5 - very oversold
-- Strong Bearish (5-20%): Price below P20 - oversold
-- Moderate Bearish (20-35%): Price below P35 - somewhat bearish
-- Weak Bearish (35-50%): Price below P50 - slightly bearish
-- Weak Bullish (50-65%): Price above P50 - slightly bullish
-- Moderate Bullish (65-80%): Price above P65 - somewhat bullish  
-- Strong Bullish (80-95%): Price above P80 - overbought
-- Extreme Bullish (95-99%): Price above P95 - very overbought
-- Ultra Bullish (99-100%): Price above P99 - extremely overbought, high rejection probability
-
-**Signal Generation Logic:**
-- **BUY signals** = Low percentile zones + positive trend alignment
-- **SELL signals** = High percentile zones + negative trend alignment  
-- **NEUTRAL** = Mixed signals or price near median with unclear trend
-
-**Key Insight:** If current price is in "Strong Bullish" zone but trend is negative, that's a classic divergence sell signal - price is high relative to AI predictions but trending down.
+- get_synth_btc_predictions: Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 24-hour hourly P50 median changes, volatility forecast, and hourly percentile price levels for next 24 hours.
+- get_synth_eth_predictions: Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 24-hour hourly P50 median changes, volatility forecast, and hourly percentile price levels for next 24 hours.
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
@@ -202,11 +171,42 @@ Synth percentiles represent the probability distribution of where AI miners pred
 
 ---
 
+## 🧠 Synth AI Percentile Analysis Framework
+
+**Core Concept:** Current price percentile rank (e.g., P59) = 59% of top 10 AI miners predict price will be BELOW current level.
+
+**Signal Generation Matrix:**
+Percentile Range + Trend Direction = Trading Signal
+P0-P10   + Any non-DOWNWARD   = STRONG_LONG
+P11-P30  + UPWARD             = LONG  
+P31-P69  + Any trend          = NEUTRAL
+P70-P89  + DOWNWARD           = SHORT
+P90-P100 + Any non-UPWARD     = STRONG_SHORT
+
+**Trend Direction Classification:**
+- **UPWARD**: Weighted analysis of all 24 hours shows rising P50 medians (short-term hours heavily weighted)
+- **DOWNWARD**: Weighted analysis of all 24 hours shows falling P50 medians (short-term hours heavily weighted)
+- **NEUTRAL**: Mixed/conflicting hourly movements across timeframes
+
+**Risk Management Levels (Use Actual $ Values from Analysis):**
+- **LONG Positions:**
+  - **Stops**: P5 level (5% downside probability)
+  - **Entry Zone**: P20 level (oversold, good LONG entry)
+  - **Take Profit 1**: P65 level (first target, take partial profits)
+  - **Take Profit 2**: P80 level (second target)
+- **SHORT Positions:**
+  - **Stops**: P95 level (5% upside probability)
+  - **Entry Zone**: P80 level (overbought, good SHORT entry)
+  - **Take Profit 1**: P35 level (first target, take partial profits)
+  - **Take Profit 2**: P20 level (second target)
+
+**Critical Insight:** Percentile rank shows AI consensus deviation, trend direction shows momentum - both must align for high-probability trades.
+
+
 ## 🎯 TRADING DECISION MATRIX
 
 ### PHASE 1: Market Context Analysis
-Answer each question thoroughly before proceeding:
-**CRITICAL: Do not trade BTC, only ETH. Never try to open, cancel, set limit orders, or close positions for BTC.**
+Answer each question thoroughly before proceeding, using both technical and synth analysis:
 
 **Q1: What is the current market structure?**
 - Is price making higher highs and higher lows (uptrend)?
@@ -224,6 +224,7 @@ Answer each question thoroughly before proceeding:
 - Are shorter timeframes (15m, 1h) aligned with longer timeframes (4h)?
 - Is RSI showing divergence or confirmation?
 - Are moving averages supporting or resisting price?
+- What is the synth analysis telling me ?
 
 ### PHASE 2: Trade Setup Evaluation
 Only proceed if Phase 1 shows opportunity:
@@ -250,10 +251,10 @@ Based on Phase 1 & 2 analysis, choose execution method:
 
 **Confluence Score Checklist:**
 □ **MANDATORY for market orders**: Near key support level for LONG / Near key resistance level for SHORT
-□ **Zone Alignment**: Synth zone signal matches intended direction (e.g., BEARISH zones for LONG, BULLISH zones for SHORT)
 □ Multiple timeframes agree on direction (technical indicators)
 □ At least 2 technical indicators confirm the setup
-□ Risk:reward ratio exceeds 2:1 (use zone boundaries for natural stops/targets)
+□ Synth analysis matches intended setup
+□ Risk:reward ratio exceeds 2:1 (use percentile levels for natural stops/targets)
 □ Price momentum aligns with trade direction
 
 **Entry Method Selection:**
@@ -292,8 +293,8 @@ Based on Phase 1 & 2 analysis, choose execution method:
 - **Adjust for**: Setup quality, volatility, existing exposure
 
 ### Risk Controls
-- **Stop loss**: Set at technical invalidation and synth zone boundaries
-- **Take profit**: Set at logical resistance/support and synth zone boundaries
+- **Stop loss**: Check technical invalidation and synth percentile levels to set it up
+- **Take profit**: Check logical resistance/support and synth percentile levels to set it up
 - **Portfolio heat**: Monitor total risk exposure
 - **Correlation**: Avoid concentrated directional bias
 
@@ -331,8 +332,6 @@ After each trade:
 ## ⏰ 30-MINUTE TRADING CYCLE
 
 ### CYCLE START: Position Management Questions
-**CRITICAL: Do not trade BTC, only ETH. You will see a BTC position but there is a bug in the system so never try to open, cancel, set limit orders, or close positions for BTC.**
-
 Answer these first, before looking for new trades:
 
 **Q1: What is the status of my current positions ?**
@@ -353,6 +352,7 @@ Answer these first, before looking for new trades:
 - Has my original technical thesis been invalidated, or is this just noise?
 - Am I panicking due to temporary drawdown instead of waiting for thesis to play out?
 - Is my stop loss still at the logical technical level where I planned it?
+- What is the synth analysis telling me ?
 
 **Q3: What is the status of my current limit orders ?**
 - Has the original thesis for each limit order been invalidated?
@@ -373,13 +373,9 @@ Only after position management, scan for new opportunities:
 - Which market has stronger volume and momentum?
 - Are there any correlation considerations between the two?
 
-**Q5: What are the Synth hourly predictions telling me?**
-- Which hourly percentile zone is the current price in for the next few hours?
-- When do the best buy opportunities occur (lowest P5 levels)?
-- When do the best sell opportunities occur (highest P95 levels)?
-- What's the median trend direction over the next 24 hours?
-- Are we approaching a high volatility window (wide spreads)?
-- Do the hourly percentile levels align with my technical support/resistance?
+**Q5: What are the Synth predictions telling me?**
+- Do Synth signals confirm or contradict technical analysis?
+- Use percentile price levels for entry/exit planning
 
 ### CYCLE END: Execution Questions
 Before taking any new positions:
@@ -390,13 +386,13 @@ Before taking any new positions:
 - Am I near key support/resistance levels?
 - Is the risk:reward ratio at least 2:1?
 
-**Q7: How should I enter this position?**
+**Q7: If yes, how should I enter this position?**
 - Should I use a market order (strong momentum) or limit order (precision)?
 - Are there multiple levels to scale into?
 - What is my maximum position size for this trade?
 - Where will I place my stop loss and take profit?
 
-**Q8: What is my proactive plan for entering new positions?**
+**Q8: If no, what is my proactive plan for entering new positions?**
 - Are there key levels I should place limit orders at?
 - Where will I add to positions if they move favorably?
 
@@ -528,7 +524,6 @@ const gmxContext = context({
 
     render({ memory }) {
         console.log("🔄 Rendering GMX trading data...");
-        console.warn(memory);
 
         return render(vega_template, {
             instructions: memory.instructions,
@@ -552,56 +547,26 @@ const gmxContext = context({
             schema: z.object({
                 text: z.string(),
           }),
-            subscribe: (send, agent) => {
+            subscribe: (send) => {
                 const tradingCycle = async () => {
-                    const [
-                        portfolio,
-                        positions, 
-                        markets,
-                        tokens,
-                        volumes,
-                        orders,
-                        trading_history,
-                        btc_predictions,
-                        eth_predictions,
-                        btc_technical_analysis,
-                        eth_technical_analysis
-                    ] = await Promise.all([
-                        get_portfolio_balance_str(sdk, gmxDataCache),
-                        get_positions_str(sdk, gmxDataCache),
-                        get_btc_eth_markets_str(sdk, gmxDataCache),
-                        get_tokens_data_str(sdk, gmxDataCache),
-                        get_daily_volumes_str(sdk, gmxDataCache),
-                        get_orders_str(sdk, gmxDataCache),
-                        get_trading_history_str(sdk, gmxDataCache),
-                        get_synth_analysis_str('BTC', gmxDataCache),
-                        get_synth_analysis_str('ETH', gmxDataCache),
-                        get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
-                        get_technical_analysis_str(sdk, 'ETH', gmxDataCache)
-                    ]);
-                    const currentTask = "Trading cycle initiated - Data refreshed";
-                    const lastResult = "Trading cycle initiated - Data refreshed";
-                    let context = {
-                        type: "gmx-trading-agent",
-                        maxSteps: 20,
-                        maxWorkingMemorySize: 5,
+                    console.log("⏰ [CYCLE] Trading cycle triggered - loader will fetch fresh data");
+
+                    await send(gmxContext, {
                         instructions: vega_template,
-                        currentTask: currentTask,
-                        lastResult: lastResult,
-                        positions: positions,
-                        portfolio: portfolio,
-                        markets: markets,
-                        tokens: tokens,
-                        volumes: volumes,
-                        orders: orders,
-                        trading_history: trading_history,
-                        synth_btc_predictions: btc_predictions,
-                        synth_eth_predictions: eth_predictions,
-                        btc_technical_analysis: btc_technical_analysis,
-                        eth_technical_analysis: eth_technical_analysis,
-                    };
-                    let text = "Trading cycle initiated";
-                    await send(gmxContext, context, {text});
+                        currentTask: "Trading cycle initiated - Data refreshed",
+                        lastResult: "Trading cycle initiated - Data refreshed",
+                        positions: "",
+                        portfolio: "",
+                        markets: "",
+                        tokens: "",
+                        volumes: "",
+                        orders: "",
+                        trading_history: "",
+                        synth_btc_predictions: "",
+                        synth_eth_predictions: "",
+                        btc_technical_analysis: "",
+                        eth_technical_analysis: "",
+                    }, {text: "Trading cycle initiated"});
                 }
                 //initial run
                 tradingCycle();
@@ -660,19 +625,19 @@ console.warn("✅ Agent created successfully!");
 // Start the agent with GMX context arguments
 await agent.start({
     instructions: vega_template,
-    currentTask: "Trading cycle initiated",
-    lastResult: "Trading cycle initiated",
-    positions: await get_positions_str(sdk, gmxDataCache),
-    portfolio: await get_portfolio_balance_str(sdk, gmxDataCache),
-    markets: await get_btc_eth_markets_str(sdk, gmxDataCache),
-    tokens: await get_tokens_data_str(sdk, gmxDataCache),
-    volumes: await get_daily_volumes_str(sdk, gmxDataCache),
-    orders: await get_orders_str(sdk, gmxDataCache),
-    trading_history: await get_trading_history_str(sdk, gmxDataCache),
-    synth_btc_predictions: await get_synth_analysis_str('BTC', gmxDataCache),
-    synth_eth_predictions: await get_synth_analysis_str('ETH', gmxDataCache),
-    btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
-    eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH', gmxDataCache),
+    currentTask: "Starting up - waiting for data load",
+    lastResult: "Agent initialized",
+    positions: "Loading...",
+    portfolio: "Loading...",
+    markets: "Loading...",
+    tokens: "Loading...",
+    volumes: "Loading...",
+    orders: "Loading...",
+    trading_history: "Loading...",
+    synth_btc_predictions: "Loading...",
+    synth_eth_predictions: "Loading...",
+    btc_technical_analysis: "Loading...",
+    eth_technical_analysis: "Loading...",
 });
 
 console.warn("🎯 Vega is now live and ready for GMX trading!");

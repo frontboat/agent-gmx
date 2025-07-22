@@ -1610,12 +1610,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     console.error('SET_TAKE_PROFIT', 'Invalid market data received');
                     throw new Error("Failed to get market and token data");
                 }
-
-                // Check if this is a BTC market and prevent take profit due to bug
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (marketInfo && marketInfo.name.includes('BTC')) {
-                    throw new Error(`Cannot set take profit for BTC position due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                }
                 
                 const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
                     marketsInfoData,
@@ -1838,12 +1832,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 if (!marketsInfoData || !tokensData) {
                     console.error('SET_STOP_LOSS', 'Invalid market data received');
                     throw new Error("Failed to get market and token data");
-                }
-
-                // Check if this is a BTC market and prevent stop loss due to bug
-                const marketInfo = marketsInfoData[data.marketAddress];
-                if (marketInfo && marketInfo.name.includes('BTC')) {
-                    throw new Error(`Cannot set stop loss for BTC position due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
                 }
                 
                 const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({

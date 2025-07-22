@@ -8,6 +8,7 @@
 // 📦 IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+import { anthropic } from "@ai-sdk/anthropic";
 import { 
     createDreams, 
     context, 
@@ -647,7 +648,7 @@ console.warn("⚡ Initializing Vega trading agent...");
 
 // Create the agent with persistent memory
 const agent = createDreams({
-    model: openai("o3"),
+    model: anthropic("claude-sonnet-4-20250514"),
     logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
     extensions: [gmx], // Add GMX extension
     memory: supabaseMemory,

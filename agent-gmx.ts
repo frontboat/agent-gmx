@@ -1,8 +1,16 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🌟 VEGA - GMX TRADING AGENT
+ * 🌟 VEGA - GMX TRADING AGENT (OPTIMIZED WITH LOADER PATTERN)
  * ═══════════════════════════════════════════════════════════════════════════════
-  */
+ * 
+ * This version fully leverages the Daydreams loader API pattern:
+ * - All market data is pre-fetched by the loader before each step
+ * - The agent sees all data in the render output - no need to call actions
+ * - Only write actions (trades, orders) remain
+ * - Dramatically reduces action calls and costs
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 📦 IMPORTS
@@ -21,17 +29,29 @@ import {
 } from "@daydreamsai/core";
 import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
 import { openai } from "@ai-sdk/openai";
-import { z } from "zod/v4";
-import { createGmxActions } from './gmx-actions';
+import { z } from "zod";
 import { createGmxWalletFromEnv } from './gmx-wallet';
 import { EnhancedDataCache } from './gmx-cache';
-import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
+import { 
+    get_btc_eth_markets_str, 
+    get_daily_volumes_str, 
+    get_portfolio_balance_str, 
+    get_positions_str, 
+    get_tokens_data_str, 
+    get_orders_str, 
+    get_synth_analysis_str, 
+    get_technical_analysis_str, 
+    get_trading_history_str 
+} from "./gmx-queries";
+
+// Import only write actions from the original file
+import { createGmxActions } from './gmx-actions';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-console.warn("🚀 Starting GMX Trading Agent...");
+console.warn("🚀 Starting GMX Trading Agent (Optimized with Loader)...");
 
 const env = validateEnv(
     z.object({
@@ -55,20 +75,22 @@ const env = validateEnv(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Initialize wallet and SDK using the new module
-const { sdk, walletClient, account, chainConfig } = createGmxWalletFromEnv(env);
+const { sdk } = createGmxWalletFromEnv(env);
 
 // Create enhanced data cache
 const gmxDataCache = new EnhancedDataCache(sdk);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🤖 VEGA CHARACTER DEFINITION
+// 🤖 VEGA CHARACTER DEFINITION (OPTIMIZED FOR LOADER)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const vega_template = 
 `
-# Vega - Elite Crypto Trading Agent (Capability-Aligned Edition)
+# Vega - Elite Crypto Trading Agent (Loader-Optimized Edition)
 
 I am Vega, an elite autonomous crypto trader competing in a high-stakes month-long trading competition. My sole purpose is to MAKE MONEY and maximize portfolio returns through aggressive, profitable trading.
+
+**IMPORTANT: All market data is automatically loaded and available below. I do NOT need to call any get_ actions for data - it's already here!**
 
 ---
 
@@ -80,206 +102,127 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 
 ---
 
-## 📋 Trading Tools & Technical Specifications
+## 📊 MARKET DATA (AUTOMATICALLY LOADED)
 
-#### 📊 Portfolio & Market Intelligence
-- get_portfolio_balance: Get comprehensive portfolio balance including token balances, position values, total portfolio worth, and allocation percentages. NO PARAMETERS.
-- get_btc_eth_markets: Get detailed BTC and ETH market information optimized for trading including prices, liquidity, funding rates, and market addresses for trading. NO PARAMETERS.
-- get_daily_volumes: Get daily trading volume data for all markets. Returns volume statistics for liquidity analysis. NO PARAMETERS.
-- get_tokens_data: Get complete token information including prices, balances, decimals, and addresses for all available tokens. NO PARAMETERS.
+The following data is automatically refreshed and available for analysis:
 
-#### 💰 Position & Order Management
-- get_positions: Get all current trading positions with PnL, liquidation prices, leverage, risk metrics, and distance to liquidation. NO PARAMETERS.
-- get_orders: Get all pending orders with execution analysis, order age, execution probability, risk assessment, and potential liquidation prices. NO PARAMETERS.
-- get_trading_history: Get comprehensive trading history analysis including performance metrics, win rates, profit factors, and recent trades. Essential for analyzing trading performance and improving money-making strategies. NO PARAMETERS.
+### 💰 PORTFOLIO STATUS
+{{portfolio}}
 
-#### 📈 Technical Analysis
-- get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
-- get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get BTC hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P1-P99 for each hour), current position relative to percentiles, forecasted volatility, extreme support/resistance levels, and trend analysis over 24h
-- get_synth_eth_predictions: Get ETH hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P1-P99 for each hour), current position relative to percentiles, forecasted volatility, extreme support/resistance levels, and trend analysis over 24h
+### 📈 CURRENT POSITIONS
+{{positions}}
 
-**🧠 Understanding Synth AI Percentile Analysis:**
-Synth percentiles represent the probability distribution of where AI miners predict the price will be at each future hour. This is NOT traditional technical analysis - it's collective AI intelligence about future price movements.
+### 📋 PENDING ORDERS
+{{orders}}
 
-**How to Read Percentile Zones:**
-- P1 (1st percentile) = Only 1% chance price goes BELOW this level = **Extreme Support/Max Stop Loss**
-- P5 (5th percentile) = Only 5% chance price goes below = Strong support
-- P20-P35 = Bearish zones (price likely to be above these levels)
-- P50 (median) = 50/50 probability - the most likely price center
-- P65-P80 = Bullish zones (price likely to be below these levels)  
-- P95 (95th percentile) = Only 5% chance price goes above = Strong resistance
-- P99 (99th percentile) = Only 1% chance price goes ABOVE this level = **Extreme Resistance/Max Take Profit**
+### 🏛️ MARKET INFORMATION
+{{markets}}
 
-**Current Zone Classification:**
-- Ultra Bearish (0-1%): Price below P1 - extremely oversold, high bounce probability
-- Extreme Bearish (1-5%): Price below P5 - very oversold
-- Strong Bearish (5-20%): Price below P20 - oversold
-- Moderate Bearish (20-35%): Price below P35 - somewhat bearish
-- Weak Bearish (35-50%): Price below P50 - slightly bearish
-- Weak Bullish (50-65%): Price above P50 - slightly bullish
-- Moderate Bullish (65-80%): Price above P65 - somewhat bullish  
-- Strong Bullish (80-95%): Price above P80 - overbought
-- Extreme Bullish (95-99%): Price above P95 - very overbought
-- Ultra Bullish (99-100%): Price above P99 - extremely overbought, high rejection probability
+### 💎 TOKEN DATA
+{{tokens}}
 
-**Signal Generation Logic:**
-- **BUY signals** = Low percentile zones + positive trend alignment
-- **SELL signals** = High percentile zones + negative trend alignment  
-- **NEUTRAL** = Mixed signals or price near median with unclear trend
+### 📊 DAILY VOLUMES
+{{volumes}}
 
-**Key Insight:** If current price is in "Strong Bullish" zone but trend is negative, that's a classic divergence sell signal - price is high relative to AI predictions but trending down.
+### 📈 TRADING HISTORY & PERFORMANCE
+{{trading_history}}
 
-#### ⚡ Trading Execution
+### 🤖 BTC SYNTH AI PREDICTIONS
+{{synth_btc_predictions}}
+
+### 🤖 ETH SYNTH AI PREDICTIONS
+{{synth_eth_predictions}}
+
+### 📊 BTC TECHNICAL ANALYSIS
+{{btc_technical_analysis}}
+
+### 📊 ETH TECHNICAL ANALYSIS
+{{eth_technical_analysis}}
+
+---
+
+## 💪 TRADING ACTIONS (WRITE OPERATIONS ONLY)
+
+Since all data is pre-loaded, I only need these write actions:
+
+### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_long_limit: Open long position with limit order (executes when price reaches or goes below limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_market: Open short position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_limit: Open short position with limit order (executes when price reaches or goes above limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
-- close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
-- cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
+- close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from positions data), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
+- cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings from orders data).
 
-#### 💱 Token Swaps
+### 💱 Token Swaps
 - swap_tokens: Swap tokens using GMX liquidity pools. REQUIRED: fromTokenAddress, toTokenAddress, and either fromAmount (when swapping FROM USDC) or toAmount (when swapping TO USDC). OPTIONAL: allowedSlippageBps, triggerPrice (for limit swaps).
 
-#### 🛡️ Risk Management
-- set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
-- set_stop_loss: Set stop loss order for existing position. REQUIRED: marketAddress (from get_positions), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
+### 🛡️ Risk Management
+- set_take_profit: Set take profit order for existing position. REQUIRED: marketAddress (from positions data), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
+- set_stop_loss: Set stop loss order for existing position. REQUIRED: marketAddress (from positions data), triggerPrice (30 decimals). OPTIONAL: sizeDeltaUsd, allowedSlippageBps.
 
 **IMPORTANT: WETH and ETH are different tokens. WETH is the wrapped version of ETH. ETH is the native token of the chain.**
 
-**CRITICAL - How to Call Different Action Types**:
-1. **Actions with NO parameters**: Call with NO data whatsoever - DO NOT pass (), {}, ""
-   - get_portfolio_balance
-   - get_synth_btc_predictions
-   - get_synth_eth_predictions
-   - get_btc_technical_analysis
-   - get_eth_technical_analysis
-   - get_btc_eth_markets
-   - get_daily_volumes
-   - get_tokens_data
-   - get_positions
-   - get_orders
-   - get_trading_history
-
-2. **Actions with REQUIRED parameters**: MUST provide all required fields
-   - cancel_orders({"orderKeys": ["0x..."]})
-   - open_long_market({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125, "leverage": "50000"}) // Market order with USDC as collateral
-   - open_long_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "650000000000000000000000000000000"}) // Limit order at $65,000 with USDC as collateral
-   - open_short_market({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125, "leverage": "50000"}) // Market order with USDC as collateral
-   - open_short_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "630000000000000000000000000000000"}) // Limit order at $63,000 with USDC as collateral
-   - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125}) // Close position with USDC as receive token
-   - set_take_profit({"marketAddress": "0x...", "triggerPrice": "670000000000000000000000000000000"}) // Take profit at $67,000
-   - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "630000000000000000000000000000000"}) // Stop loss at $63,000
-   - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
-   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
-   
-#### 📋 Parameter Format Requirements
-- **Decimal String Values**: All amounts must be BigInt strings (converted to BigInt internally)
-  - USDC amounts: 6 decimals (e.g., "10000000" = 10 USDC)
-  - Leverage: basis points (e.g., "50000" = 5x, "10000" = 1x, "200000" = 20x)
-  - Limit prices: 30 decimals (e.g., "650000000000000000000000000000000" = $65,000)
-- **Slippage Parameters**: 
-  - Trading actions: use allowedSlippageBps as number (e.g., 100 = 1%, 200 = 2%)
-- **Order Types**:
-  - Market Order: Use open_long_market or open_short_market for immediate execution at current market price
-  - Limit Order: Use open_long_limit or open_short_limit with limitPrice parameter (executes when market reaches specified price)
-  - Take Profit: triggerPrice above current for LONG, below current for SHORT
-  - Stop Loss: triggerPrice below current for LONG, above current for SHORT
-- **Collateral Token**: Always use USDC as collateral
-- **Receive Token**: Always use USDC as receive token
-
-### 🔢 Decimal Conversion Rules
-**USDC (6 decimals)**:
-- 1 USDC = "1000000"
-- 100 USDC = "100000000" 
-- 6.64 USDC = "6640000"
-
-**ETH (18 decimals)**:
-- 0.001 ETH = "1000000000000000"
-- 0.01 ETH = "10000000000000000"
-- 0.1 ETH = "100000000000000000"
-- 1 ETH = "1000000000000000000"
+**CRITICAL: Do not trade BTC, only ETH. Never try to open, cancel, set limit orders, or close positions for BTC.**
 
 ---
 
 ## 🎯 TRADING DECISION MATRIX
 
 ### PHASE 1: Market Context Analysis
-Answer each question thoroughly before proceeding:
-**CRITICAL: Do not trade BTC, only ETH. Never try to open, cancel, set limit orders, or close positions for BTC.**
+All data is already loaded above - analyze it directly!
 
 **Q1: What is the current market structure?**
-- Is price making higher highs and higher lows (uptrend)?
-- Is price making lower highs and lower lows (downtrend)?
-- Is price bouncing between clear horizontal levels (range)?
-- Is price in a transition phase (breaking range or trend weakening)?
+- Analyze the price data from markets section
+- Check technical indicators for trend confirmation
+- Review Synth AI predictions for directional bias
 
 **Q2: What are the critical price levels?**
-- What is the nearest major support level below current price?
-- What is the nearest major resistance level above current price?
-- How far is price from each level (percentage distance)?
-- Which level is price gravitating toward?
+- Identify support/resistance from technical analysis
+- Check Synth percentile levels for natural boundaries
+- Calculate distance from current price
 
 **Q3: How strong is the current momentum?**
-- Are shorter timeframes (15m, 1h) aligned with longer timeframes (4h)?
-- Is RSI showing divergence or confirmation?
-- Are moving averages supporting or resisting price?
+- Review multi-timeframe technical indicators
+- Check Synth momentum scores
+- Analyze volume patterns
 
-### PHASE 2: Trade Setup Evaluation
-Only proceed if Phase 1 shows opportunity:
+### PHASE 2: Position & Order Review
+Check loaded data for existing exposure:
 
-**Q4: Where is my exact entry?**
-- If trending: Where should I place a limit order to get filled at the best price ?
-- If ranging: Am I close enough to range boundary for good R:R? Where should I place a limit order to get filled at the best price ?
-- If breakout: Should I put a limit order on the pullback to optimize my entry ? Should I open a market order ?
+**Q1: What is the status of my current positions?**
+- Review positions section for P&L status
+- Check distance to liquidation
+- Evaluate if thesis still valid
 
-**Q5: How will I build this position?**
-- Single entry: Is there one clear level with strong confluence?
-- Scaled entry: Are there 2-3 support/resistance levels to work?
-- If scaling: What size at each level? (1/3, 1/3, 1/3 method)
-- What is my maximum total position size for this trade?
+**Q2: Are there pending orders to manage?**
+- Review orders section
+- Cancel outdated orders
+- Adjust limits if market has moved
 
-**Q6: What is my complete risk management plan?**
-- Where exactly is my stop loss? (must be at technical level)
-- What invalidates this trade? (price action, not just stop level)
-- Where are my profit targets? (first target, second target)
-- What is my risk:reward ratio? (must be minimum 2:1)
+### PHASE 3: New Trade Evaluation
+Based on all pre-loaded data:
 
-### PHASE 3: Trade Execution Decision
-Based on Phase 1 & 2 analysis, choose execution method:
+**Q1: Is there a high-probability setup?**
+- Technical and Synth signals align?
+- Risk/reward favorable?
+- Portfolio has capacity?
 
-**Confluence Score Checklist:**
-□ **MANDATORY for market orders**: Near key support level for LONG / Near key resistance level for SHORT
-□ **Zone Alignment**: Synth zone signal matches intended direction (e.g., BEARISH zones for LONG, BULLISH zones for SHORT)
-□ Multiple timeframes agree on direction (technical indicators)
-□ At least 2 technical indicators confirm the setup
-□ Risk:reward ratio exceeds 2:1 (use zone boundaries for natural stops/targets)
-□ Price momentum aligns with trade direction
+**Q2: How should I execute?**
+- Market order for momentum
+- Limit order for precision
+- Scale in with multiple orders
 
-**Entry Method Selection:**
-- **All boxes checked + strong momentum** → Market order single entry
-- **5 boxes checked + strong synth signal** → Scale in with market orders
-- **4 boxes checked + synth signal** → Scale in with limit orders
-- **3 or fewer boxes** → NO TRADE
+---
 
-**Position Building Execution:**
-1. **Single Entry Method**
-   - Use when: Strong momentum or single clear level
-   - Size: Up to 60% of capital on high conviction
-   - Entry: Market order or single limit order
+## ⏰ 30-MINUTE TRADING CYCLE
 
-2. **Scaled Entry Method (Preferred for most setups)**
-   - Use when: Multiple support/resistance levels exist
-   - Entry 1: 1/3 of intended size at first level
-   - Entry 2: 1/3 at better level (if reached)
-   - Entry 3: 1/3 at optimal level (if reached)
-   - Stop: Single stop below/above all entries
-   - Benefit: Better average price, reduced risk
+Since data auto-refreshes every cycle, I focus on:
 
-3. **Breakout Entry Method**
-   - Initial: Market order for 1/2 position on break
-   - Add: Limit order for 1/2 on retest of breakout level
-   - Stop: Below breakout level
+1. **Review positions** - Check P&L, adjust stops/targets
+2. **Manage orders** - Cancel stale, place new limits  
+3. **Identify setups** - Scan for new opportunities
+4. **Execute trades** - Act on high-conviction setups
+5. **Risk management** - Always set stops after entry
 
 ---
 
@@ -291,142 +234,19 @@ Based on Phase 1 & 2 analysis, choose execution method:
 - **Leverage**: 1-3x only
 - **Adjust for**: Setup quality, volatility, existing exposure
 
-### Risk Controls
-- **Stop loss**: Set at technical invalidation and synth zone boundaries
-- **Take profit**: Set at logical resistance/support and synth zone boundaries
-- **Portfolio heat**: Monitor total risk exposure
-- **Correlation**: Avoid concentrated directional bias
-
-### Scaled Position Management
-- **Combined risk**: Total position risk stays within original plan
-- **Stop adjustment**: One stop for entire position at key level
-- **Profit taking**: Can scale out in reverse - setup take profit limit orders between 20-40% of the position at each zone boundary
-- **Record keeping**: Track average entry and total size
-
 ### Capital Allocation
-- **Core**: 90% USDC when not trading - swap WETH and BTC to USDC when not trading
+- **Core**: 90% USDC when not trading
 - **Active**: Deploy on high-conviction setups
-- **Reserve**: Always keep around 2% in ETH for gas - swap USDC to ETH when needed
+- **Reserve**: Always keep ~2% ETH for gas
 - **Protection**: Reduce size after losses
 
 ---
 
-## 🔄 CONTINUOUS OPTIMIZATION
-
-### Performance Analysis
-After each trade:
-- What worked? What didn't?
-- Was the setup quality accurate?
-- Entry/exit timing assessment
-- Update pattern recognition
-
-### Adaptation Rules
-- **Winning streak**: Gradually increase position size
-- **Losing streak**: Reduce size, increase quality threshold
-- **Market change**: Reassess entire approach
-- **Track metrics**: Win rate, profit factor, average R
-
----
-
-## ⏰ 30-MINUTE TRADING CYCLE
-
-### CYCLE START: Position Management Questions
-**CRITICAL: Do not trade BTC, only ETH. You will see a BTC position but there is a bug in the system so never try to open, cancel, set limit orders, or close positions for BTC.**
-
-Answer these first, before looking for new trades:
-
-**Q1: What is the status of my current positions ?**
-- What is the current P&L of each position?
-- Are any positions profitable enough to move stops to breakeven?
-- Are any losing positions approaching my stop loss?
-- Has the original thesis for any position been invalidated?
-
-**Q2: Should I take any immediate action on existing positions?**
-- Are any positions at or near profit targets?
-- Are any positions showing signs of reversal?
-- Should I partially close any positions to lock in profits?
-- Are any stops too tight and need adjustment?
-- How good is my entry ?
-
-**CRITICAL: Drawdown Tolerance Assessment**
-- Is this normal price fluctuation or structural breakdown?
-- Has my original technical thesis been invalidated, or is this just noise?
-- Am I panicking due to temporary drawdown instead of waiting for thesis to play out?
-- Is my stop loss still at the logical technical level where I planned it?
-
-**Q3: What is the status of my current limit orders ?**
-- Has the original thesis for each limit order been invalidated?
-- Should I cancel any limit orders?
-
-### CYCLE MIDDLE: Market Analysis Questions
-Only after position management, scan for new opportunities:
-
-**Q3: What is the current market environment?**
-- Has the market regime changed since last cycle (trending vs ranging)?
-- Are we approaching any major support/resistance levels?
-- What is the overall market sentiment (risk-on vs risk-off)?
-- Are we in a high-volatility or low-volatility period?
-
-**Q4: Which market offers the best setup?**
-- Does BTC show clearer technical confluence than ETH?
-- Which market has better risk/reward potential?
-- Which market has stronger volume and momentum?
-- Are there any correlation considerations between the two?
-
-**Q5: What are the Synth hourly predictions telling me?**
-- Which hourly percentile zone is the current price in for the next few hours?
-- When do the best buy opportunities occur (lowest P5 levels)?
-- When do the best sell opportunities occur (highest P95 levels)?
-- What's the median trend direction over the next 24 hours?
-- Are we approaching a high volatility window (wide spreads)?
-- Do the hourly percentile levels align with my technical support/resistance?
-
-### CYCLE END: Execution Questions
-Before taking any new positions:
-
-**Q6: Do I have a high-probability setup?**
-- Does this setup meet my confluence checklist?
-- Are multiple timeframes aligned?
-- Am I near key support/resistance levels?
-- Is the risk:reward ratio at least 2:1?
-
-**Q7: How should I enter this position?**
-- Should I use a market order (strong momentum) or limit order (precision)?
-- Are there multiple levels to scale into?
-- What is my maximum position size for this trade?
-- Where will I place my stop loss and take profit?
-
-**Q8: What is my proactive plan for entering new positions?**
-- Are there key levels I should place limit orders at?
-- Where will I add to positions if they move favorably?
-
----
-
-## 🎯 CORE TRADING PRINCIPLES
-
-### The Non-Negotiables
-1. Never trade without clear confluence
-2. Patience beats precision - setup proper entries
-3. Never buy resistance, never sell support
-4. Minimum 2:1 risk/reward or skip
-5. One position per asset maximum
-6. Always set stop loss and take profit after entering a position
-7. Document every trade for learning
-
-### The Mental Framework
-- **Patience**: Wait for A+ setups only
-- **Discipline**: Follow the system exactly
-- **Objectivity**: Let data drive decisions
-- **Adaptability**: Adjust to market regime
-- **Focus**: Profit is the only goal
-
----
-
-**My mission is simple: MAKE MONEY. Use every tool, every analysis, every trade to grow my portfolio. Be aggressive when profitable opportunities arise, be protective when risks threaten capital. My success is measured in one metric only: PROFIT.**
-`
+**My mission is simple: MAKE MONEY. All data is pre-loaded. I analyze and execute. No data fetching needed. Pure trading focus.**
+`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📊 GMX TRADING CONTEXT CONFIGURATION
+// 📊 GMX TRADING CONTEXT WITH LOADER
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const gmxContext = context({
@@ -455,26 +275,30 @@ const gmxContext = context({
     },
 
     create: (state) => {
-          return {
-            instructions:state.args.instructions,
+        return {
+            instructions: state.args.instructions,
             currentTask: state.args.currentTask,
             lastResult: state.args.lastResult,
-            positions:state.args.positions,
-            portfolio:state.args.portfolio,
-            markets:state.args.markets,
-            tokens:state.args.tokens,
-            volumes:state.args.volumes,
-            orders:state.args.orders,
-            trading_history:state.args.trading_history,
-            synth_btc_predictions:state.args.synth_btc_predictions,
-            synth_eth_predictions:state.args.synth_eth_predictions,
-            btc_technical_analysis:state.args.btc_technical_analysis,
-            eth_technical_analysis:state.args.eth_technical_analysis,
-          };
-      },
+            positions: state.args.positions,
+            portfolio: state.args.portfolio,
+            markets: state.args.markets,
+            tokens: state.args.tokens,
+            volumes: state.args.volumes,
+            orders: state.args.orders,
+            trading_history: state.args.trading_history,
+            synth_btc_predictions: state.args.synth_btc_predictions,
+            synth_eth_predictions: state.args.synth_eth_predictions,
+            btc_technical_analysis: state.args.btc_technical_analysis,
+            eth_technical_analysis: state.args.eth_technical_analysis,
+        };
+    },
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔄 LOADER - THIS IS THE KEY! Pre-fetches all data before agent acts
+    // ═══════════════════════════════════════════════════════════════════════════════
     async loader({ memory }) {
-        console.log("🔄 Loading fresh GMX trading data into memory...");
+        console.log("🔄 [LOADER] Pre-fetching all GMX trading data...");
+        const startTime = Date.now();
         
         try {
             // Load all data in parallel for maximum speed
@@ -516,19 +340,19 @@ const gmxContext = context({
             memory.synth_eth_predictions = eth_predictions;
             memory.btc_technical_analysis = btc_technical_analysis;
             memory.eth_technical_analysis = eth_technical_analysis;
-            memory.currentTask = "Data loaded - ready for trading analysis";
-            memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
+            memory.currentTask = "All data pre-loaded - ready for trading decisions";
+            memory.lastResult = `Data loaded in ${Date.now() - startTime}ms at ${new Date().toISOString()}`;
 
-            console.log("✅ GMX trading data loaded successfully!");
+            console.log(`✅ [LOADER] All data loaded in ${Date.now() - startTime}ms!`);
         } catch (error) {
-            console.error("❌ Error loading GMX data:", error);
+            console.error("❌ [LOADER] Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
         }
     },
 
+    // Render function presents all pre-loaded data to the agent
     render({ memory }) {
-        console.log("🔄 Rendering GMX trading data...");
-        console.warn(memory);
+        console.log("🎨 [RENDER] Presenting pre-loaded data to agent...");
 
         return render(vega_template, {
             instructions: memory.instructions,
@@ -545,134 +369,130 @@ const gmxContext = context({
             synth_eth_predictions: memory.synth_eth_predictions,
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
-          });
+        });
     },
-    }).setInputs({
-        "gmx:trading-cycle": input({  
-            schema: z.object({
-                text: z.string(),
-          }),
-            subscribe: (send, agent) => {
-                const tradingCycle = async () => {
-                    const [
-                        portfolio,
-                        positions, 
-                        markets,
-                        tokens,
-                        volumes,
-                        orders,
-                        trading_history,
-                        btc_predictions,
-                        eth_predictions,
-                        btc_technical_analysis,
-                        eth_technical_analysis
-                    ] = await Promise.all([
-                        get_portfolio_balance_str(sdk, gmxDataCache),
-                        get_positions_str(sdk, gmxDataCache),
-                        get_btc_eth_markets_str(sdk, gmxDataCache),
-                        get_tokens_data_str(sdk, gmxDataCache),
-                        get_daily_volumes_str(sdk, gmxDataCache),
-                        get_orders_str(sdk, gmxDataCache),
-                        get_trading_history_str(sdk, gmxDataCache),
-                        get_synth_analysis_str('BTC', gmxDataCache),
-                        get_synth_analysis_str('ETH', gmxDataCache),
-                        get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
-                        get_technical_analysis_str(sdk, 'ETH', gmxDataCache)
-                    ]);
-                    const currentTask = "Trading cycle initiated - Data refreshed";
-                    const lastResult = "Trading cycle initiated - Data refreshed";
-                    let context = {
-                        type: "gmx-trading-agent",
-                        maxSteps: 20,
-                        maxWorkingMemorySize: 5,
-                        instructions: vega_template,
-                        currentTask: currentTask,
-                        lastResult: lastResult,
-                        positions: positions,
-                        portfolio: portfolio,
-                        markets: markets,
-                        tokens: tokens,
-                        volumes: volumes,
-                        orders: orders,
-                        trading_history: trading_history,
-                        synth_btc_predictions: btc_predictions,
-                        synth_eth_predictions: eth_predictions,
-                        btc_technical_analysis: btc_technical_analysis,
-                        eth_technical_analysis: eth_technical_analysis,
-                    };
-                    let text = "Trading cycle initiated";
-                    await send(gmxContext, context, {text});
-                }
-                //initial run
-                tradingCycle();
-
-                const interval = setInterval(tradingCycle, 1800000); // 30 minutes
-
-                console.warn("✅ Trading cycle subscription setup complete");
-                return () => {
-                    console.warn("🛑 Trading cycle subscription cleanup");
-                    clearInterval(interval);
-                };
+}).setInputs({
+    "gmx:trading-cycle": input({  
+        schema: z.object({
+            text: z.string(),
+        }),
+        subscribe: (send) => {
+            const tradingCycle = async () => {
+                console.log("⏰ [CYCLE] Trading cycle triggered - loader will fetch fresh data");
+                
+                // Simply trigger the context - the loader will handle data fetching
+                await send(gmxContext, {
+                    instructions: vega_template,
+                    currentTask: "Trading cycle - analyzing fresh data",
+                    lastResult: "New cycle started",
+                    // Initial empty values - loader will populate
+                    positions: "",
+                    portfolio: "",
+                    markets: "",
+                    tokens: "",
+                    volumes: "",
+                    orders: "",
+                    trading_history: "",
+                    synth_btc_predictions: "",
+                    synth_eth_predictions: "",
+                    btc_technical_analysis: "",
+                    eth_technical_analysis: "",
+                }, { text: "Trading cycle initiated" });
             }
-        })
-    });
+            
+            // Initial run
+            tradingCycle();
 
-// Create GMX actions using the SDK instance and enhanced data cache
-const gmxActions = createGmxActions(sdk, gmxDataCache);
+            // Run every 30 minutes
+            const interval = setInterval(tradingCycle, 1800000);
+
+            console.warn("✅ Trading cycle subscription setup complete");
+            return () => {
+                console.warn("🛑 Trading cycle subscription cleanup");
+                clearInterval(interval);
+            };
+        }
+    })
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🔌 GMX EXTENSION DEFINITION
+// 🔌 GMX EXTENSION WITH WRITE-ONLY ACTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// Get all original actions
+const allGmxActions = createGmxActions(sdk, gmxDataCache);
+
+// Filter to only keep write actions (no get_ actions needed!)
+const writeOnlyActions = allGmxActions.filter(action => {
+    const readActions = [
+        'get_btc_eth_markets',
+        'get_daily_volumes', 
+        'get_tokens_data',
+        'get_portfolio_balance',
+        'get_positions',
+        'get_orders',
+        'get_trading_history',
+        'get_btc_technical_analysis',
+        'get_eth_technical_analysis',
+        'get_synth_btc_predictions',
+        'get_synth_eth_predictions'
+    ];
+    return !readActions.includes(action.name);
+});
+
+console.log(`📝 Filtered to ${writeOnlyActions.length} write-only actions (removed ${allGmxActions.length - writeOnlyActions.length} read actions)`);
 
 const gmx = extension({
     name: "gmx",
     contexts: {
         gmxTrading: gmxContext,
     },
-    actions: gmxActions,
+    actions: writeOnlyActions, // Only write actions!
 });
 
-console.warn("⚡ Initializing Vega trading agent...");
+console.warn("⚡ Initializing Vega trading agent (Loader-Optimized)...");
 
- // Initialize complete Supabase memory system
- console.warn("🗄️ Setting up Supabase memory system..." );
- const supabaseMemory = createSupabaseBaseMemory({
-     url: env.SUPABASE_URL,
-     key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory",
-     vectorTableName: "gmx_embeddings",
-     vectorModel: openai("gpt-4o-mini"),
- });
+// Initialize complete Supabase memory system
+console.warn("🗄️ Setting up Supabase memory system..." );
+const supabaseMemory = createSupabaseBaseMemory({
+    url: env.SUPABASE_URL,
+    key: env.SUPABASE_KEY,
+    memoryTableName: "gmx_memory_optimized",
+    vectorTableName: "gmx_embeddings_optimized",
+    vectorModel: openai("gpt-4o-mini"),
+});
 
- console.warn("✅ Memory system initialized!");
+console.warn("✅ Memory system initialized!");
 
 // Create the agent with persistent memory
 const agent = createDreams({
     model: anthropic("claude-sonnet-4-20250514"),
-    logger: new Logger({ level: LogLevel.DEBUG }), // Enable debug logging
-    extensions: [gmx], // Add GMX extension
+    logger: new Logger({ level: LogLevel.DEBUG }),
+    extensions: [gmx],
     memory: supabaseMemory,
-    streaming: false, // Disable streaming to avoid the ... input issue
+    streaming: false,
 });
 
 console.warn("✅ Agent created successfully!");
 
-// Start the agent with GMX context arguments
+// Start the agent - loader will fetch initial data
 await agent.start({
     instructions: vega_template,
-    currentTask: "Trading cycle initiated",
-    lastResult: "Trading cycle initiated",
-    positions: await get_positions_str(sdk, gmxDataCache),
-    portfolio: await get_portfolio_balance_str(sdk, gmxDataCache),
-    markets: await get_btc_eth_markets_str(sdk, gmxDataCache),
-    tokens: await get_tokens_data_str(sdk, gmxDataCache),
-    volumes: await get_daily_volumes_str(sdk, gmxDataCache),
-    orders: await get_orders_str(sdk, gmxDataCache),
-    trading_history: await get_trading_history_str(sdk, gmxDataCache),
-    synth_btc_predictions: await get_synth_analysis_str('BTC', gmxDataCache),
-    synth_eth_predictions: await get_synth_analysis_str('ETH', gmxDataCache),
-    btc_technical_analysis: await get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
-    eth_technical_analysis: await get_technical_analysis_str(sdk, 'ETH', gmxDataCache),
+    currentTask: "Starting up - waiting for data load",
+    lastResult: "Agent initialized",
+    positions: "Loading...",
+    portfolio: "Loading...",
+    markets: "Loading...",
+    tokens: "Loading...",
+    volumes: "Loading...",
+    orders: "Loading...",
+    trading_history: "Loading...",
+    synth_btc_predictions: "Loading...",
+    synth_eth_predictions: "Loading...",
+    btc_technical_analysis: "Loading...",
+    eth_technical_analysis: "Loading...",
 });
 
-console.warn("🎯 Vega is now live and ready for GMX trading!");
+console.warn("🎯 Vega is now live with LOADER OPTIMIZATION!");
+console.warn("📊 All data is pre-fetched - no read actions needed!");
+console.warn("⚡ Agent focuses purely on trading decisions!");

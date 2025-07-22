@@ -163,12 +163,12 @@ Synth percentiles represent the probability distribution of where AI miners pred
 2. **Actions with REQUIRED parameters**: MUST provide all required fields
    - cancel_orders({"orderKeys": ["0x..."]})
    - open_long_market({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125, "leverage": "50000"}) // Market order with USDC as collateral
-   - open_long_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "65000000000000000000000000000000"}) // Limit order at $65,000 with USDC as collateral
+   - open_long_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "650000000000000000000000000000000"}) // Limit order at $65,000 with USDC as collateral
    - open_short_market({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125, "leverage": "50000"}) // Market order with USDC as collateral
-   - open_short_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "63000000000000000000000000000000"}) // Limit order at $63,000 with USDC as collateral
+   - open_short_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "630000000000000000000000000000000"}) // Limit order at $63,000 with USDC as collateral
    - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125}) // Close position with USDC as receive token
-   - set_take_profit({"marketAddress": "0x...", "triggerPrice": "67000000000000000000000000000000"}) // Take profit at $67,000
-   - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "63000000000000000000000000000000"}) // Stop loss at $63,000
+   - set_take_profit({"marketAddress": "0x...", "triggerPrice": "670000000000000000000000000000000"}) // Take profit at $67,000
+   - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "630000000000000000000000000000000"}) // Stop loss at $63,000
    - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
    - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
    
@@ -176,7 +176,7 @@ Synth percentiles represent the probability distribution of where AI miners pred
 - **Decimal String Values**: All amounts must be BigInt strings (converted to BigInt internally)
   - USDC amounts: 6 decimals (e.g., "10000000" = 10 USDC)
   - Leverage: basis points (e.g., "50000" = 5x, "10000" = 1x, "200000" = 20x)
-  - Limit prices: 30 decimals (e.g., "65000000000000000000000000000000" = $65,000)
+  - Limit prices: 30 decimals (e.g., "650000000000000000000000000000000" = $65,000)
 - **Slippage Parameters**: 
   - Trading actions: use allowedSlippageBps as number (e.g., 100 = 1%, 200 = 2%)
 - **Order Types**:

@@ -956,7 +956,7 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache?: Enhance
 // Helper function to analyze synth predictions using percentile-based method
 const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH', currentPrice: number) => {
     const timestamp = new Date().toISOString();
-    
+
     // Extract all predictions across all time slots
     const allPredictions: { time: Date, price: number, minerUid: number }[] = [];
     
@@ -974,58 +974,120 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
             }
         }
     }
-    
     if (allPredictions.length === 0) {
         return `${asset} Analysis @ ${timestamp}\nNo predictions available.`;
     }
     
-    // Sort all prices for percentile calculation
-    const allPrices = allPredictions.map(p => p.price);
-    const sortedPrices = [...allPrices].sort((a, b) => a - b);
+    // Group predictions by timestamp (keep original 5-minute intervals)
+    const timestampBuckets: { [timestamp: string]: number[] } = {};
     
-    // Calculate percentiles for zone analysis
+    // Group predictions by their original timestamp
+    for (const prediction of allPredictions) {
+        const timestamp = prediction.time.toISOString();
+        if (!timestampBuckets[timestamp]) {
+            timestampBuckets[timestamp] = [];
+        }
+        timestampBuckets[timestamp].push(prediction.price);
+    }
+
+    // Calculate percentiles for each hour
     const getPercentile = (arr: number[], percentile: number): number => {
-        const index = Math.ceil(arr.length * percentile / 100) - 1;
-        return arr[Math.max(0, Math.min(index, arr.length - 1))];
+        if (arr.length === 0) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const index = (percentile / 100) * (sorted.length - 1);
+        const lower = Math.floor(index);
+        const upper = Math.ceil(index);
+        
+        if (lower === upper) {
+            return sorted[lower];
+        }
+        
+        // Linear interpolation
+        const weight = index - lower;
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight;
     };
     
-    const p0_5 = getPercentile(sortedPrices, 0.5);
-    const p5 = getPercentile(sortedPrices, 5);
-    const p20 = getPercentile(sortedPrices, 20);
-    const p35 = getPercentile(sortedPrices, 35);
-    const p50 = getPercentile(sortedPrices, 50); // Median
-    const p65 = getPercentile(sortedPrices, 65);
-    const p80 = getPercentile(sortedPrices, 80);
-    const p95 = getPercentile(sortedPrices, 95);
-    const p99_5 = getPercentile(sortedPrices, 99.5);
+    interface TimestampPercentiles {
+        timestamp: string;
+        time: Date;
+        p1: number;
+        p5: number;
+        p20: number;
+        p35: number;
+        p50: number;
+        p65: number;
+        p80: number;
+        p95: number;
+        p99: number;
+        spread: number;
+        count: number;
+    }
     
-    // Define market zones based on percentile ranges
-    const zones = [
-        { name: 'EXTREME_BEARISH', range: '0.5-5%', min: p0_5, max: p5, signal: 'VERY_STRONG_BUY' },
-        { name: 'STRONG_BEARISH', range: '5-20%', min: p5, max: p20, signal: 'STRONG_BUY' },
-        { name: 'MODERATE_BEARISH', range: '20-35%', min: p20, max: p35, signal: 'MODERATE_BUY' },
-        { name: 'WEAK_BEARISH', range: '35-50%', min: p35, max: p50, signal: 'WEAK_BUY' },
-        { name: 'WEAK_BULLISH', range: '50-65%', min: p50, max: p65, signal: 'WEAK_SELL' },
-        { name: 'MODERATE_BULLISH', range: '65-80%', min: p65, max: p80, signal: 'MODERATE_SELL' },
-        { name: 'STRONG_BULLISH', range: '80-95%', min: p80, max: p95, signal: 'STRONG_SELL' },
-        { name: 'EXTREME_BULLISH', range: '95-99.5%', min: p95, max: p99_5, signal: 'VERY_STRONG_SELL' }
-    ];
+    const timestampPercentiles: TimestampPercentiles[] = [];
     
-    // Find current zone
-    let currentZone = null;
-    for (const zone of zones) {
-        if (currentPrice >= zone.min && currentPrice <= zone.max) {
-            currentZone = zone;
-            break;
+    // Calculate percentiles for each timestamp that has data
+    const sortedTimestamps = Object.keys(timestampBuckets).sort();
+    
+    for (const timestamp of sortedTimestamps) {
+        const predictions = timestampBuckets[timestamp];
+        if (predictions.length >= 3) { // Need at least 3 predictions for meaningful percentiles
+            const p1 = getPercentile(predictions, 1);
+            const p5 = getPercentile(predictions, 5);
+            const p20 = getPercentile(predictions, 20);
+            const p35 = getPercentile(predictions, 35);
+            const p50 = getPercentile(predictions, 50);
+            const p65 = getPercentile(predictions, 65);
+            const p80 = getPercentile(predictions, 80);
+            const p95 = getPercentile(predictions, 95);
+            const p99 = getPercentile(predictions, 99);
+            const spread = ((p99 - p1) / p50) * 100;
+            
+            timestampPercentiles.push({
+                timestamp,
+                time: new Date(timestamp),
+                p1, p5, p20, p35, p50, p65, p80, p95, p99,
+                spread,
+                count: predictions.length
+            });
         }
     }
     
-    // If price is outside all zones, determine if it's below or above
-    if (!currentZone) {
-        if (currentPrice < p0_5) {
-            currentZone = { name: 'ULTRA_BEARISH', range: '<0.5%', min: 0, max: p0_5, signal: 'EXTREME_BUY' };
-        } else if (currentPrice > p99_5) {
-            currentZone = { name: 'ULTRA_BULLISH', range: '>99.5%', min: p99_5, max: Infinity, signal: 'EXTREME_SELL' };
+    // Find current position based on most recent timestamp (most relevant for immediate decisions)
+    const currentTimestampData = timestampPercentiles[0];
+    let currentZone = null;
+    let currentZoneType = 'UNKNOWN';
+    
+    if (currentTimestampData) {
+        if (currentPrice <= currentTimestampData.p1) {
+            currentZoneType = 'ULTRA_BEARISH';
+            currentZone = { name: 'ULTRA_BEARISH', range: '0-1%' };
+        } else if (currentPrice <= currentTimestampData.p5) {
+            currentZoneType = 'EXTREME_BEARISH';
+            currentZone = { name: 'EXTREME_BEARISH', range: '1-5%' };
+        } else if (currentPrice <= currentTimestampData.p20) {
+            currentZoneType = 'STRONG_BEARISH';
+            currentZone = { name: 'STRONG_BEARISH', range: '5-20%' };
+        } else if (currentPrice <= currentTimestampData.p35) {
+            currentZoneType = 'MODERATE_BEARISH';
+            currentZone = { name: 'MODERATE_BEARISH', range: '20-35%' };
+        } else if (currentPrice <= currentTimestampData.p50) {
+            currentZoneType = 'WEAK_BEARISH';
+            currentZone = { name: 'WEAK_BEARISH', range: '35-50%' };
+        } else if (currentPrice <= currentTimestampData.p65) {
+            currentZoneType = 'WEAK_BULLISH';
+            currentZone = { name: 'WEAK_BULLISH', range: '50-65%' };
+        } else if (currentPrice <= currentTimestampData.p80) {
+            currentZoneType = 'MODERATE_BULLISH';
+            currentZone = { name: 'MODERATE_BULLISH', range: '65-80%' };
+        } else if (currentPrice <= currentTimestampData.p95) {
+            currentZoneType = 'STRONG_BULLISH';
+            currentZone = { name: 'STRONG_BULLISH', range: '80-95%' };
+        } else if (currentPrice <= currentTimestampData.p99) {
+            currentZoneType = 'EXTREME_BULLISH';
+            currentZone = { name: 'EXTREME_BULLISH', range: '95-99%' };
+        } else {
+            currentZoneType = 'ULTRA_BULLISH';
+            currentZone = { name: 'ULTRA_BULLISH', range: '99-100%' };
         }
     }
     
@@ -1056,8 +1118,8 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
         const timeDiffMs = forecastedPricePath[i].time - forecastedPricePath[i-1].time;
         const timeDiffMinutes = timeDiffMs / (1000 * 60);
         
-        // Only use slots that are roughly 5 minutes apart (3-7 minutes tolerance)
-        if (timeDiffMinutes >= 3 && timeDiffMinutes <= 7) {
+        // Only use slots that are roughly 1 hour apart (50-70 minutes tolerance)  
+        if (timeDiffMinutes >= 50 && timeDiffMinutes <= 70) {
             const returnPct = (forecastedPricePath[i].price - forecastedPricePath[i-1].price) / forecastedPricePath[i-1].price;
             forecastedReturns.push(returnPct);
         }
@@ -1074,11 +1136,11 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
         // Calculate variance of expected returns
         const variance = forecastedReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / forecastedReturns.length;
         
-        // Standard deviation (volatility per 5-minute period)
-        const stdDevPer5Min = Math.sqrt(variance);
+        // Standard deviation (volatility per hourly period)
+        const stdDevPerHour = Math.sqrt(variance);
         
-        // Scale to 24-hour volatility (288 5-minute periods in a day)
-        forecastedVolatility24h = stdDevPer5Min * Math.sqrt(288) * 100;
+        // Scale to 24-hour volatility (24 hourly periods in a day)
+        forecastedVolatility24h = stdDevPerHour * Math.sqrt(24) * 100;
         
         // Annualize (365 days for crypto)
         forecastedVolatilityAnnualized = forecastedVolatility24h * Math.sqrt(365);
@@ -1113,135 +1175,145 @@ const analyzeSynthPredictions = (consolidatedArray: any[], asset: 'BTC' | 'ETH',
     const marketRegime = forecastedVolatilityAnnualized > 80 ? 'HIGH_VOLATILITY' :
                         forecastedVolatilityAnnualized > 40 ? 'MODERATE_VOLATILITY' : 'LOW_VOLATILITY';
         
-    // Trading recommendation logic based on zones
-    let tradingSetup = 'WAIT';
-    let tradeQuality = 'N/A';
+    // No trading logic - just provide data for agent to process
     
-    if (currentZone) {
-        const signal = currentZone.signal;
-        
-        // Adjust quality based on volatility regime
-        let volAdjustment = 0;
-        if (marketRegime === 'LOW_VOLATILITY') volAdjustment = 1; // Upgrade quality in low vol
-        else if (marketRegime === 'HIGH_VOLATILITY') volAdjustment = -1; // Downgrade in high vol
-        
-        if (signal === 'EXTREME_BUY' || signal === 'VERY_STRONG_BUY') {
-            tradingSetup = 'LONG';
-            const baseQuality = signal === 'EXTREME_BUY' ? 3 : 2; // A+ = 3, A = 2
-            const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
-            tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
-        } else if (signal === 'STRONG_BUY') {
-            tradingSetup = 'LONG';
-            const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
-            tradeQuality = adjustedQuality;
-        } else if (signal === 'MODERATE_BUY' && marketRegime === 'LOW_VOLATILITY') {
-            tradingSetup = 'LONG';
-            tradeQuality = volAdjustment > 0 ? 'B' : 'C';
-        } else if (signal === 'EXTREME_SELL' || signal === 'VERY_STRONG_SELL') {
-            tradingSetup = 'SHORT';
-            const baseQuality = signal === 'EXTREME_SELL' ? 3 : 2;
-            const adjustedQuality = Math.max(1, Math.min(3, baseQuality + volAdjustment));
-            tradeQuality = adjustedQuality === 3 ? 'A+' : adjustedQuality === 2 ? 'A' : 'B+';
-        } else if (signal === 'STRONG_SELL') {
-            tradingSetup = 'SHORT';
-            const adjustedQuality = volAdjustment > 0 ? 'B+' : volAdjustment < 0 ? 'B-' : 'B';
-            tradeQuality = adjustedQuality;
-        } else if (signal === 'MODERATE_SELL' && marketRegime === 'LOW_VOLATILITY') {
-            tradingSetup = 'SHORT';
-            tradeQuality = volAdjustment > 0 ? 'B' : 'C';
-        }
-        
-        // Don't trade in extreme volatility unless in extreme zones
-        if (marketRegime === 'HIGH_VOLATILITY' && !signal.includes('EXTREME') && !signal.includes('STRONG')) {
-            tradingSetup = 'WAIT';
-            tradeQuality = 'N/A';
-        }
-    }
-    
-    // Calculate targets and stops based on zones
-    let target1Zone = null;
-    let target2Zone = null;
-    let stopZone = null;
-    
-    if (tradingSetup === 'LONG') {
-        // For longs, target higher zones, stop at lower zones
-        const currentIndex = zones.findIndex(z => z.name === currentZone?.name);
-        if (currentIndex >= 0) {
-            target1Zone = currentIndex < 4 ? zones[4] : zones[Math.min(currentIndex + 2, zones.length - 1)]; // Target weak bullish or higher
-            target2Zone = zones[Math.min(currentIndex + 3, zones.length - 1)];
-            stopZone = currentIndex > 0 ? zones[Math.max(currentIndex - 1, 0)] : null;
-        }
-    } else if (tradingSetup === 'SHORT') {
-        // For shorts, target lower zones, stop at higher zones
-        const currentIndex = zones.findIndex(z => z.name === currentZone?.name);
-        if (currentIndex >= 0) {
-            target1Zone = currentIndex > 3 ? zones[3] : zones[Math.max(currentIndex - 2, 0)]; // Target weak bearish or lower
-            target2Zone = zones[Math.max(currentIndex - 3, 0)];
-            stopZone = currentIndex < zones.length - 1 ? zones[Math.min(currentIndex + 1, zones.length - 1)] : null;
-        }
-    }
-    
-    // Format output for Vega's consumption
-    let result = `=== SYNTH INTELLIGENCE RECAP [${timestamp}] ===\n\n`;
-    
-    result += `🎯 TRADING SIGNAL: ${tradingSetup}`;
-    if (tradingSetup !== 'WAIT') {
-        result += ` | Quality: ${tradeQuality}`;
-    }
-    result += `\n\n`;
+    // Format output for agent's consumption - pure data, no trading signals
+    let result = `=== SYNTH DATA ${asset} [${timestamp}] ===\n\n`;
     
     result += `📍 CURRENT MARKET DATA\n`;
     result += `├─ Price: $${currentPrice.toFixed(0)}\n`;
-    result += `├─ Zone: ${currentZone?.name || 'UNKNOWN'} (${currentZone?.range || 'N/A'})\n`;
-    result += `├─ Zone Signal: ${currentZone?.signal || 'N/A'}\n`;
-    result += `└─ Market Regime: ${marketRegime}\n\n`;
+    result += `├─ Current Hour Zone: ${currentZone?.name || 'UNKNOWN'} (${currentZone?.range || 'N/A'})\n`;
+    result += `├─ Volatility Regime: ${marketRegime}\n`;
+    result += `└─ Forecasted Vol (24h): ${forecastedVolatilityAnnualized.toFixed(0)}%\n\n`;
     
-    result += `📊 PERCENTILE ZONE MAP\n`;
-    zones.slice().reverse().forEach((zone, index) => {
-        const isCurrentZone = currentZone?.name === zone.name;
-        const marker = isCurrentZone ? ' ⭐ CURRENT' : '';
-        const prefix = index === zones.length - 1 ? '└─' : '├─';
+    // Generate timestamp evolution table
+    if (timestampPercentiles.length > 0) {
+        result += `📊 TIMESTAMP PERCENTILE EVOLUTION\n`;
+        result += `Time (UTC)      | P1      P5      P20     P35     P50     P65     P80     P95     P99     | Spread\n`;
+        result += `----------------|-----------------------------------------------------------------------|-------\n`;
         
-        result += `${prefix} ${zone.range}: $${zone.min.toFixed(0)}-$${zone.max.toFixed(0)} [${zone.signal}]${marker}\n`;
-    });
-    
-    // Add ultra zones if applicable
-    if (currentZone?.name === 'ULTRA_BULLISH') {
-        result += `├─ >99.5%: $${p99_5.toFixed(0)}+ [EXTREME_SELL] ⭐ CURRENT\n`;
-    } else if (currentZone?.name === 'ULTRA_BEARISH') {
-        result += `└─ <0.5%: <$${p0_5.toFixed(0)} [EXTREME_BUY] ⭐ CURRENT\n`;
-    }
-    result += `\n`;
-    
-    if (tradingSetup !== 'WAIT') {
-        result += `💡 TRADE PLAN\n`;
-        result += `├─ Entry: $${currentPrice.toFixed(2)} (${currentZone?.name || 'current zone'})\n`;
-        
-        if (target1Zone) {
-            const target1Price = tradingSetup === 'LONG' ? target1Zone.min : target1Zone.max;
-            const target1Pct = ((target1Price - currentPrice) / currentPrice * 100);
-            result += `├─ Target 1: $${target1Price.toFixed(2)} (${target1Pct > 0 ? '+' : ''}${target1Pct.toFixed(1)}%) - ${target1Zone.name}\n`;
-        }
-        
-        if (target2Zone) {
-            const target2Price = tradingSetup === 'LONG' ? target2Zone.min : target2Zone.max;
-            const target2Pct = ((target2Price - currentPrice) / currentPrice * 100);
-            result += `├─ Target 2: $${target2Price.toFixed(2)} (${target2Pct > 0 ? '+' : ''}${target2Pct.toFixed(1)}%) - ${target2Zone.name}\n`;
-        }
-        
-        if (stopZone) {
-            const stopPrice = tradingSetup === 'LONG' ? stopZone.max : stopZone.min;
-            const stopPct = ((stopPrice - currentPrice) / currentPrice * 100);
-            const riskReward = target1Zone ? Math.abs((target1Zone.min - currentPrice) / (currentPrice - stopPrice)) : 0;
-            result += `├─ Stop: $${stopPrice.toFixed(2)} (${stopPct.toFixed(1)}%) - ${stopZone.name}\n`;
-            result += `└─ Risk/Reward: 1:${riskReward.toFixed(1)}\n`;
+        // Show all future timestamps for complete view
+        const displayCount = timestampPercentiles.length;
+        for (let i = 0; i < displayCount; i++) {
+            const t = timestampPercentiles[i];
+            const isCurrentAboveP99 = currentPrice > t.p99 ? ' ^^' : '';
+            const isCurrentAboveP95 = currentPrice > t.p95 && currentPrice <= t.p99 ? ' ^' : '';
+            const isCurrentBelowP1 = currentPrice < t.p1 ? ' vv' : '';
+            const isCurrentBelowP5 = currentPrice < t.p5 && currentPrice >= t.p1 ? ' v' : '';
+            const marker = isCurrentAboveP99 || isCurrentAboveP95 || isCurrentBelowP1 || isCurrentBelowP5;
+            
+            // Format time as HH:MM
+            const timeStr = t.time.toISOString().substring(11, 16);
+            
+            result += `${timeStr.padEnd(15)} | `;
+            result += `${t.p1.toFixed(0).padStart(7)} `;
+            result += `${t.p5.toFixed(0).padStart(7)} `;
+            result += `${t.p20.toFixed(0).padStart(7)} `;
+            result += `${t.p35.toFixed(0).padStart(7)} `;
+            result += `${t.p50.toFixed(0).padStart(7)} `;
+            result += `${t.p65.toFixed(0).padStart(7)} `;
+            result += `${t.p80.toFixed(0).padStart(7)} `;
+            result += `${t.p95.toFixed(0).padStart(7)} `;
+            result += `${t.p99.toFixed(0).padStart(7)} | `;
+            result += `${t.spread.toFixed(1).padStart(5)}%${marker}\n`;
         }
         result += `\n`;
     }
     
-    result += `📊 KEY METRICS\n`;
-    result += `├─ Forecasted Volatility (next 24h): ${forecastedVolatilityAnnualized.toFixed(0)}%\n`;
-    result += `└─ Median Price: $${p50.toFixed(0)} (${((p50 - currentPrice) / currentPrice * 100).toFixed(2)}%)\n\n`;
+    // Calculate key insights from timestamp data
+    if (timestampPercentiles.length >= 3) {
+        result += `🎯 KEY INSIGHTS\n`;
+        
+        // Find the timestamp with lowest P1 (maximum support level) and highest P99 (maximum resistance level)
+        let maxSupportTime = timestampPercentiles[0];
+        let maxResistanceTime = timestampPercentiles[0];
+        
+        for (const t of timestampPercentiles) {
+            if (t.p1 < maxSupportTime.p1) maxSupportTime = t;
+            if (t.p99 > maxResistanceTime.p99) maxResistanceTime = t;
+        }
+        
+        // Calculate median trend
+        const firstTime = timestampPercentiles[0];
+        const lastTime = timestampPercentiles[timestampPercentiles.length - 1];
+        const medianTrend = ((lastTime.p50 - firstTime.p50) / currentPrice) * 100;
+        
+        // Find max spread
+        const maxSpread = Math.max(...timestampPercentiles.map(t => t.spread));
+        const maxSpreadTime = timestampPercentiles.find(t => t.spread === maxSpread);
+        
+        result += `├─ Max Support Level: ${maxSupportTime.time.toISOString().substring(11, 16)} (P1: $${maxSupportTime.p1.toFixed(0)}) - Extreme SL\n`;
+        result += `├─ Max Resistance Level: ${maxResistanceTime.time.toISOString().substring(11, 16)} (P99: $${maxResistanceTime.p99.toFixed(0)}) - Extreme TP\n`;
+        result += `├─ Median Trend: ${medianTrend > 0 ? '+' : ''}${medianTrend.toFixed(1)}% over period\n`;
+        result += `├─ Max Volatility: ${maxSpreadTime?.time.toISOString().substring(11, 16)} (${maxSpread.toFixed(1)}% spread)\n`;
+        
+        // Enhanced position analysis combining current zone, trend, and future percentile consistency
+        const totalHours = timestampPercentiles.length;
+        const belowP20Count = timestampPercentiles.filter(t => currentPrice < t.p20).length;
+        const aboveP80Count = timestampPercentiles.filter(t => currentPrice > t.p80).length;
+        const belowP5Count = timestampPercentiles.filter(t => currentPrice < t.p5).length;
+        const aboveP95Count = timestampPercentiles.filter(t => currentPrice > t.p95).length;
+        
+        // Calculate percentages for more meaningful signals
+        const belowP20Pct = (belowP20Count / totalHours) * 100;
+        const aboveP80Pct = (aboveP80Count / totalHours) * 100;
+        const belowP5Pct = (belowP5Count / totalHours) * 100;
+        const aboveP95Pct = (aboveP95Count / totalHours) * 100;
+        
+        let signal = 'NEUTRAL';
+        let signalStrength = '';
+        let explanation = '';
+        
+        // Enhanced logic: prioritize current zone + trend alignment over percentages
+        
+        // First check current zone classification for immediate signal
+        let zoneSignal = '';
+        if (currentZoneType === 'ULTRA_BEARISH' || currentZoneType === 'EXTREME_BEARISH') {
+            zoneSignal = medianTrend > 0.5 ? 'STRONG_BUY' : 'BUY';
+        } else if (currentZoneType === 'STRONG_BEARISH') {
+            zoneSignal = medianTrend > 0 ? 'BUY' : 'WEAK_BUY';
+        } else if (currentZoneType === 'STRONG_BULLISH') {
+            zoneSignal = medianTrend < 0 ? 'SELL' : 'WEAK_SELL';
+        } else if (currentZoneType === 'ULTRA_BULLISH' || currentZoneType === 'EXTREME_BULLISH') {
+            zoneSignal = medianTrend < -0.5 ? 'STRONG_SELL' : 'SELL';
+        }
+        
+        // Apply the zone-based signal with trend confirmation
+        if (currentZoneType === 'ULTRA_BEARISH' && medianTrend > 1.0) {
+            signal = 'STRONG_BUY';
+            signalStrength = 'VERY_HIGH';
+            explanation = `Ultra bearish zone (0-1%) + strong uptrend (+${medianTrend.toFixed(1)}%)`;
+        } else if (currentZoneType === 'ULTRA_BULLISH' && medianTrend < -1.0) {
+            signal = 'STRONG_SELL';
+            signalStrength = 'VERY_HIGH';
+            explanation = `Ultra bullish zone (99-100%) + strong downtrend (${medianTrend.toFixed(1)}%)`;
+        } else if ((currentZoneType === 'EXTREME_BEARISH' || currentZoneType === 'STRONG_BEARISH') && medianTrend > 0.3) {
+            signal = 'BUY';
+            signalStrength = 'HIGH';
+            explanation = `${currentZone?.name.toLowerCase().replace('_', ' ')} zone + uptrend (+${medianTrend.toFixed(1)}%)`;
+        } else if ((currentZoneType === 'EXTREME_BULLISH' || currentZoneType === 'STRONG_BULLISH') && medianTrend < -0.3) {
+            signal = 'SELL';
+            signalStrength = 'HIGH';
+            explanation = `${currentZone?.name.toLowerCase().replace('_', ' ')} zone + downtrend (${medianTrend.toFixed(1)}%)`;
+        } else if (belowP5Pct >= 40) {
+            signal = 'BUY';
+            signalStrength = 'MEDIUM';
+            explanation = `Below P5 in ${belowP5Pct.toFixed(0)}% of hours`;
+        } else if (aboveP95Pct >= 40) {
+            signal = 'SELL';
+            signalStrength = 'MEDIUM';
+            explanation = `Above P95 in ${aboveP95Pct.toFixed(0)}% of hours`;
+        } else {
+            const avgP50 = timestampPercentiles.reduce((sum, t) => sum + t.p50, 0) / timestampPercentiles.length;
+            const position = currentPrice < avgP50 ? 'below' : 'above';
+            explanation = `Price ${position} average median, mixed signals across hours`;
+        }
+        
+        result += `└─ Signal: ${signal} - ${explanation}\n`;
+        result += `\n`;
+    }
+    
+    result += `=== END SYNTH DATA ===`;
         
     return result;
 };
@@ -1271,34 +1343,62 @@ export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
         throw new Error('No miners available on leaderboard');
     }
     
-    // Step 2: Fetch predictions for all miners
+    // Step 2: Fetch predictions for each miner individually
     const minerIds = topMiners.map((m: any) => m.neuron_uid);
-    const minerParams = minerIds.map((id: number) => `miner=${id}`).join('&');
+    const allPredictions = [];
     
-    const predictionsUrl = `https://api.synthdata.co/prediction/latest?${minerParams}&asset=${asset}&time_increment=300&time_length=86400`;
-    
-    const predictionsResponse = await fetch(predictionsUrl, {
-        headers: {
-            'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+    for (let i = 0; i < minerIds.length; i++) {
+        const minerId = minerIds[i];
+        const predictionsUrl = `https://api.synthdata.co/prediction/latest?miner=${minerId}&asset=${asset}&time_increment=300&time_length=86400`;
+        
+        try {
+            const predictionsResponse = await fetch(predictionsUrl, {
+                headers: {
+                    'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+                }
+            });
+            
+            if (predictionsResponse.status === 429) {
+                console.warn(`Rate limited for miner ${minerId} - skipping`);
+                continue;
+            }
+            
+            if (!predictionsResponse.ok) {
+                console.warn(`Failed to fetch predictions for miner ${minerId}: ${predictionsResponse.statusText}`);
+                continue;
+            }
+            
+            const minerPredictions = await predictionsResponse.json();
+            
+            if (minerPredictions && Array.isArray(minerPredictions) && minerPredictions.length > 0) {
+                allPredictions.push(...minerPredictions);
+            }
+        } catch (error) {
+            console.warn(`Error fetching predictions for miner ${minerId}:`, error);
+            continue;
         }
-    });
-    
-    if (predictionsResponse.status === 429) {
-        throw new Error('Rate limited - predictions temporarily unavailable');
+        
+        // Add 2 second delay between requests (except for the last one)
+        if (i < minerIds.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
     }
     
-    if (!predictionsResponse.ok) {
-        throw new Error(`Failed to fetch predictions: ${predictionsResponse.statusText}`);
+    if (allPredictions.length === 0) {
+        throw new Error('No predictions available from any miners');
     }
     
-    const predictionsData = await predictionsResponse.json();
+    const predictionsData = allPredictions;
     
-    if (!predictionsData || !Array.isArray(predictionsData)) {
-        throw new Error("Invalid predictions data format");
-    }
-    
-    // Step 3: Consolidate predictions by time
+    // Step 3: Consolidate predictions by hour instead of 5-minute intervals
     const consolidatedMap = new Map<string, any>();
+    
+    // Helper function to round time to nearest hour
+    const roundToHour = (timeStr: string): string => {
+        const date = new Date(timeStr);
+        date.setMinutes(0, 0, 0); // Set minutes, seconds, milliseconds to 0
+        return date.toISOString();
+    };
     
     predictionsData.forEach((minerPrediction: any) => {
         const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
@@ -1320,17 +1420,18 @@ export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
                 return;
             }
             
-            const time = pred.time;
+            // Round the prediction time to the nearest hour
+            const hourlyTime = roundToHour(pred.time);
             const price = pred.price;
             
-            if (!consolidatedMap.has(time)) {
-                consolidatedMap.set(time, {
-                    time,
+            if (!consolidatedMap.has(hourlyTime)) {
+                consolidatedMap.set(hourlyTime, {
+                    time: hourlyTime,
                     predictions: []
                 });
             }
             
-            consolidatedMap.get(time)!.predictions.push({
+            consolidatedMap.get(hourlyTime)!.predictions.push({
                 miner_uid: minerPrediction.miner_uid,
                 rank: topMiners.indexOf(minerInfo) + 1,
                 price
@@ -1339,10 +1440,13 @@ export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
     });
     
     // Convert to array and sort by time
-    const consolidatedArray = Array.from(consolidatedMap.values())
+    const allHours = Array.from(consolidatedMap.values())
         .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     
-    return consolidatedArray;
+    // Remove the first hour - only want predictions starting from the next hour
+    const consolidatedArray = allHours.slice(1);
+
+        return consolidatedArray;
 };
 
 export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache) => {

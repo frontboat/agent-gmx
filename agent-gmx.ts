@@ -96,8 +96,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes month-lo
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get BTC analysis from top 10 Synth AI miners. Returns percentile-based zones (0.5%-99.5%), current market position, trading signals (LONG/SHORT/WAIT), forecasted 24h volatility, and zone-based entry/exit levels
-- get_synth_eth_predictions: Get ETH analysis from top 10 Synth AI miners. Returns percentile-based zones (0.5%-99.5%), current market position, trading signals (LONG/SHORT/WAIT), forecasted 24h volatility, and zone-based entry/exit levels
+- get_synth_btc_predictions: Get BTC hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P5-P95 for each hour), current position relative to percentiles, forecasted volatility, best buy/sell windows, and trend analysis over 24h
+- get_synth_eth_predictions: Get ETH hourly percentile analysis from top 10 Synth AI miners. Returns hourly evolution table (P5-P95 for each hour), current position relative to percentiles, forecasted volatility, best buy/sell windows, and trend analysis over 24h
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
@@ -300,7 +300,6 @@ After each trade:
 ## ⏰ 30-MINUTE TRADING CYCLE
 
 ### CYCLE START: Position Management Questions
-**MANDATORY: ALWAYS fetch and trust fresh data, memory can be outdated**
 **CRITICAL: Do not trade BTC, only ETH. You will see a BTC position but there is a bug in the system so never try to open, cancel, set limit orders, or close positions for BTC.**
 
 Answer these first, before looking for new trades:
@@ -343,12 +342,13 @@ Only after position management, scan for new opportunities:
 - Which market has stronger volume and momentum?
 - Are there any correlation considerations between the two?
 
-**Q5: What are the Synth predictions telling me?**
-- Which percentile zone is the current price in (0.5-5%, 5-20%, etc.)?
-- What's the trading signal (LONG/SHORT/WAIT) and quality (A+, A, B, etc.)?
-- What's the forecasted 24h volatility?
-- Are we in an extreme zone (strong opportunity) or neutral zone (wait)?
-- Do the zone-based targets align with my technical analysis?
+**Q5: What are the Synth hourly predictions telling me?**
+- Which hourly percentile zone is the current price in for the next few hours?
+- When do the best buy opportunities occur (lowest P5 levels)?
+- When do the best sell opportunities occur (highest P95 levels)?
+- What's the median trend direction over the next 24 hours?
+- Are we approaching a high volatility window (wide spreads)?
+- Do the hourly percentile levels align with my technical support/resistance?
 
 ### CYCLE END: Execution Questions
 Before taking any new positions:
@@ -442,7 +442,61 @@ const gmxContext = context({
           };
       },
 
+    async loader({ memory }) {
+        console.log("🔄 Loading fresh GMX trading data into memory...");
+        
+        try {
+            // Load all data in parallel for maximum speed
+            const [
+                portfolio,
+                positions, 
+                markets,
+                tokens,
+                volumes,
+                orders,
+                trading_history,
+                btc_predictions,
+                eth_predictions,
+                btc_technical_analysis,
+                eth_technical_analysis
+            ] = await Promise.all([
+                get_portfolio_balance_str(sdk, gmxDataCache),
+                get_positions_str(sdk, gmxDataCache),
+                get_btc_eth_markets_str(sdk, gmxDataCache),
+                get_tokens_data_str(sdk, gmxDataCache),
+                get_daily_volumes_str(sdk, gmxDataCache),
+                get_orders_str(sdk, gmxDataCache),
+                get_trading_history_str(sdk, gmxDataCache),
+                get_synth_analysis_str('BTC', gmxDataCache),
+                get_synth_analysis_str('ETH', gmxDataCache),
+                get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
+                get_technical_analysis_str(sdk, 'ETH', gmxDataCache)
+            ]);
+
+            // Update memory with fresh data
+            memory.portfolio = portfolio;
+            memory.positions = positions;
+            memory.markets = markets;
+            memory.tokens = tokens;
+            memory.volumes = volumes;
+            memory.orders = orders;
+            memory.trading_history = trading_history;
+            memory.synth_btc_predictions = btc_predictions;
+            memory.synth_eth_predictions = eth_predictions;
+            memory.btc_technical_analysis = btc_technical_analysis;
+            memory.eth_technical_analysis = eth_technical_analysis;
+            memory.currentTask = "Data loaded - ready for trading analysis";
+            memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
+
+            console.log("✅ GMX trading data loaded successfully!");
+        } catch (error) {
+            console.error("❌ Error loading GMX data:", error);
+            memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
+        }
+    },
+
     render({ memory }) {
+        console.log("🔄 Rendering GMX trading data...");
         console.warn(memory);
 
         return render(vega_template, {
@@ -469,19 +523,33 @@ const gmxContext = context({
           }),
             subscribe: (send, agent) => {
                 const tradingCycle = async () => {
-                    const portfolio = await get_portfolio_balance_str(sdk, gmxDataCache);
-                    const positions = await get_positions_str(sdk, gmxDataCache);
-                    const markets = await get_btc_eth_markets_str(sdk, gmxDataCache);
-                    const tokens = await get_tokens_data_str(sdk, gmxDataCache);
-                    const volumes = await get_daily_volumes_str(sdk, gmxDataCache);
-                    const orders = await get_orders_str(sdk, gmxDataCache);
-                    const trading_history = await get_trading_history_str(sdk, gmxDataCache);
-                    const btc_predictions = await get_synth_analysis_str('BTC', gmxDataCache);
-                    const eth_predictions = await get_synth_analysis_str('ETH', gmxDataCache);
-                    const btc_technical_analysis = await get_technical_analysis_str(sdk, 'BTC', gmxDataCache);
-                    const eth_technical_analysis = await get_technical_analysis_str(sdk, 'ETH', gmxDataCache);
-                    const currentTask = "Trading cycle initiated";
-                    const lastResult = "Trading cycle initiated";
+                    const [
+                        portfolio,
+                        positions, 
+                        markets,
+                        tokens,
+                        volumes,
+                        orders,
+                        trading_history,
+                        btc_predictions,
+                        eth_predictions,
+                        btc_technical_analysis,
+                        eth_technical_analysis
+                    ] = await Promise.all([
+                        get_portfolio_balance_str(sdk, gmxDataCache),
+                        get_positions_str(sdk, gmxDataCache),
+                        get_btc_eth_markets_str(sdk, gmxDataCache),
+                        get_tokens_data_str(sdk, gmxDataCache),
+                        get_daily_volumes_str(sdk, gmxDataCache),
+                        get_orders_str(sdk, gmxDataCache),
+                        get_trading_history_str(sdk, gmxDataCache),
+                        get_synth_analysis_str('BTC', gmxDataCache),
+                        get_synth_analysis_str('ETH', gmxDataCache),
+                        get_technical_analysis_str(sdk, 'BTC', gmxDataCache),
+                        get_technical_analysis_str(sdk, 'ETH', gmxDataCache)
+                    ]);
+                    const currentTask = "Trading cycle initiated - Data refreshed";
+                    const lastResult = "Trading cycle initiated - Data refreshed";
                     let context = {
                         type: "gmx-trading-agent",
                         maxSteps: 20,
@@ -505,7 +573,7 @@ const gmxContext = context({
                     await send(gmxContext, context, {text});
                 }
                 //initial run
-                tradingCycle();
+                //tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 

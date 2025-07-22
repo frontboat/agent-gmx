@@ -576,12 +576,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                     
                     console.warn(`[OPEN_LONG_MARKET] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                    
-                    // Check if this is a BTC market and prevent market orders due to bug
-                    if (marketInfo.name.includes('BTC')) {
-                        throw new Error(`Cannot create market orders for BTC due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                    }
-                    
+                                        
                     // Validate tokens exist
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
@@ -727,11 +722,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                     
                     console.warn(`[OPEN_LONG_LIMIT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                    
-                    // Check if this is a BTC market and prevent limit orders due to bug
-                    if (marketInfo.name.includes('BTC')) {
-                        throw new Error(`Cannot create limit orders for BTC due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                    }
                     
                     // Validate tokens exist
                     const payToken = tokensData[data.payTokenAddress];
@@ -903,12 +893,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                     
                     console.warn(`[OPEN_SHORT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                    
-                    // Check if this is a BTC market and prevent market orders due to bug
-                    if (marketInfo.name.includes('BTC')) {
-                        throw new Error(`Cannot create market orders for BTC due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                    }
-                    
+                                        
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
                     
@@ -1048,11 +1033,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                     
                     console.warn(`[OPEN_SHORT_LIMIT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                    
-                    // Check if this is a BTC market and prevent limit orders due to bug
-                    if (marketInfo.name.includes('BTC')) {
-                        throw new Error(`Cannot create limit orders for BTC due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                    }
                     
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
@@ -1230,12 +1210,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 if (!position) {
                     throw new Error(`No position found for market ${marketInfo.name}. Use get_positions to see current positions.`);
                 }
-                
-                // Check if this is a BTC position and prevent closing due to bug
-                if (marketInfo.name.includes('BTC')) {
-                    throw new Error(`Cannot close BTC position due to known bug. BTC trading is temporarily disabled. Market: ${marketInfo.name}`);
-                }
-                
+                                
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
                 console.warn(`[CLOSE_POSITION] Found ${direction} position to close`);

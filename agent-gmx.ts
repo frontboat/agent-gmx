@@ -173,7 +173,7 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 
 ## 🧠 Synth AI Percentile Analysis Framework
 
-**Core Concept:** Current price percentile rank (e.g., P59) = 59% of top 10 AI miners predict price will be BELOW current level.
+**Core Concept:** Current price percentile rank (e.g., P59) = 59% of top 10 AI miners predict price will be BELOW current level in their 24-hour forecasts.
 
 **Signal Generation Matrix:**
 Percentile Range + Trend Direction = Trading Signal
@@ -200,7 +200,7 @@ P90-P100 + Any non-UPWARD     = STRONG_SHORT
   - **Take Profit 1**: P35 level (first target, take partial profits)
   - **Take Profit 2**: P20 level (second target)
 
-**Critical Insight:** Percentile rank shows AI consensus deviation, trend direction shows momentum - both must align for high-probability trades.
+**Critical Insight:** Percentile rank shows where current price sits vs 24-hour AI consensus, trend direction shows momentum - both must align for high-probability trades.
 
 
 ## 🎯 TRADING DECISION MATRIX

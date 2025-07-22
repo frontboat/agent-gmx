@@ -158,16 +158,17 @@ export function calculatePercentilesFromConsolidated(
     });
   });
 
-  // Calculate current price percentile using first hour's data
+  // Calculate current price percentile using last hour's data (24h-out predictions)
   let currentPricePercentile = 0;
   if (hourlyGroups.length > 0) {
-    const firstHourPrices: number[] = [];
-    hourlyGroups[0].forEach(timePoint => {
+    const lastHourPrices: number[] = [];
+    const lastHourIndex = hourlyGroups.length - 1;
+    hourlyGroups[lastHourIndex].forEach(timePoint => {
       timePoint.predictions.forEach(pred => {
-        firstHourPrices.push(pred.price);
+        lastHourPrices.push(pred.price);
       });
     });
-    currentPricePercentile = getCurrentPricePercentileRank(firstHourPrices, currentPrice);
+    currentPricePercentile = getCurrentPricePercentileRank(lastHourPrices, currentPrice);
   }
 
   return {

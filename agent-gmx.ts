@@ -250,7 +250,7 @@ Only proceed if Phase 1 shows opportunity:
 Based on Phase 1 & 2 analysis, choose execution method:
 
 **Confluence Score Checklist:**
-□ **MANDATORY for market orders**: Near key support level for LONG / Near key resistance level for SHORT
+□ **MANDATORY for market orders**: Near key support level for LONG OR Near key resistance level for SHORT
 □ Multiple timeframes agree on direction (technical indicators)
 □ At least 2 technical indicators confirm the setup
 □ Synth analysis matches intended setup
@@ -383,7 +383,7 @@ Before taking any new positions:
 **Q6: Do I have a high-probability setup?**
 - Does this setup meet my confluence checklist?
 - Are multiple timeframes aligned?
-- Am I near key support/resistance levels?
+- Am I near a key support for a long position or a key resistance for a short position?
 - Is the risk:reward ratio at least 2:1?
 
 **Q7: If yes, how should I enter this position?**

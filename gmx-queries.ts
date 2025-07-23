@@ -9,6 +9,9 @@ import {
     calculatePercentilesFromConsolidated,
     detectPercentileTrend,
     generateTradingSignalFromPercentile,
+    fetchSynthPercentileData,
+    parseSynthPercentileData,
+    calculateCurrentPricePercentile,
     type PercentileDataPoint,
     type VolatilityData
 } from './synth-utils';
@@ -975,28 +978,29 @@ async function fetchSynthAnalysis(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedD
       console.error(`Failed to get current price for ${asset}:`, error);
     }
     
-    // Get consolidated array from cache
-    let consolidatedArray: any[] = [];
-    if (gmxDataCache) {
-      try {
-        consolidatedArray = await gmxDataCache.getSynthConsolidatedArray(asset);
-      } catch (error) {
-        console.error(`Failed to get consolidated array for ${asset}:`, error);
+    // NEW APPROACH: Get percentile data directly from Synth dashboard
+    let percentileData: PercentileDataPoint[] = [];
+    let currentPricePercentile = 0;
+    
+    try {
+      console.log(`[Synth] Fetching percentile data from dashboard for ${asset}`);
+      const dashboardResponse = await fetchSynthPercentileData(asset);
+      percentileData = parseSynthPercentileData(dashboardResponse);
+      
+      if (percentileData.length === 0) {
+        return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nNo percentile data could be parsed from dashboard.`;
       }
-    } else {
-      // Fallback to direct fetch if no cache
-      consolidatedArray = await fetchSynthData(asset);
-    }
-    
-    if (!consolidatedArray || consolidatedArray.length === 0) {
-      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nNo consolidated prediction data available.`;
-    }
-    
-    // Calculate percentiles from consolidated array
-    const { percentileData, currentPricePercentile } = calculatePercentilesFromConsolidated(consolidatedArray, currentPrice);
-    
-    if (percentileData.length === 0) {
-      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nNo percentile data could be calculated.`;
+      
+      // Calculate current price percentile using the last data point
+      const lastDataPoint = percentileData[percentileData.length - 1];
+      if (lastDataPoint) {
+        currentPricePercentile = calculateCurrentPricePercentile(lastDataPoint, currentPrice);
+      }
+      
+      console.log(`[Synth] Successfully parsed ${percentileData.length} percentile data points from dashboard`);
+    } catch (error) {
+      console.error(`[Synth] Failed to fetch dashboard data for ${asset}:`, error);
+      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nFailed to fetch percentile data from dashboard: ${error.message}`;
     }
     
     // Fetch volatility dial data (keeping this API call)
@@ -1008,11 +1012,8 @@ async function fetchSynthAnalysis(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedD
       console.error(`Failed to fetch volatility dial for ${asset}:`, error);
     }
     
-    // Detect trend
-    const trendAnalysis = detectPercentileTrend(percentileData);
-    
     // Format and return analysis
-    return formatSynthAnalysis(percentileData, asset, currentPrice, volatilityData, currentPricePercentile, trendAnalysis);
+    return formatSynthAnalysis(percentileData, asset, currentPrice, volatilityData, currentPricePercentile);
   } catch (error) {
     return `Error fetching Synth analysis: ${error}`;
   }
@@ -1025,15 +1026,14 @@ function formatSynthAnalysis(
   asset: 'BTC' | 'ETH', 
   currentPrice: number, 
   volatilityData: VolatilityData | undefined,
-  currentPricePercentile: number,
-  trendAnalysis: { direction: 'UPWARD' | 'DOWNWARD' | 'NEUTRAL', strength: number }
+  currentPricePercentile: number
 ): string {
   if (percentileData.length === 0) {
     return `SYNTH_${asset}_DATA: NO_DATA_AVAILABLE`;
   }
 
-  // Generate new trading signal based on percentile rank and trend
-  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile, trendAnalysis.direction, trendAnalysis.strength);
+  // Generate new trading signal based on percentile rank only
+  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile, 'NEUTRAL', 0);
   
   // Build structured output for AI consumption
   let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
@@ -1043,33 +1043,28 @@ function formatSynthAnalysis(
   result += `SIGNAL_EXPLANATION: ${explanation}\n`;
   result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
   result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
-  result += `TREND_DIRECTION: ${trendAnalysis.direction} (${trendAnalysis.strength >= 0 ? '+' : ''}${trendAnalysis.strength.toFixed(1)}%)\n`;
   
   if (volatilityData) {
     result += `VOLATILITY_FORECAST: ${volatilityData.value}%\n`;
     result += `VOLATILITY_CATEGORY: ${volatilityData.category}\n`;
   }
   
-  // Calculate hour-by-hour trend for full 24 hours
-  result += `\nHOURLY_TREND:\n`;
-  for (let i = 1; i < Math.min(24, percentileData.length); i++) {
-    const prevP50 = percentileData[i-1].p50 || 0;
-    const currP50 = percentileData[i].p50 || 0;
-    const hourlyChange = prevP50 > 0 ? ((currP50 - prevP50) / prevP50) * 100 : 0;
-    const startTime = percentileData[i].startTime ? new Date(percentileData[i].startTime).toISOString().substring(11, 16) : '';
-    const endTime = percentileData[i].endTime ? new Date(percentileData[i].endTime).toISOString().substring(11, 16) : '';
-    result += `Hour ${i} [${startTime}-${endTime}]: ${hourlyChange >= 0 ? '+' : ''}${hourlyChange.toFixed(2)}% (P50: $${currP50.toFixed(0)})\n`;
-  }
+  // HOURLY PREDICTIONS - Show predictions for each hour over next 24 hours
+  result += `\nHOURLY_PREDICTIONS:\n`;
   
-  // PERCENTILE DATA - Structured for easy parsing
-  result += `\nHOURLY_PERCENTILE_FORECASTS:\n`;
-  
-  // Show hourly percentiles with time ranges
-  for (const dataPoint of percentileData.slice(0, 24)) { // Limit to 24 hours
-    const startTime = dataPoint.startTime ? new Date(dataPoint.startTime).toISOString().substring(11, 16) : '';
-    const endTime = dataPoint.endTime ? new Date(dataPoint.endTime).toISOString().substring(11, 16) : '';
+  if (percentileData.length > 0) {
+    // Find hourly intervals (every 12 data points since data is every 5 minutes)
+    const hourlyIntervals = Math.min(24, Math.floor(percentileData.length / 12));
     
-    result += `[${startTime}-${endTime}]: P0.5=$${(dataPoint.p0_5 || 0).toFixed(0)} P5=$${(dataPoint.p5 || 0).toFixed(0)} P20=$${(dataPoint.p20 || 0).toFixed(0)} P35=$${(dataPoint.p35 || 0).toFixed(0)} P50=$${(dataPoint.p50 || 0).toFixed(0)} P65=$${(dataPoint.p65 || 0).toFixed(0)} P80=$${(dataPoint.p80 || 0).toFixed(0)} P95=$${(dataPoint.p95 || 0).toFixed(0)} P99.5=$${(dataPoint.p99_5 || 0).toFixed(0)}\n`;
+    for (let hour = 0; hour < hourlyIntervals; hour++) {
+      const dataPointIndex = hour * 12; // Every 12 intervals = 1 hour
+      const dataPoint = percentileData[dataPointIndex];
+      
+      if (dataPoint) {
+        const timestamp = dataPoint.timestamp ? new Date(dataPoint.timestamp).toISOString().substring(11, 16) : '';
+        result += `${timestamp}: P0.5=$${(dataPoint.p0_5 || 0).toFixed(0)} P5=$${(dataPoint.p5 || 0).toFixed(0)} P20=$${(dataPoint.p20 || 0).toFixed(0)} P35=$${(dataPoint.p35 || 0).toFixed(0)} P50=$${(dataPoint.p50 || 0).toFixed(0)} P65=$${(dataPoint.p65 || 0).toFixed(0)} P80=$${(dataPoint.p80 || 0).toFixed(0)} P95=$${(dataPoint.p95 || 0).toFixed(0)} P99.5=$${(dataPoint.p99_5 || 0).toFixed(0)}\n`;
+      }
+    }
   }
     
   return result;
@@ -1099,6 +1094,12 @@ export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
     if (topMiners.length === 0) {
         throw new Error('No miners available on leaderboard');
     }
+    
+    // DEBUG: Log leaderboard rank values
+    console.log(`\n[DEBUG] Top 10 miners and their ranks:`);
+    topMiners.forEach((miner, idx) => {
+        console.log(`  ${idx + 1}. Miner ${miner.neuron_uid}: rank=${miner.rank} (type: ${typeof miner.rank})`);
+    });
     
     // Step 2: Fetch predictions for each miner individually
     const minerIds = topMiners.map((m: any) => m.neuron_uid);
@@ -1181,11 +1182,18 @@ export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
                 });
             }
             
-            consolidatedMap.get(time)!.predictions.push({
+            const prediction = {
                 miner_uid: minerPrediction.miner_uid,
-                rank: topMiners.indexOf(minerInfo) + 1,
+                rank: minerInfo.rank, // Use actual rank/incentive value from leaderboard
                 price
-            });
+            };
+            
+            // DEBUG: Log first few rank assignments (sample only to avoid spam)
+            if (Math.random() < 0.001) { // Log 0.1% of assignments
+                console.log(`[DEBUG] Assigning rank: miner=${minerPrediction.miner_uid}, rank=${minerInfo.rank}, price=${price}`);
+            }
+            
+            consolidatedMap.get(time)!.predictions.push(prediction);
         });
     });
     

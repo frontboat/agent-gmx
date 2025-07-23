@@ -96,8 +96,8 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 24-hour hourly P50 median changes, volatility forecast, and hourly percentile price levels for next 24 hours.
-- get_synth_eth_predictions: Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 24-hour hourly P50 median changes, volatility forecast, and hourly percentile price levels for next 24 hours.
+- get_synth_btc_predictions: Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 5-minute interval P50 median changes, volatility forecast, and 5-minute percentile price levels for next 24 hours.
+- get_synth_eth_predictions: Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trend direction analysis, trading signals, 5-minute interval P50 median changes, volatility forecast, and 5-minute percentile price levels for next 24 hours.
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
@@ -173,7 +173,7 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 
 ## 🧠 Synth AI Percentile Analysis Framework
 
-**Core Concept:** Current price percentile rank (e.g., P59) = 59% of top 10 AI miners predict price will be BELOW current level in their 24-hour forecasts.
+**Core Concept:** Current price percentile rank (e.g., P59) = 59% of top 10 AI miners predict price will be BELOW current level in their 24-hour forecasts (sampled at 5-minute intervals).
 
 **Signal Generation Matrix:**
 Percentile Range + Trend Direction = Trading Signal
@@ -184,9 +184,9 @@ P70-P89  + DOWNWARD           = SHORT
 P90-P100 + Any non-UPWARD     = STRONG_SHORT
 
 **Trend Direction Classification:**
-- **UPWARD**: Weighted analysis of all 24 hours shows rising P50 medians (short-term hours heavily weighted)
-- **DOWNWARD**: Weighted analysis of all 24 hours shows falling P50 medians (short-term hours heavily weighted)
-- **NEUTRAL**: Mixed/conflicting hourly movements across timeframes
+- **UPWARD**: Weighted analysis of all 5-minute intervals shows rising P50 medians (short-term intervals heavily weighted)
+- **DOWNWARD**: Weighted analysis of all 5-minute intervals shows falling P50 medians (short-term intervals heavily weighted)
+- **NEUTRAL**: Mixed/conflicting interval movements across timeframes
 
 **Risk Management Levels (Use Actual $ Values from Analysis):**
 - **LONG Positions:**
@@ -200,7 +200,7 @@ P90-P100 + Any non-UPWARD     = STRONG_SHORT
   - **Take Profit 1**: P35 level (first target, take partial profits)
   - **Take Profit 2**: P20 level (second target)
 
-**Critical Insight:** Percentile rank shows where current price sits vs 24-hour AI consensus, trend direction shows momentum - both must align for high-probability trades.
+**Critical Insight:** Percentile rank shows where current price sits vs 24-hour AI consensus (sampled every 5 minutes), trend direction shows momentum - both must align for high-probability trades.
 
 
 ## 🎯 TRADING DECISION MATRIX
@@ -543,7 +543,7 @@ const gmxContext = context({
           });
     },
     }).setInputs({
-        "gmx:trading-cycle": input({  
+        "gmx:trading-cycle": input({
             schema: z.object({
                 text: z.string(),
           }),
@@ -569,7 +569,7 @@ const gmxContext = context({
                     }, {text: "Trading cycle initiated"});
                 }
                 //initial run
-                tradingCycle();
+                //tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
@@ -634,8 +634,8 @@ await agent.start({
     volumes: "Loading...",
     orders: "Loading...",
     trading_history: "Loading...",
-    synth_btc_predictions: "Loading...",
-    synth_eth_predictions: "Loading...",
+    synth_btc_predictions: await get_synth_analysis_str('BTC', gmxDataCache),
+    synth_eth_predictions: await get_synth_analysis_str('ETH', gmxDataCache),
     btc_technical_analysis: "Loading...",
     eth_technical_analysis: "Loading...",
 });

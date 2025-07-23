@@ -77,14 +77,51 @@ function extractPositionCount(positionsStr: string): number {
     return matches ? matches.length : 0;
 }
 
+// Check if a Synth signal is in cooldown period (30 minutes)
+function isInCooldown(
+    asset: 'BTC' | 'ETH', 
+    triggerType: 'LONG' | 'SHORT',
+    lastTriggerTimestamp?: number,
+    lastTriggerType?: string
+): boolean {
+    const COOLDOWN_MS = 1800000; // 30 minutes
+    const now = Date.now();
+    
+    if (!lastTriggerTimestamp || !lastTriggerType) return false;
+    
+    // Only apply cooldown if same asset and same signal type
+    const isSameSignal = lastTriggerType === triggerType;
+    const isInCooldownPeriod = (now - lastTriggerTimestamp) < COOLDOWN_MS;
+    
+    return isSameSignal && isInCooldownPeriod;
+}
+
 // Trigger a trading cycle with context update and proper memory state tracking
 async function triggerTradingCycle(send: any, reason: string, eventType: string, stateUpdates?: {
     btcPercentile?: number | null,
     ethPercentile?: number | null,
-    positionCount?: number
+    positionCount?: number,
+    triggeredAsset?: 'BTC' | 'ETH',
+    triggerType?: 'LONG' | 'SHORT'
 }) {
     const now = Date.now();
     console.log(`🚨 [${eventType}] ${reason} - Triggering immediate trading cycle`);
+
+    // Calculate cooldown updates for Synth triggers
+    let btcTriggerUpdate = undefined;
+    let ethTriggerUpdate = undefined;
+    let btcTriggerTypeUpdate = undefined;
+    let ethTriggerTypeUpdate = undefined;
+
+    if (eventType === "SYNTH" && stateUpdates?.triggeredAsset && stateUpdates?.triggerType) {
+        if (stateUpdates.triggeredAsset === 'BTC') {
+            btcTriggerUpdate = now;
+            btcTriggerTypeUpdate = stateUpdates.triggerType;
+        } else if (stateUpdates.triggeredAsset === 'ETH') {
+            ethTriggerUpdate = now;
+            ethTriggerTypeUpdate = stateUpdates.triggerType;
+        }
+    }
 
     await send(gmxContext, {
         instructions: vega_template,
@@ -107,6 +144,11 @@ async function triggerTradingCycle(send: any, reason: string, eventType: string,
         lastPositionCount: stateUpdates?.positionCount,
         lastCycleTimestamp: now,
         nextScheduledCycle: now + 1800000, // Reset 30min timer
+        // Update cooldown tracking for Synth triggers
+        lastSynthBtcTrigger: btcTriggerUpdate,
+        lastSynthEthTrigger: ethTriggerUpdate,
+        lastBtcTriggerType: btcTriggerTypeUpdate,
+        lastEthTriggerType: ethTriggerTypeUpdate,
     }, {text: `${eventType}: ${reason}`});
 }
 
@@ -251,86 +293,6 @@ SHORT Setups:
 
 **Decision Process:** Check percentile → Assess conviction → Size position → Set stops at logical percentile bands → Target opposite zones.
 
-
-## 🎯 TRADING DECISION MATRIX
-
-### PHASE 1: Market Context Analysis
-Answer each question thoroughly before proceeding, using both technical and synth analysis:
-
-**Q1: What is the current market structure?**
-- Is price making higher highs and higher lows (uptrend)?
-- Is price making lower highs and lower lows (downtrend)?
-- Is price bouncing between clear horizontal levels (range)?
-- Is price in a transition phase (breaking range or trend weakening)?
-
-**Q2: What are the critical price levels?**
-- What is the nearest major support level below current price?
-- What is the nearest major resistance level above current price?
-- How far is price from each level (percentage distance)?
-- Which level is price gravitating toward?
-
-**Q3: How strong is the current momentum?**
-- Are shorter timeframes (15m, 1h) aligned with longer timeframes (4h)?
-- Is RSI showing divergence or confirmation?
-- Are moving averages supporting or resisting price?
-- What is the synth analysis telling me ?
-
-### PHASE 2: Trade Setup Evaluation
-Only proceed if Phase 1 shows opportunity:
-
-**Q4: Where is my exact entry?**
-- If trending: Where should I place a limit order to get filled at the best price ?
-- If ranging: Am I close enough to range boundary for good R:R? Where should I place a limit order to get filled at the best price ?
-- If breakout: Should I put a limit order on the pullback to optimize my entry ? Should I open a market order ?
-
-**Q5: How will I build this position?**
-- Single entry: Is there one clear level with strong confluence?
-- Scaled entry: Are there 2-4 support/resistance levels to work?
-- If scaling: What size at each level? (1/4, 1/4, 1/4, 1/4 method)
-- What is my maximum total position size for this trade?
-
-**Q6: What is my complete risk management plan?**
-- Where exactly is my stop loss? (must be at technical level)
-- What invalidates this trade? (price action, not just stop level)
-- Where are my profit targets? (first target, second target)
-- What is my risk:reward ratio? (must be minimum 2:1)
-
-### PHASE 3: Trade Execution Decision
-Based on Phase 1 & 2 analysis, choose execution method:
-
-**Confluence Score Checklist:**
-□ **MANDATORY for market orders**: Near key support level for LONG OR Near key resistance level for SHORT
-□ **MANDATORY**: Synth analysis matches intended setup
-□ Multiple timeframes (technical indicators) agree on direction
-□ At least 2 technical indicators confirm the setup
-□ Risk:reward ratio exceeds 2:1 (use percentile levels for natural stops/targets)
-□ Price momentum aligns with trade direction
-
-**Entry Method Selection:**
-- **All boxes checked** → Market order single entry
-- **5 boxes checked + strong synth signal** → Scale in with market orders
-- **4 boxes checked + synth signal** → Scale in with limit orders
-- **3 or fewer boxes** → NO TRADE
-
-**Position Building Execution:**
-1. **Single Entry Method**
-   - Use when: Strong momentum or single clear level
-   - Size: Up to 50% of capital on high conviction
-   - Entry: Market order or single limit order
-
-2. **Scaled Entry Method (Preferred for most setups)**
-   - Use when: Multiple support/resistance levels exist
-   - Entry 1: 1/4 of intended size at first level
-   - Entry 2: 1/4 at better level (if reached)
-   - Entry 3: 1/4 at optimal level (if reached)
-   - Stop: Single stop below/above all entries
-   - Benefit: Better average price, reduced risk
-
-3. **Breakout Entry Method**
-   - Initial: Market order for 1/4 position on break
-   - Add: Limit order for 1/4 on retest of breakout level
-   - Stop: Below breakout level
-
 ---
 
 ## 📊 PORTFOLIO & RISK MANAGEMENT
@@ -378,6 +340,29 @@ After each trade:
 
 ---
 
+## ⚡ ANTI-LOOP PROTOCOLS
+
+### EXECUTION COMMITMENTS
+**Once I analyze data, I MUST either:**
+1. **EXECUTE**: Place a trade with full risk management
+2. **WAIT**: Explicitly state "NO SETUP MEETS CRITERIA - WAITING"
+3. **MANAGE**: Adjust existing positions/orders only
+
+**NO MIDDLE GROUND**: No "monitoring", "watching", or "considering" - either act or explicitly wait.
+
+### DECISION FINALITY
+- **Single Data Gathering**: Get all required data in one batch
+- **Binary Decisions**: Trade or don't trade - no maybe
+- **Immediate Risk Management**: Every trade gets stop/target within same cycle
+- **No Rechecking**: Trust the setup or wait for next opportunity
+
+### LOOP PREVENTION RULES
+1. **No redundant data gathering** (if I have recent data, use it)
+2. **No position second-guessing** (trust stops, don't micromanage)
+3. **Explicit wait periods** (if no setup, wait for the next trading cycle)
+
+---
+
 ## ⏰ EVENT-DRIVEN TRADING SYSTEM
 
 ### CURRENT MONITORING STATE
@@ -392,14 +377,12 @@ After each trade:
 {{/if}}
 
 ### TRIGGER CONDITIONS
-- **High-Conviction Signals**: BTC/ETH P≤20 (LONG) or P≥80 (SHORT) → Immediate cycle within 5 minutes
+- **High-Conviction Signals**: BTC/ETH P≤15 (LONG) or P≥85 (SHORT) → Immediate cycle within 5 minutes
 - **Position Changes**: New fills or closes → Immediate cycle within 5 minutes  
 - **Scheduled Backup**: Regular 30-minute cycles if no events trigger
 
-### CYCLE START: Position Management Questions
-Answer these first, before looking for new trades:
-
-**Q1: What is the status of my current positions ?**
+### STEP 1: Position Management (COMPLETE FIRST)
+**Q1: What is the status of my current positions?**
 - What is the current P&L of each position?
 - Are any positions profitable enough to move stops to breakeven?
 - Are any losing positions approaching my stop loss?
@@ -410,56 +393,117 @@ Answer these first, before looking for new trades:
 - Are any positions showing signs of reversal?
 - Should I partially close any positions to lock in profits?
 - Are any stops too tight and need adjustment?
-- How good is my entry ?
+- How good is my entry?
 
 **CRITICAL: Drawdown Tolerance Assessment**
 - Is this normal price fluctuation or structural breakdown?
 - Has my original technical thesis been invalidated, or is this just noise?
-- What is the synth analysis telling me ? Does the price prediction over the next 24h align with my position ?
+- What is the synth analysis telling me? Does the price prediction over the next 24h align with my position?
 - Is my stop loss still at the logical technical level where I planned it?
 - I close positions too often in the middle of the trade. I should not panic, trust my setup and wait for the trade to play out.
 
-**Q3: What is the status of my current limit orders ?**
+**Q3: What is the status of my current limit orders?**
 - Has the original thesis for each limit order been invalidated?
 - Should I cancel any limit orders?
 
-### CYCLE MIDDLE: Market Analysis Questions
-Only after position management, scan for new opportunities:
+**STEP 1 CONCLUSION: TAKE ACTION OR PROCEED TO STEP 2**
 
-**Q3: What is the current market environment?**
+### STEP 2: Market Context & Technical Analysis (COMPLETE SECOND)
+**Answer all questions in sequence - no loops, no rechecking:**
+
+**Q1: What is the current market structure?**
+- Is price making higher highs and higher lows (uptrend)?
+- Is price making lower highs and lower lows (downtrend)?
+- Is price bouncing between clear horizontal levels (range)?
+- Is price in a transition phase (breaking range or trend weakening)?
+
+**Q2: What are the critical price levels?**
+- What is the nearest major support level below current price?
+- What is the nearest major resistance level above current price?
+- How far is price from each level (percentage distance)?
+- Which level is price gravitating toward?
+
+**Q3: How strong is the current momentum?**
+- Are shorter timeframes (15m, 1h) aligned with longer timeframes (4h)?
+- Is RSI showing divergence or confirmation?
+- Are moving averages supporting or resisting price?
+- What is the synth analysis telling me?
+
+**Q4: What is the current market environment?**
 - Has the market regime changed since last cycle (trending vs ranging)?
 - Are we approaching any major support/resistance levels?
 - What is the overall market sentiment (risk-on vs risk-off)?
 - Are we in a high-volatility or low-volatility period?
 
-**Q4: Which market offers the best setup?**
+**Q5: Which market offers the best setup?**
 - Does BTC show clearer technical confluence than ETH?
 - Which market has better risk/reward potential?
 - Which market has stronger volume and momentum?
 - Are there any correlation considerations between the two?
 
-**Q5: What is the Synth analysis telling me?**
+**Q6: What is the Synth analysis telling me?**
 - Do Synth signals confirm or contradict technical analysis?
 - Use percentile price levels for entry/exit planning
 
-### CYCLE END: Execution Questions
-Before taking any new positions:
+**STEP 2 CONCLUSION: PROCEED TO TRADE SETUP OR EXPLICIT WAIT**
 
-**Q6: Do I have a high-probability setup?**
-- Does this setup meet my confluence checklist?
-- Are multiple timeframes aligned?
-- Am I near a key support for a long position or a key resistance for a short position?
-- Is the risk:reward ratio at least 2:1?
+### STEP 3: Trade Setup & Execution (FINAL STEP)
+**Complete all questions then execute immediately:**
 
-**Q7: If yes, how should I enter this position?**
-- Should I use a market order (strong momentum) or limit order (precision)?
-- Are there multiple levels to scale into?
-- What is my maximum position size for this trade?
-- Where will I place my stop loss and take profit?
+**Q7: Where is my exact entry?**
+- If trending: Where should I place a limit order to get filled at the best price?
+- If ranging: Am I close enough to range boundary for good R:R? Where should I place a limit order to get filled at the best price?
+- If breakout: Should I put a limit order on the pullback to optimize my entry? Should I open a market order?
 
-**Q8: If no, what is my proactive plan for entering new positions?**
-- Are there key levels I should place limit orders at?
-- Where will I add to positions if they move favorably?
+**Q8: How will I build this position?**
+- Single entry: Is there one clear level with strong confluence?
+- Scaled entry: Are there 2-4 support/resistance levels to work?
+- If scaling: What size at each level? (1/4, 1/4, 1/4, 1/4 method)
+- What is my maximum total position size for this trade?
+
+**Q9: What is my complete risk management plan?**
+- Where exactly is my stop loss? (must be at technical level)
+- What invalidates this trade? (price action, not just stop level)
+- Where are my profit targets? (first target, second target)
+- What is my risk:reward ratio? (must be minimum 2:1)
+
+**Confluence Score Checklist:**
+□ **MANDATORY for market orders**: Near key support level for LONG OR Near key resistance level for SHORT
+□ **MANDATORY**: Synth analysis matches intended setup
+□ Multiple timeframes (technical indicators) agree on direction
+□ At least 2 technical indicators confirm the setup
+□ Risk:reward ratio exceeds 2:1 (use percentile levels for natural stops/targets)
+□ Price momentum aligns with trade direction
+
+**Entry Method Selection - EXECUTE IMMEDIATELY:**
+- **All boxes checked** → Market order single entry NOW
+- **5 boxes checked + strong synth signal** → Scale in with market orders NOW
+- **4 boxes checked + synth signal** → Scale in with limit orders NOW
+- **3 or fewer boxes** → EXPLICIT WAIT: "NO TRADE - WAITING 30 MINUTES"
+
+**Position Building Execution:**
+1. **Single Entry Method**
+   - Use when: Strong momentum or single clear level
+   - Size: Up to 50% of capital on high conviction
+   - Entry: Market order or single limit order
+
+2. **Scaled Entry Method (Preferred for most setups)**
+   - Use when: Multiple support/resistance levels exist
+   - Entry 1: 1/4 of intended size at first level
+   - Entry 2: 1/4 at better level (if reached)
+   - Entry 3: 1/4 at optimal level (if reached)
+   - Stop: Single stop below/above all entries
+   - Benefit: Better average price, reduced risk
+
+3. **Breakout Entry Method**
+   - Initial: Market order for 1/4 position on break
+   - Add: Limit order for 1/4 on retest of breakout level
+   - Stop: Below breakout level
+
+**MANDATORY CONCLUSION:**
+- **IF SETUP EXISTS**: Execute trade immediately with stops/targets
+- **IF NO SETUP**: State "NO QUALIFYING SETUP - WAITING 30 MINUTES FOR NEXT CYCLE"
+- **NO OTHER OPTIONS**: No monitoring, watching, or considering
 
 ---
 
@@ -515,6 +559,11 @@ const gmxContext = context({
         lastPositionCount: z.number().optional().describe("Last position count for change detection"),
         lastCycleTimestamp: z.number().optional().describe("Timestamp of last triggered cycle"),
         nextScheduledCycle: z.number().optional().describe("Timestamp of next scheduled 30min cycle"),
+        // Cooldown tracking to prevent signal loops
+        lastSynthBtcTrigger: z.number().optional().describe("Timestamp of last BTC Synth trigger"),
+        lastSynthEthTrigger: z.number().optional().describe("Timestamp of last ETH Synth trigger"),
+        lastBtcTriggerType: z.string().optional().describe("Last BTC trigger type (LONG/SHORT)"),
+        lastEthTriggerType: z.string().optional().describe("Last ETH trigger type (LONG/SHORT)"),
     }),
 
     key({ id }) {
@@ -543,6 +592,11 @@ const gmxContext = context({
             lastPositionCount: state.args.lastPositionCount,
             lastCycleTimestamp: state.args.lastCycleTimestamp,
             nextScheduledCycle: state.args.nextScheduledCycle,
+            // Initialize cooldown tracking
+            lastSynthBtcTrigger: state.args.lastSynthBtcTrigger,
+            lastSynthEthTrigger: state.args.lastSynthEthTrigger,
+            lastBtcTriggerType: state.args.lastBtcTriggerType,
+            lastEthTriggerType: state.args.lastEthTriggerType,
           };
       },
 
@@ -633,6 +687,11 @@ const gmxContext = context({
             lastPositionCount: memory.lastPositionCount,
             lastCycleTimestamp: memory.lastCycleTimestamp,
             nextScheduledCycle: memory.nextScheduledCycle,
+            // Include cooldown tracking
+            lastSynthBtcTrigger: memory.lastSynthBtcTrigger,
+            lastSynthEthTrigger: memory.lastSynthEthTrigger,
+            lastBtcTriggerType: memory.lastBtcTriggerType,
+            lastEthTriggerType: memory.lastEthTriggerType,
           });
     },
     }).setInputs({
@@ -646,6 +705,11 @@ const gmxContext = context({
                 let lastBtcPercentile: number | null = null;
                 let lastEthPercentile: number | null = null;
                 let lastKnownPositionCount: number | null = null;
+                // Track cooldown state locally
+                let lastBtcTriggerTime: number | undefined = undefined;
+                let lastEthTriggerTime: number | undefined = undefined;
+                let lastBtcTriggerType: string | undefined = undefined;
+                let lastEthTriggerType: string | undefined = undefined;
                 
                 const eventMonitor = async () => {
                     try {
@@ -684,25 +748,63 @@ const gmxContext = context({
                             triggerType = "POSITION";
                             triggered = true;
                         }
-                        // 2. Check for Synth threshold breaches
-                        else if (btcPercentile !== null && (btcPercentile <= 20 || btcPercentile >= 80)) {
-                            triggerReason = `BTC reached P${btcPercentile} (${btcPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
-                            triggerType = "SYNTH";
-                            triggered = true;
-                            console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= 20 ? '≤20 (LONG)' : '≥80 (SHORT)'}`);
+                        // 2. Check for Synth threshold breaches with cooldown protection
+                        else if (btcPercentile !== null && (btcPercentile <= 15 || btcPercentile >= 85)) {
+                            const signalType: 'LONG' | 'SHORT' = btcPercentile <= 15 ? 'LONG' : 'SHORT';
+                            const inCooldown = isInCooldown('BTC', signalType, lastBtcTriggerTime, lastBtcTriggerType);
+                            
+                            if (inCooldown) {
+                                const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
+                                console.log(`🧊 [EVENT] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                            } else {
+                                triggerReason = `BTC reached P${btcPercentile} (${signalType} signal)`;
+                                triggerType = "SYNTH";
+                                triggered = true;
+                                console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= 15 ? '≤15 (LONG)' : '≥85 (SHORT)'}`);
+                            }
                         }
-                        else if (ethPercentile !== null && (ethPercentile <= 20 || ethPercentile >= 80)) {
-                            triggerReason = `ETH reached P${ethPercentile} (${ethPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
-                            triggerType = "SYNTH";
-                            triggered = true;
-                            console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= 20 ? '≤20 (LONG)' : '≥80 (SHORT)'}`);
+                        else if (ethPercentile !== null && (ethPercentile <= 15 || ethPercentile >= 85)) {
+                            const signalType: 'LONG' | 'SHORT' = ethPercentile <= 15 ? 'LONG' : 'SHORT';
+                            const inCooldown = isInCooldown('ETH', signalType, lastEthTriggerTime, lastEthTriggerType);
+                            
+                            if (inCooldown) {
+                                const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
+                                console.log(`🧊 [EVENT] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                            } else {
+                                triggerReason = `ETH reached P${ethPercentile} (${signalType} signal)`;
+                                triggerType = "SYNTH";
+                                triggered = true;
+                                console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= 15 ? '≤15 (LONG)' : '≥85 (SHORT)'}`);
+                            }
                         }
                         
                         if (triggered) {
+                            // Determine which asset and signal type for Synth triggers
+                            let triggeredAsset: 'BTC' | 'ETH' | undefined = undefined;
+                            let triggeredSignalType: 'LONG' | 'SHORT' | undefined = undefined;
+                            
+                            if (triggerType === "SYNTH") {
+                                if (triggerReason.includes('BTC')) {
+                                    triggeredAsset = 'BTC';
+                                    triggeredSignalType = btcPercentile! <= 15 ? 'LONG' : 'SHORT';
+                                    // Update local cooldown state
+                                    lastBtcTriggerTime = Date.now();
+                                    lastBtcTriggerType = triggeredSignalType;
+                                } else if (triggerReason.includes('ETH')) {
+                                    triggeredAsset = 'ETH';
+                                    triggeredSignalType = ethPercentile! <= 15 ? 'LONG' : 'SHORT';
+                                    // Update local cooldown state
+                                    lastEthTriggerTime = Date.now();
+                                    lastEthTriggerType = triggeredSignalType;
+                                }
+                            }
+                            
                             await triggerTradingCycle(send, triggerReason, triggerType, {
                                 btcPercentile,
                                 ethPercentile,
-                                positionCount: currentPositionCount
+                                positionCount: currentPositionCount,
+                                triggeredAsset,
+                                triggerType: triggeredSignalType
                             });
                             
                             // Update local state after triggering (only if not first run, as first run already updated)
@@ -712,7 +814,7 @@ const gmxContext = context({
                                 lastKnownPositionCount = currentPositionCount;
                             }
                         } else {
-                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need P≤20/P≥80 or position change)`);
+                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need P≤15/P≥85 or position change)`);
                         }
                         
                     } catch (error) {
@@ -849,6 +951,11 @@ await agent.start({
     lastPositionCount: undefined,
     lastCycleTimestamp: undefined,
     nextScheduledCycle: Date.now() + 1800000, // First scheduled cycle in 30 minutes
+    // Initialize cooldown tracking
+    lastSynthBtcTrigger: undefined,
+    lastSynthEthTrigger: undefined,
+    lastBtcTriggerType: undefined,
+    lastEthTriggerType: undefined,
 });
 
 console.warn("🎯 Vega is now live and ready for GMX trading!");

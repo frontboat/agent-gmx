@@ -1,5 +1,5 @@
 import { type GmxSdk } from "@gmx-io/sdk";
-import { fetchSynthData } from './gmx-queries';
+import { fetchSynthData } from './synth-utils';
 
 // Enhanced cache for all GMX data types and external APIs
 export class EnhancedDataCache {
@@ -38,6 +38,12 @@ export class EnhancedDataCache {
     private synthPercentileLastFetch: Map<string, number> = new Map();
     private readonly SYNTH_PERCENTILE_TTL_MS = 300_000; // 5 minutes
     private synthPercentileFetchPromises: Map<string, Promise<any>> = new Map();
+    
+    // Synth past percentile cache - stores historical percentile data with actual price
+    private synthPastPercentileCache: Map<string, any> = new Map();
+    private synthPastPercentileLastFetch: Map<string, number> = new Map();
+    private readonly SYNTH_PAST_PERCENTILE_TTL_MS = 300_000; // 5 minutes
+    private synthPastPercentileFetchPromises: Map<string, Promise<any>> = new Map();
 
     constructor(private sdk: GmxSdk) {}
 
@@ -318,6 +324,71 @@ export class EnhancedDataCache {
         }
     }
 
+    // Get cached Synth past percentile data (historical data with actual price)
+    async getSynthPastPercentileData(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<any> {
+        const now = Date.now();
+        const cacheKey = `synth_past_percentile_${asset}`;
+        const lastFetch = this.synthPastPercentileLastFetch.get(cacheKey) || 0;
+
+        // Return cached data if still valid
+        if (!forceRefresh && this.synthPastPercentileCache.has(cacheKey) && (now - lastFetch) < this.SYNTH_PAST_PERCENTILE_TTL_MS) {
+            return this.synthPastPercentileCache.get(cacheKey)!;
+        }
+
+        // If a fetch is already in progress, return that promise
+        const existingPromise = this.synthPastPercentileFetchPromises.get(cacheKey);
+        if (existingPromise) {
+            return existingPromise;
+        }
+
+        // Start new fetch
+        const fetchPromise = this.fetchSynthPastPercentileData(asset);
+        this.synthPastPercentileFetchPromises.set(cacheKey, fetchPromise);
+
+        try {
+            const pastPercentileData = await fetchPromise;
+            this.synthPastPercentileCache.set(cacheKey, pastPercentileData);
+            this.synthPastPercentileLastFetch.set(cacheKey, now);
+            return pastPercentileData;
+        } finally {
+            this.synthPastPercentileFetchPromises.delete(cacheKey);
+        }
+    }
+
+    private async fetchSynthPastPercentileData(asset: 'BTC' | 'ETH'): Promise<any> {
+        try {
+            // Import fetchSynthPastPercentileData from synth-utils
+            const { fetchSynthPastPercentileData } = await import('./synth-utils');
+            const dashboardResponse = await fetchSynthPastPercentileData(asset);
+            return dashboardResponse;
+        } catch (error: any) {
+            // Handle rate limiting and API errors
+            if (error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
+                throw new Error(`Synth API rate limited for ${asset} past data. Please wait before retrying.`);
+            }
+            if (error.message?.includes('403') || error.message?.includes('Forbidden')) {
+                throw new Error(`Synth API access denied for ${asset} past data. Check authentication or permissions.`);
+            }
+            if (error.message?.includes('500') || error.message?.includes('502') || error.message?.includes('503')) {
+                throw new Error(`Synth API server error for ${asset} past data. Service may be temporarily unavailable.`);
+            }
+            if (error.message?.includes('timeout')) {
+                throw new Error(`Synth API timeout for ${asset} past data. Network or server may be slow.`);
+            }
+            
+            // For other errors, try to return cached data as fallback
+            const cacheKey = `synth_past_percentile_${asset}`;
+            const cachedData = this.synthPastPercentileCache.get(cacheKey);
+            if (cachedData) {
+                console.warn(`[SynthPastPercentileCache] Using stale ${asset} past percentile data due to fetch error:`, error.message);
+                return cachedData;
+            }
+            
+            // If no cache available, throw descriptive error
+            throw new Error(`Failed to fetch Synth past percentile data for ${asset}: ${error.message}`);
+        }
+    }
+
     private async fetchSynthPercentileData(asset: 'BTC' | 'ETH'): Promise<any> {
         try {
             // Import fetchSynthPercentileData from synth-utils
@@ -396,6 +467,9 @@ export class EnhancedDataCache {
         this.synthPercentileCache.clear();
         this.synthPercentileLastFetch.clear();
         this.synthPercentileFetchPromises.clear();
+        this.synthPastPercentileCache.clear();
+        this.synthPastPercentileLastFetch.clear();
+        this.synthPastPercentileFetchPromises.clear();
     }
 
     getCacheAges(): { markets: number, tokens: number, positions: number, positionsInfo: number } {
@@ -414,7 +488,8 @@ export class EnhancedDataCache {
         positions: boolean, 
         positionsInfo: boolean,
         synth: { btc: boolean, eth: boolean },
-        synthPercentile: { btc: boolean, eth: boolean }
+        synthPercentile: { btc: boolean, eth: boolean },
+        synthPastPercentile: { btc: boolean, eth: boolean }
     } {
         const now = Date.now();
         return {
@@ -429,6 +504,10 @@ export class EnhancedDataCache {
             synthPercentile: {
                 btc: this.synthPercentileCache.has("synth_percentile_BTC") && (now - (this.synthPercentileLastFetch.get("synth_percentile_BTC") || 0)) < this.SYNTH_PERCENTILE_TTL_MS,
                 eth: this.synthPercentileCache.has("synth_percentile_ETH") && (now - (this.synthPercentileLastFetch.get("synth_percentile_ETH") || 0)) < this.SYNTH_PERCENTILE_TTL_MS
+            },
+            synthPastPercentile: {
+                btc: this.synthPastPercentileCache.has("synth_past_percentile_BTC") && (now - (this.synthPastPercentileLastFetch.get("synth_past_percentile_BTC") || 0)) < this.SYNTH_PAST_PERCENTILE_TTL_MS,
+                eth: this.synthPastPercentileCache.has("synth_past_percentile_ETH") && (now - (this.synthPastPercentileLastFetch.get("synth_past_percentile_ETH") || 0)) < this.SYNTH_PAST_PERCENTILE_TTL_MS
             }
         };
     }

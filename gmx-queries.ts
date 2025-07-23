@@ -6,12 +6,12 @@ import type { EnhancedDataCache } from './gmx-cache';
 import { 
     fetchVolatilityDialRaw,
     extractVolatilityData,
-    calculatePercentilesFromConsolidated,
-    detectPercentileTrend,
-    generateTradingSignalFromPercentile,
     fetchSynthPercentileData,
     parseSynthPercentileData,
-    calculateCurrentPricePercentile,
+    fetchSynthPastPercentileData,
+    parseSynthPastPercentileData,
+    calculatePricePercentile,
+    formatSynthAnalysis,
     type PercentileDataPoint,
     type VolatilityData
 } from './synth-utils';
@@ -965,249 +965,50 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache?: Enhance
     }
 };
 
-
-
-// Function to fetch and analyze Synth AI predictions
-async function fetchSynthAnalysis(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache): Promise<string> {
-  try {
-    // Get current price first
-    let currentPrice = 0;
-    try {
-      currentPrice = await getCurrentAssetPrice(asset, gmxDataCache);
-    } catch (error) {
-      console.error(`Failed to get current price for ${asset}:`, error);
-    }
-    
-    // NEW APPROACH: Get percentile data directly from Synth dashboard
-    let percentileData: PercentileDataPoint[] = [];
-    let currentPricePercentile = 0;
-    
-    try {
-      // Use cached percentile data if available
-      const dashboardResponse = gmxDataCache 
-        ? await gmxDataCache.getSynthPercentileData(asset)
-        : await fetchSynthPercentileData(asset);
-      percentileData = parseSynthPercentileData(dashboardResponse);
-      
-      if (percentileData.length === 0) {
-        return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nNo percentile data could be parsed from dashboard.`;
-      }
-      
-      // Calculate current price percentile using the last data point
-      const lastDataPoint = percentileData[percentileData.length - 1];
-      if (lastDataPoint) {
-        currentPricePercentile = calculateCurrentPricePercentile(lastDataPoint, currentPrice);
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nFailed to fetch percentile data: ${errorMsg}`;
-    }
-    
-    // Fetch volatility dial data (keeping this API call)
-    let volatilityData: VolatilityData | undefined;
-    try {
-      const dialResponseData = await fetchVolatilityDialRaw(asset);
-      volatilityData = extractVolatilityData(dialResponseData, asset);
-    } catch (error) {
-      console.error(`Failed to fetch volatility dial for ${asset}:`, error);
-    }
-    
-    // Format and return analysis
-    return formatSynthAnalysis(percentileData, asset, currentPrice, volatilityData, currentPricePercentile);
-  } catch (error) {
-    return `Error fetching Synth analysis: ${error}`;
-  }
-}
-
-
-// Function to format the Synth AI analysis output optimized for AI processing
-function formatSynthAnalysis(
-  percentileData: PercentileDataPoint[], 
-  asset: 'BTC' | 'ETH', 
-  currentPrice: number, 
-  volatilityData: VolatilityData | undefined,
-  currentPricePercentile: number
-): string {
-  if (percentileData.length === 0) {
-    return `SYNTH_${asset}_DATA: NO_DATA_AVAILABLE`;
-  }
-
-  // Generate new trading signal based on percentile rank only
-  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile, 'NEUTRAL', 0);
-  
-  // Build structured output for AI consumption
-  let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
-
-  // PRIORITY SECTION - Most important info first
-  result += `TRADING_SIGNAL: ${signal}\n`;
-  result += `SIGNAL_EXPLANATION: ${explanation}\n`;
-  result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
-  result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
-  
-  if (volatilityData) {
-    result += `VOLATILITY_FORECAST: ${volatilityData.value}%\n`;
-    result += `VOLATILITY_CATEGORY: ${volatilityData.category}\n`;
-  }
-  
-  // HOURLY PREDICTIONS - Show predictions for each hour over next 24 hours
-  result += `\nHOURLY_PREDICTIONS:\n`;
-  
-  if (percentileData.length > 0) {
-    // Find hourly intervals (every 12 data points since data is every 5 minutes)
-    const hourlyIntervals = Math.min(24, Math.floor(percentileData.length / 12));
-    
-    for (let hour = 0; hour < hourlyIntervals; hour++) {
-      const dataPointIndex = hour * 12; // Every 12 intervals = 1 hour
-      const dataPoint = percentileData[dataPointIndex];
-      
-      if (dataPoint) {
-        const timestamp = dataPoint.timestamp ? new Date(dataPoint.timestamp).toISOString().substring(11, 16) : '';
-        result += `${timestamp}: P0.5=$${(dataPoint.p0_5 || 0).toFixed(0)} P5=$${(dataPoint.p5 || 0).toFixed(0)} P20=$${(dataPoint.p20 || 0).toFixed(0)} P35=$${(dataPoint.p35 || 0).toFixed(0)} P50=$${(dataPoint.p50 || 0).toFixed(0)} P65=$${(dataPoint.p65 || 0).toFixed(0)} P80=$${(dataPoint.p80 || 0).toFixed(0)} P95=$${(dataPoint.p95 || 0).toFixed(0)} P99.5=$${(dataPoint.p99_5 || 0).toFixed(0)}\n`;
-      }
-    }
-  }
-    
-  return result;
-}
-
-// Fetch synth data - used by cache and direct calls
-export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
-    // Step 1: Fetch top miners from leaderboard
-    const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
-    
-    if (leaderboardResponse.status === 429) {
-        throw new Error('Rate limited - predictions temporarily unavailable');
-    }
-    
-    if (!leaderboardResponse.ok) {
-        throw new Error(`Failed to fetch predictions leaderboard: ${leaderboardResponse.statusText}`);
-    }
-    
-    const leaderboardData = await leaderboardResponse.json();
-    
-    if (!leaderboardData || !Array.isArray(leaderboardData)) {
-        throw new Error("Invalid leaderboard data format");
-    }
-    
-    const topMiners = leaderboardData.slice(0, 10);
-    
-    if (topMiners.length === 0) {
-        throw new Error('No miners available on leaderboard');
-    }
-    
-    // DEBUG: Log leaderboard rank values
-    console.log(`\n[DEBUG] Top 10 miners and their ranks:`);
-    topMiners.forEach((miner, idx) => {
-        console.log(`  ${idx + 1}. Miner ${miner.neuron_uid}: rank=${miner.rank} (type: ${typeof miner.rank})`);
-    });
-    
-    // Step 2: Fetch predictions for each miner individually
-    const minerIds = topMiners.map((m: any) => m.neuron_uid);
-    const allPredictions = [];
-    
-    for (let i = 0; i < minerIds.length; i++) {
-        const minerId = minerIds[i];
-        const predictionsUrl = `https://api.synthdata.co/prediction/latest?miner=${minerId}&asset=${asset}&time_increment=300&time_length=86400`;
-        
-        try {
-            const predictionsResponse = await fetch(predictionsUrl, {
-                headers: {
-                    'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
-                }
-            });
-            
-            if (predictionsResponse.status === 429) {
-                console.warn(`Rate limited for miner ${minerId} - skipping`);
-                continue;
-            }
-            
-            if (!predictionsResponse.ok) {
-                console.warn(`Failed to fetch predictions for miner ${minerId}: ${predictionsResponse.statusText}`);
-                continue;
-            }
-            
-            const minerPredictions = await predictionsResponse.json();
-            
-            if (minerPredictions && Array.isArray(minerPredictions) && minerPredictions.length > 0) {
-                allPredictions.push(...minerPredictions);
-            }
-        } catch (error) {
-            console.warn(`Error fetching predictions for miner ${minerId}:`, error);
-            continue;
-        }
-        
-        // Add 2 second delay between requests (except for the last one)
-        if (i < minerIds.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-    }
-    
-    if (allPredictions.length === 0) {
-        throw new Error('No predictions available from any miners');
-    }
-    
-    const predictionsData = allPredictions;
-    
-    // Step 3: Consolidate predictions by original 5-minute intervals
-    const consolidatedMap = new Map<string, any>();
-    
-    predictionsData.forEach((minerPrediction: any) => {
-        const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
-        if (!minerInfo) {
-            console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
-            return;
-        }
-        
-        if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
-            !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
-            console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
-            return;
-        }
-        
-        const predictions = minerPrediction.prediction[0];
-        
-        predictions.forEach((pred: any) => {
-            if (!pred.time || pred.price === undefined) {
-                return;
-            }
-            
-            // Keep original 5-minute timestamp
-            const time = pred.time;
-            const price = pred.price;
-            
-            if (!consolidatedMap.has(time)) {
-                consolidatedMap.set(time, {
-                    time,
-                    predictions: []
-                });
-            }
-            
-            const prediction = {
-                miner_uid: minerPrediction.miner_uid,
-                rank: minerInfo.rank, // Use actual rank/incentive value from leaderboard
-                price
-            };
-            
-            // DEBUG: Log first few rank assignments (sample only to avoid spam)
-            if (Math.random() < 0.001) { // Log 0.1% of assignments
-                console.log(`[DEBUG] Assigning rank: miner=${minerPrediction.miner_uid}, rank=${minerInfo.rank}, price=${price}`);
-            }
-            
-            consolidatedMap.get(time)!.predictions.push(prediction);
-        });
-    });
-    
-    // Convert to array and sort by time
-    const consolidatedArray = Array.from(consolidatedMap.values())
-        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-
-        return consolidatedArray;
-};
-
 export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache) => {
     try {
-        // Use Synth AI analysis
-        return await fetchSynthAnalysis(asset, gmxDataCache);
+        // Get current price from GMX SDK instead of outdated Synth price
+        const currentPrice = await getCurrentAssetPrice(asset, gmxDataCache);
+        
+        if (currentPrice === 0) {
+            throw new Error(`Failed to get current ${asset} price from GMX SDK`);
+        }
+        
+        // Get percentile values from past data (only for percentile calculation, not price)
+        const pastDashboardResponse = gmxDataCache 
+            ? await gmxDataCache.getSynthPastPercentileData(asset)
+            : await fetchSynthPastPercentileData(asset);
+        const pastData = parseSynthPastPercentileData(pastDashboardResponse);
+        
+        const { currentPercentiles } = pastData;
+        
+        // Calculate where the current GMX price sits in the Synth percentile distribution
+        const currentPricePercentile = calculatePricePercentile(currentPrice, currentPercentiles);
+        
+        // Get future percentile predictions
+        let percentileData: PercentileDataPoint[] = [];
+        
+        // Use cached percentile data if available
+        const dashboardResponse = gmxDataCache 
+            ? await gmxDataCache.getSynthPercentileData(asset)
+            : await fetchSynthPercentileData(asset);
+        percentileData = parseSynthPercentileData(dashboardResponse);
+        
+        if (percentileData.length === 0) {
+            throw new Error(`No future percentile data could be parsed from dashboard for ${asset}`);
+        }
+        
+        // Fetch volatility dial data (keeping this API call)
+        let volatilityData: VolatilityData | undefined;
+        try {
+            const dialResponseData = await fetchVolatilityDialRaw(asset);
+            volatilityData = extractVolatilityData(dialResponseData, asset);
+        } catch (error) {
+            console.error(`Failed to fetch volatility dial for ${asset}:`, error);
+        }
+        
+        // Format and return analysis with current data as first point
+        return formatSynthAnalysis(percentileData, asset, currentPrice, volatilityData, currentPricePercentile, currentPercentiles);
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

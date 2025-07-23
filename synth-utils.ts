@@ -5,21 +5,6 @@
  */
 
 // Types for the volatility API
-export interface DashUpdateRequest {
-  output: string;
-  outputs: {
-    id: string;
-    property: string;
-  };
-  inputs: Array<{
-    id: string;
-    property: string;
-    value: string | number;
-  }>;
-  changedPropIds: string[];
-  parsedChangedPropsIds: string[];
-}
-
 
 export interface VolatilityDialResponse {
   multi: boolean;
@@ -91,266 +76,55 @@ export interface PercentileDataPoint {
   endTime?: string;    // End time of this 5-minute interval's predictions
 }
 
-// Interface for consolidated predictions from Synth
-export interface ConsolidatedPrediction {
-  time: string;
-  predictions: Array<{
-    miner_uid: number;
-    rank: number;
-    price: number;
-  }>;
-}
-
-// Calculate percentiles from consolidated predictions - now processes each 5-minute timestamp directly
-export function calculatePercentilesFromConsolidated(
-  consolidatedArray: ConsolidatedPrediction[], 
-  currentPrice: number
-): {
-  percentileData: PercentileDataPoint[],
-  currentPricePercentile: number  // e.g., 33 for P33
-} {
-  if (consolidatedArray.length === 0) {
-    return { percentileData: [], currentPricePercentile: 50 };
-  }
-  
-  // Sort by timestamp to ensure proper ordering
-  const sortedArray = [...consolidatedArray].sort((a, b) => 
-    new Date(a.time).getTime() - new Date(b.time).getTime()
-  );
-  
-
-  // Calculate percentiles for each 5-minute time slot
-  const percentileData: PercentileDataPoint[] = [];
-  
-  sortedArray.forEach((timePoint, index) => {
-    // Collect all predictions with ranks for this 5-minute slot
-    const pricesWithRanks: Array<{ price: number; rank: number }> = [];
-    timePoint.predictions.forEach(pred => {
-      pricesWithRanks.push({ price: pred.price, rank: pred.rank });
-    });
-    
-    // Normalize ranks to sum to 1
-    const totalRank = pricesWithRanks.reduce((sum, item) => sum + item.rank, 0);
-    const pricesWithWeights = pricesWithRanks.map(item => ({
-      price: item.price,
-      weight: totalRank > 0 ? item.rank / totalRank : 1 / pricesWithRanks.length
-    }));
-    
-    // Calculate weighted percentiles
-    const percentiles = {
-      p0_5: calculateWeightedPercentileValue(pricesWithWeights, 0.5),
-      p5: calculateWeightedPercentileValue(pricesWithWeights, 5),
-      p20: calculateWeightedPercentileValue(pricesWithWeights, 20),
-      p35: calculateWeightedPercentileValue(pricesWithWeights, 35),
-      p50: calculateWeightedPercentileValue(pricesWithWeights, 50),
-      p65: calculateWeightedPercentileValue(pricesWithWeights, 65),
-      p80: calculateWeightedPercentileValue(pricesWithWeights, 80),
-      p95: calculateWeightedPercentileValue(pricesWithWeights, 95),
-      p99_5: calculateWeightedPercentileValue(pricesWithWeights, 99.5)
-    };
-    
-    percentileData.push({
-      timestamp: timePoint.time,
-      startTime: timePoint.time,
-      endTime: timePoint.time,
-      ...percentiles
-    });
-  });
-
-  // Calculate current price percentile using last time slot's data
-  let currentPricePercentile = 0;
-  if (sortedArray.length > 0) {
-    const lastTimePoint = sortedArray[sortedArray.length - 1];
-    const lastPredictions: Array<{ price: number; rank: number }> = [];
-    lastTimePoint.predictions.forEach(pred => {
-      lastPredictions.push({ price: pred.price, rank: pred.rank });
-    });
-    currentPricePercentile = getCurrentPricePercentileRankWeighted(lastPredictions, currentPrice);
-  }
-
-  return {
-    percentileData,
-    currentPricePercentile
-  };
-}
-
-// Helper function to calculate specific percentile value
-function calculatePercentileValue(sortedArray: number[], percentile: number): number {
-  if (sortedArray.length === 0) return 0;
-  
-  const index = (percentile / 100) * (sortedArray.length - 1);
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  const weight = index % 1;
-  
-  if (lower === upper) {
-    return sortedArray[lower];
-  }
-  
-  return sortedArray[lower] * (1 - weight) + sortedArray[upper] * weight;
-}
-
-// Calculate weighted percentile value using miner ranks as weights
-function calculateWeightedPercentileValue(
-  pricesWithWeights: Array<{ price: number; weight: number }>, 
-  percentile: number
-): number {
-  if (pricesWithWeights.length === 0) return 0;
-  
-  // Sort by price
-  const sorted = [...pricesWithWeights].sort((a, b) => a.price - b.price);
-  
-  
-  // Calculate cumulative weights
-  let cumulativeWeight = 0;
-  const cumulativeWeights = sorted.map(item => {
-    cumulativeWeight += item.weight;
-    return { price: item.price, cumWeight: cumulativeWeight };
-  });
-  
-  // Find the percentile position
-  const targetWeight = percentile / 100;
-  
-  // Find the price at the target percentile
-  for (let i = 0; i < cumulativeWeights.length; i++) {
-    if (cumulativeWeights[i].cumWeight >= targetWeight) {
-      // Linear interpolation if between two values
-      if (i === 0 || cumulativeWeights[i].cumWeight === targetWeight) {
-        return cumulativeWeights[i].price;
+// Fetch past percentile data from Synth dashboard (historical data with actual price)
+export async function fetchSynthPastPercentileData(asset: 'BTC' | 'ETH'): Promise<any> {
+  const requestBody = {
+    "output": "past-percentile-plot.figure",
+    "outputs": {
+      "id": "past-percentile-plot",
+      "property": "figure"
+    },
+    "inputs": [
+      {
+        "id": "dropdown-asset",
+        "property": "value",
+        "value": asset
+      },
+      {
+        "id": "last-update-time",
+        "property": "data",
+        "value": Date.now() / 1000
       }
-      
-      // Interpolate between previous and current
-      const prevWeight = cumulativeWeights[i - 1].cumWeight;
-      const currWeight = cumulativeWeights[i].cumWeight;
-      const prevPrice = cumulativeWeights[i - 1].price;
-      const currPrice = cumulativeWeights[i].price;
-      
-      const fraction = (targetWeight - prevWeight) / (currWeight - prevWeight);
-      const result = prevPrice + fraction * (currPrice - prevPrice);
-      
-      return result;
-    }
-  }
-  
-  // Return the highest price if we somehow didn't find it
-  return sorted[sorted.length - 1].price;
-}
+    ],
+    "changedPropIds": ["last-update-time.data"],
+    "parsedChangedPropsIds": ["last-update-time.data"]
+  };
 
-// Get exact percentile rank of current price (0-100)
-export function getCurrentPricePercentileRank(prices: number[], currentPrice: number): number {
-  if (prices.length === 0) return 50;
-  
-  const sortedPrices = [...prices].sort((a, b) => a - b);
-  
-  // Count how many prices are below or equal to current price
-  let countBelowOrEqual = 0;
-  for (const price of sortedPrices) {
-    if (price <= currentPrice) {
-      countBelowOrEqual++;
-    } else {
-      break;
-    }
-  }
-  
-  // Calculate percentile rank (0-100)
-  // Using standard percentile rank formula to avoid edge cases
-  return Math.round((countBelowOrEqual / sortedPrices.length) * 100);
-}
+  const response = await fetch("https://volatility.synthdata.co/_dash-update-component", {
+    "credentials": "include",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "Accept": "application/json",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Content-Type": "application/json",
+      "X-CSRFToken": "undefined",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin",
+      "Priority": "u=4"
+    },
+    "referrer": "https://volatility.synthdata.co/",
+    "body": JSON.stringify(requestBody),
+    "method": "POST",
+    "mode": "cors"
+  });
 
-// Get weighted percentile rank of current price using miner ranks
-export function getCurrentPricePercentileRankWeighted(
-  predictions: Array<{ price: number; rank: number }>, 
-  currentPrice: number
-): number {
-  if (predictions.length === 0) return 50;
-  
-  // Normalize ranks to sum to 1
-  const totalRank = predictions.reduce((sum, pred) => sum + pred.rank, 0);
-  const weightsAndPrices = predictions.map(pred => ({
-    price: pred.price,
-    weight: totalRank > 0 ? pred.rank / totalRank : 1 / predictions.length
-  }));
-  
-  // Sort by price
-  weightsAndPrices.sort((a, b) => a.price - b.price);
-  
-  // Sum weights of predictions below or equal to current price
-  let weightBelowOrEqual = 0;
-  for (const item of weightsAndPrices) {
-    if (item.price <= currentPrice) {
-      weightBelowOrEqual += item.weight;
-    } else {
-      break;
-    }
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
   }
-  
-  // Return percentile rank (0-100)
-  return Math.round(weightBelowOrEqual * 100);
-}
 
-// Detect trend based on weighted 5-minute interval analysis
-export function detectPercentileTrend(percentileData: PercentileDataPoint[]): { 
-  direction: 'UPWARD' | 'DOWNWARD' | 'NEUTRAL', 
-  strength: number 
-} {
-  if (percentileData.length < 12) return { direction: 'NEUTRAL', strength: 0 };
-  
-  // Analyze different time horizons with different weights (converted to 5-minute intervals)
-  const shortTermIntervals = Math.min(72, percentileData.length);   // Next 6 hours = 72 intervals (high weight)
-  const mediumTermIntervals = Math.min(144, percentileData.length); // Next 12 hours = 144 intervals (medium weight)
-  const longTermIntervals = Math.min(288, percentileData.length);   // Next 24 hours = 288 intervals (low weight)
-  
-  let shortTermScore = 0;
-  let mediumTermScore = 0;
-  let longTermScore = 0;
-  
-  // Short-term trend (next 6 hours = 72 intervals) - 60% weight
-  // Use smaller thresholds since we're comparing 5-minute intervals
-  for (let i = 1; i < shortTermIntervals; i++) {
-    const prevP50 = percentileData[i-1].p50 || 0;
-    const currP50 = percentileData[i].p50 || 0;
-    const change = prevP50 > 0 ? ((currP50 - prevP50) / prevP50) * 100 : 0;
-    
-    if (change > 0.02) shortTermScore += 1;      // 0.02% threshold for 5-min intervals
-    else if (change < -0.02) shortTermScore -= 1;
-  }
-  
-  // Medium-term trend (next 12 hours = 144 intervals) - 30% weight
-  for (let i = 1; i < mediumTermIntervals; i++) {
-    const prevP50 = percentileData[i-1].p50 || 0;
-    const currP50 = percentileData[i].p50 || 0;
-    const change = prevP50 > 0 ? ((currP50 - prevP50) / prevP50) * 100 : 0;
-    
-    if (change > 0.01) mediumTermScore += 1;     // 0.01% threshold for 5-min intervals
-    else if (change < -0.01) mediumTermScore -= 1;
-  }
-  
-  // Long-term trend (next 24 hours = 288 intervals) - 10% weight
-  for (let i = 1; i < longTermIntervals; i++) {
-    const prevP50 = percentileData[i-1].p50 || 0;
-    const currP50 = percentileData[i].p50 || 0;
-    const change = prevP50 > 0 ? ((currP50 - prevP50) / prevP50) * 100 : 0;
-    
-    if (change > 0.005) longTermScore += 1;     // 0.005% threshold for 5-min intervals
-    else if (change < -0.005) longTermScore -= 1;
-  }
-  
-  // Calculate weighted score
-  const weightedScore = (shortTermScore * 0.6) + (mediumTermScore * 0.3) + (longTermScore * 0.1);
-  
-  // Determine trend direction with stronger thresholds
-  let direction: 'UPWARD' | 'DOWNWARD' | 'NEUTRAL';
-  if (weightedScore >= 1) {
-    direction = 'UPWARD';
-  } else if (weightedScore <= -1) {
-    direction = 'DOWNWARD';
-  } else {
-    direction = 'NEUTRAL';
-  }
-  
-  return { direction, strength: weightedScore };
+  return await response.json();
 }
-
 
 // NEW: Fetch percentile data directly from Synth dashboard
 export async function fetchSynthPercentileData(asset: 'BTC' | 'ETH'): Promise<any> {
@@ -402,14 +176,224 @@ export async function fetchSynthPercentileData(asset: 'BTC' | 'ETH'): Promise<an
   return await response.json();
 }
 
-// Parse percentile data from dashboard response
-export function parseSynthPercentileData(dashboardResponse: any): PercentileDataPoint[] {
+// Parse past percentile data to get current price percentile and percentile values
+export function parseSynthPastPercentileData(dashboardResponse: any): { 
+  currentPrice: number; 
+  currentPricePercentile: number;
+  currentPercentiles: PercentileDataPoint;
+} {
   try {
-    const figure = dashboardResponse.response["future-percentile-plot"].figure;
+    // Handle the response structure properly
+    if (!dashboardResponse || !dashboardResponse.response || !dashboardResponse.response["past-percentile-plot"]) {
+      throw new Error(`Invalid response structure for past percentile data`);
+    }
+    
+    const figure = dashboardResponse.response["past-percentile-plot"].figure;
+    
+    if (!figure || !figure.data) {
+      throw new Error(`No figure data found in past percentile response`);
+    }
+    
     const data = figure.data;
     
     if (!data || data.length === 0) {
-      return [];
+      throw new Error(`No data found in past percentile response`);
+    }
+
+    // Find the actual price line (index 21 based on the structure you showed)
+    let actualPriceLine = null;
+    for (let i = 0; i < data.length; i++) {
+      const line = data[i];
+      const hoverTemplate = line.hovertemplate || '';
+      if (hoverTemplate.includes('Price') && !hoverTemplate.includes('Percentile')) {
+        actualPriceLine = line;
+        break;
+      }
+    }
+
+    if (!actualPriceLine || !actualPriceLine.y || actualPriceLine.y.length === 0) {
+      throw new Error(`No actual price data found in past percentile response`);
+    }
+
+    // Get the latest actual price (last point in the time series)
+    let currentPrice: number;
+    
+    // Handle binary data if present
+    if (actualPriceLine.y.bdata && actualPriceLine.y.dtype === 'f8') {
+      // Decode base64 binary data as float64 array
+      const binaryData = atob(actualPriceLine.y.bdata);
+      const float64Array = new Float64Array(binaryData.length / 8);
+      
+      for (let j = 0; j < float64Array.length; j++) {
+        const bytes = new Uint8Array(8);
+        for (let k = 0; k < 8; k++) {
+          bytes[k] = binaryData.charCodeAt(j * 8 + k);
+        }
+        const dataView = new DataView(bytes.buffer);
+        float64Array[j] = dataView.getFloat64(0, true); // little-endian
+      }
+      
+      currentPrice = float64Array[float64Array.length - 1];
+    } else if (Array.isArray(actualPriceLine.y)) {
+      currentPrice = actualPriceLine.y[actualPriceLine.y.length - 1];
+    } else {
+      throw new Error('Unable to extract current price from actual price line');
+    }
+    
+    // Get the same timestamp index for all percentile lines
+    // For actual price line, x array is longer (1440 points) than percentile lines (289 points)
+    // We need to use the last timestamp from x array
+    const actualPriceLastIndex = actualPriceLine.x ? actualPriceLine.x.length - 1 : 0;
+    const currentTimestamp = actualPriceLine.x ? actualPriceLine.x[actualPriceLastIndex] : new Date().toISOString();
+    
+    // For percentile lines, we need to find the last index from their data
+    const percentileLastIndex = 288; // Based on your data showing 289 points
+    
+    // Extract percentile values at the current time
+    const percentileValues: Array<{ level: number; price: number }> = [];
+    const currentPercentiles: PercentileDataPoint = {
+      timestamp: currentTimestamp,
+      p0_5: 0,
+      p5: 0,
+      p20: 0,
+      p35: 0,
+      p50: 0,
+      p65: 0,
+      p80: 0,
+      p95: 0,
+      p99_5: 0
+    };
+    
+    for (let i = 0; i < data.length; i++) {
+      const line = data[i];
+      const hoverTemplate = line.hovertemplate || '';
+      
+      let percentileLevel = 0;
+      let percentileKey = '';
+      
+      if (hoverTemplate.includes('99.5th Percentile')) {
+        percentileLevel = 99.5;
+        percentileKey = 'p99_5';
+      } else if (hoverTemplate.includes('0.5th Percentile')) {
+        percentileLevel = 0.5;
+        percentileKey = 'p0_5';
+      } else if (hoverTemplate.includes('95th Percentile')) {
+        percentileLevel = 95;
+        percentileKey = 'p95';
+      } else if (hoverTemplate.includes('80th Percentile')) {
+        percentileLevel = 80;
+        percentileKey = 'p80';
+      } else if (hoverTemplate.includes('65th Percentile')) {
+        percentileLevel = 65;
+        percentileKey = 'p65';
+      } else if (hoverTemplate.includes('50th Percentile')) {
+        percentileLevel = 50;
+        percentileKey = 'p50';
+      } else if (hoverTemplate.includes('35th Percentile')) {
+        percentileLevel = 35;
+        percentileKey = 'p35';
+      } else if (hoverTemplate.includes('20th Percentile')) {
+        percentileLevel = 20;
+        percentileKey = 'p20';
+      } else if (hoverTemplate.includes('5th Percentile')) {
+        percentileLevel = 5;
+        percentileKey = 'p5';
+      }
+      
+      if (percentileLevel > 0 && line.y) {
+        let price: number;
+        
+        // Handle binary data if present
+        if (line.y.bdata && line.y.dtype === 'f8') {
+          // Decode base64 binary data as float64 array
+          const binaryData = atob(line.y.bdata);
+          const float64Array = new Float64Array(binaryData.length / 8);
+          
+          for (let j = 0; j < float64Array.length; j++) {
+            const bytes = new Uint8Array(8);
+            for (let k = 0; k < 8; k++) {
+              bytes[k] = binaryData.charCodeAt(j * 8 + k);
+            }
+            const dataView = new DataView(bytes.buffer);
+            float64Array[j] = dataView.getFloat64(0, true); // little-endian
+          }
+          
+          price = float64Array[Math.min(percentileLastIndex, float64Array.length - 1)];
+        } else if (Array.isArray(line.y) && line.y[percentileLastIndex] !== undefined) {
+          price = line.y[percentileLastIndex];
+        } else {
+          continue; // Skip this percentile if we can't get the price
+        }
+        
+        percentileValues.push({ level: percentileLevel, price });
+        if (percentileKey) {
+          (currentPercentiles as any)[percentileKey] = price;
+        }
+      }
+    }
+    
+    // Sort percentiles by level for easier interpolation
+    percentileValues.sort((a, b) => a.level - b.level);
+    
+    // Calculate where current price sits in the percentile distribution
+    let currentPricePercentile = 50; // default
+    
+    if (percentileValues.length > 0) {
+      // Find which percentile band the current price falls into
+      if (currentPrice <= percentileValues[0].price) {
+        currentPricePercentile = 0;
+      } else if (currentPrice >= percentileValues[percentileValues.length - 1].price) {
+        currentPricePercentile = 100;
+      } else {
+        // Interpolate between percentile bands
+        for (let i = 0; i < percentileValues.length - 1; i++) {
+          const lowerBand = percentileValues[i];
+          const upperBand = percentileValues[i + 1];
+          
+          if (currentPrice >= lowerBand.price && currentPrice <= upperBand.price) {
+            const priceDiff = upperBand.price - lowerBand.price;
+            const levelDiff = upperBand.level - lowerBand.level;
+            
+            if (priceDiff > 0) {
+              const fraction = (currentPrice - lowerBand.price) / priceDiff;
+              currentPricePercentile = Math.round(lowerBand.level + (fraction * levelDiff));
+            } else {
+              currentPricePercentile = Math.round(lowerBand.level);
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    return { currentPrice, currentPricePercentile, currentPercentiles };
+    
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to parse past percentile data: ${error}`);
+  }
+}
+
+// Parse percentile data from dashboard response
+export function parseSynthPercentileData(dashboardResponse: any): PercentileDataPoint[] {
+  try {
+    // Handle the response structure properly
+    if (!dashboardResponse || !dashboardResponse.response || !dashboardResponse.response["future-percentile-plot"]) {
+      throw new Error(`Invalid response structure for future percentile data`);
+    }
+    
+    const figure = dashboardResponse.response["future-percentile-plot"].figure;
+    
+    if (!figure || !figure.data) {
+      throw new Error(`No figure data found in future percentile response`);
+    }
+    
+    const data = figure.data;
+    
+    if (!data || data.length === 0) {
+      throw new Error('No data found in future percentile response');
     }
 
     // The data array contains multiple percentile lines (P0.5, P5, P20, etc.)
@@ -417,7 +401,7 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
     const timestamps = data[0].x; // All percentiles share the same timestamps
     
     if (!timestamps || timestamps.length === 0) {
-      return [];
+      throw new Error('No timestamps found in future percentile data');
     }
 
     // Find each percentile line by examining hovertemplate
@@ -494,14 +478,16 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
     return percentileData;
     
   } catch (error) {
-    console.error('[Synth] Error parsing percentile data from dashboard:', error);
-    return [];
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to parse future percentile data: ${error}`);
   }
 }
 
-// Function to format the volatility dial API request
-export function formatVolatilityDialRequest(asset: 'BTC' | 'ETH', timestamp: number = Date.now() / 1000): string {
-  const request: DashUpdateRequest = {
+// Function to fetch volatility dial data from API
+export async function fetchVolatilityDialRaw(asset: 'BTC' | 'ETH'): Promise<VolatilityDialResponse> {
+  const requestBody = JSON.stringify({
     output: "volatility-dial-1.figure",
     outputs: {
       id: "volatility-dial-1",
@@ -516,20 +502,12 @@ export function formatVolatilityDialRequest(asset: 'BTC' | 'ETH', timestamp: num
       {
         id: "last-update-time",
         property: "data",
-        value: timestamp
+        value: Date.now() / 1000
       }
     ],
     changedPropIds: ["last-update-time.data"],
     parsedChangedPropsIds: ["last-update-time.data"]
-  };
-
-  return JSON.stringify(request);
-}
-
-
-// Function to fetch volatility dial data from API
-export async function fetchVolatilityDialRaw(asset: 'BTC' | 'ETH'): Promise<VolatilityDialResponse> {
-  const requestBody = formatVolatilityDialRequest(asset);
+  });
   
   const response = await fetch("https://volatility.synthdata.co/_dash-update-component", {
     credentials: "include",
@@ -570,102 +548,431 @@ export function extractVolatilityData(responseData: VolatilityDialResponse, asse
   };
 }
 
-
-
-
-// Calculate current price percentile using Synth dashboard percentile bands
-export function calculateCurrentPricePercentile(
-  percentileDataPoint: PercentileDataPoint,
-  currentPrice: number
-): number {
-  // Find which percentile band the current price falls into
-  const percentileBands = [
-    { level: 0.5, price: percentileDataPoint.p0_5 || 0 },
-    { level: 5, price: percentileDataPoint.p5 || 0 },
-    { level: 20, price: percentileDataPoint.p20 || 0 },
-    { level: 35, price: percentileDataPoint.p35 || 0 },
-    { level: 50, price: percentileDataPoint.p50 || 0 },
-    { level: 65, price: percentileDataPoint.p65 || 0 },
-    { level: 80, price: percentileDataPoint.p80 || 0 },
-    { level: 95, price: percentileDataPoint.p95 || 0 },
-    { level: 99.5, price: percentileDataPoint.p99_5 || 0 }
-  ].filter(band => band.price > 0); // Remove invalid percentiles
+// Helper function to calculate where current price sits in percentile distribution
+export function calculatePricePercentile(currentPrice: number, currentPercentiles: PercentileDataPoint): number {
+  const percentileValues: Array<{ level: number; price: number }> = [];
   
-  if (percentileBands.length === 0) {
-    return 50; // Default to median if no valid percentiles
-  }
+  // Extract percentile values
+  if (currentPercentiles.p0_5) percentileValues.push({ level: 0.5, price: currentPercentiles.p0_5 });
+  if (currentPercentiles.p5) percentileValues.push({ level: 5, price: currentPercentiles.p5 });
+  if (currentPercentiles.p20) percentileValues.push({ level: 20, price: currentPercentiles.p20 });
+  if (currentPercentiles.p35) percentileValues.push({ level: 35, price: currentPercentiles.p35 });
+  if (currentPercentiles.p50) percentileValues.push({ level: 50, price: currentPercentiles.p50 });
+  if (currentPercentiles.p65) percentileValues.push({ level: 65, price: currentPercentiles.p65 });
+  if (currentPercentiles.p80) percentileValues.push({ level: 80, price: currentPercentiles.p80 });
+  if (currentPercentiles.p95) percentileValues.push({ level: 95, price: currentPercentiles.p95 });
+  if (currentPercentiles.p99_5) percentileValues.push({ level: 99.5, price: currentPercentiles.p99_5 });
   
-  // Find the appropriate band
-  if (currentPrice <= percentileBands[0].price) {
-    // Below lowest percentile
-    return 0;
-  } else if (currentPrice >= percentileBands[percentileBands.length - 1].price) {
-    // Above highest percentile
-    return 100;
-  } else {
-    // Find the band the price falls between
-    for (let i = 0; i < percentileBands.length - 1; i++) {
-      const lowerBand = percentileBands[i];
-      const upperBand = percentileBands[i + 1];
-      
-      if (currentPrice >= lowerBand.price && currentPrice <= upperBand.price) {
-        // Interpolate between the two bands
-        const priceDiff = upperBand.price - lowerBand.price;
-        const levelDiff = upperBand.level - lowerBand.level;
+  // Sort percentiles by level for easier interpolation
+  percentileValues.sort((a, b) => a.level - b.level);
+  
+  // Calculate where current price sits in the percentile distribution
+  let currentPricePercentile = 50; // default
+  
+  if (percentileValues.length > 0) {
+    // Find which percentile band the current price falls into
+    if (currentPrice <= percentileValues[0].price) {
+      currentPricePercentile = 0;
+    } else if (currentPrice >= percentileValues[percentileValues.length - 1].price) {
+      currentPricePercentile = 100;
+    } else {
+      // Interpolate between percentile bands
+      for (let i = 0; i < percentileValues.length - 1; i++) {
+        const lowerBand = percentileValues[i];
+        const upperBand = percentileValues[i + 1];
         
-        if (priceDiff > 0) {
-          const fraction = (currentPrice - lowerBand.price) / priceDiff;
-          return Math.round(lowerBand.level + (fraction * levelDiff));
-        } else {
-          // Prices are the same, use lower band
-          return Math.round(lowerBand.level);
+        if (currentPrice >= lowerBand.price && currentPrice <= upperBand.price) {
+          const priceDiff = upperBand.price - lowerBand.price;
+          const levelDiff = upperBand.level - lowerBand.level;
+          
+          if (priceDiff > 0) {
+            const fraction = (currentPrice - lowerBand.price) / priceDiff;
+            currentPricePercentile = Math.round(lowerBand.level + (fraction * levelDiff));
+          } else {
+            currentPricePercentile = Math.round(lowerBand.level);
+          }
+          break;
         }
       }
     }
   }
   
-  // Fallback (should never reach here)
-  return 50;
+  return currentPricePercentile;
 }
 
-// Generate trading signal based on percentile rank only
-export function generateTradingSignalFromPercentile(
-  currentPricePercentile: number, 
-  trend: 'UPWARD' | 'DOWNWARD' | 'NEUTRAL',
-  trendStrength: number
-): { signal: string; explanation: string } {
-  let signal = 'NEUTRAL';
-  let explanation = '';
+// Function to format the Synth AI analysis output optimized for AI processing
+export function formatSynthAnalysis(
+  percentileData: PercentileDataPoint[], 
+  asset: 'BTC' | 'ETH', 
+  currentPrice: number, 
+  volatilityData: VolatilityData | undefined,
+  currentPricePercentile: number,
+  currentPercentiles: PercentileDataPoint
+): string {
+
+  // Generate new trading signal based on percentile rank only
+  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile);
   
-  if (currentPricePercentile <= 0.5) {
-    signal = 'EXTREME_LONG';
-    explanation = `Price at absolute floor (P${currentPricePercentile}) - 99.5%+ of AI predictions above current level. Maximum conviction long with exceptional risk/reward ratio and minimal downside exposure.`;
-  } else if (currentPricePercentile <= 5) {
-    signal = 'STRONG_LONG';
-    explanation = `Price at extreme low (P${currentPricePercentile}) - 95%+ of AI predictions above current level. High conviction long setup with favorable asymmetric risk profile and strong upside potential.`;
-  } else if (currentPricePercentile <= 20) {
-    signal = 'LONG';
-    explanation = `Price trading below 80% of AI predictions (P${currentPricePercentile}) - significant long opportunity with good risk/reward. Consider larger position sizes as price approaches lower percentiles.`;
-  } else if (currentPricePercentile <= 35) {
-    signal = 'POSSIBLE_LONG';
-    explanation = `Price below 65% of AI predictions (P${currentPricePercentile}) - moderate long opportunity with reasonable upside. Suitable for standard position sizing with defined risk management.`;
-  } else if (currentPricePercentile >= 99.5) {
-    signal = 'EXTREME_SHORT';
-    explanation = `Price at absolute ceiling (P${currentPricePercentile}) - 99.5%+ of AI predictions below current level. Maximum conviction short with exceptional risk/reward ratio and minimal upside exposure.`;
-  } else if (currentPricePercentile >= 95) {
-    signal = 'STRONG_SHORT';
-    explanation = `Price at extreme high (P${currentPricePercentile}) - 95%+ of AI predictions below current level. High conviction short setup with favorable asymmetric risk profile and strong downside potential.`;
-  } else if (currentPricePercentile >= 80) {
-    signal = 'SHORT';
-    explanation = `Price trading above 80% of AI predictions (P${currentPricePercentile}) - significant short opportunity with good risk/reward. Consider larger position sizes as price approaches higher percentiles.`;
-  } else if (currentPricePercentile >= 65) {
-    signal = 'POSSIBLE_SHORT';
-    explanation = `Price above 65% of AI predictions (P${currentPricePercentile}) - moderate short opportunity with reasonable downside. Suitable for standard position sizing with defined risk management.`;
-  } else {
-    signal = 'NEUTRAL';
-    explanation = `Price in consensus range (P${currentPricePercentile}) - no clear directional edge. AI predictions evenly distributed around current level. Consider range-bound strategies or wait for clearer signals.`;
+  // Build structured output for AI consumption
+  let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
+
+  // PRIORITY SECTION - Most important info first
+  result += `TRADING_SIGNAL: ${signal}\n`;
+  result += `SIGNAL_EXPLANATION: ${explanation}\n`;
+  result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
+  result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
+  
+  if (volatilityData) {
+    result += `VOLATILITY_FORECAST: ${volatilityData.value}%\n`;
+    result += `VOLATILITY_CATEGORY: ${volatilityData.category}\n`;
   }
   
-  return { signal, explanation };
+  // HOURLY PREDICTIONS - Start with current data, then show predictions for each hour over next 24 hours
+  result += `\nHOURLY_PREDICTIONS:\n`;
+  
+  // First line: Current data point from past percentile data
+  const currentTimestamp = currentPercentiles.timestamp ? new Date(currentPercentiles.timestamp).toISOString().substring(11, 16) : 'NOW';
+  result += `${currentTimestamp}: P0.5=$${(currentPercentiles.p0_5 || 0).toFixed(0)} P5=$${(currentPercentiles.p5 || 0).toFixed(0)} P20=$${(currentPercentiles.p20 || 0).toFixed(0)} P35=$${(currentPercentiles.p35 || 0).toFixed(0)} P50=$${(currentPercentiles.p50 || 0).toFixed(0)} P65=$${(currentPercentiles.p65 || 0).toFixed(0)} P80=$${(currentPercentiles.p80 || 0).toFixed(0)} P95=$${(currentPercentiles.p95 || 0).toFixed(0)} P99.5=$${(currentPercentiles.p99_5 || 0).toFixed(0)}\n`;
+  
+  if (percentileData.length > 0) {
+    // Filter and align hourly predictions
+    const validHourlyPredictions = getValidHourlyPredictions(percentileData, currentPercentiles.timestamp);
+    
+    validHourlyPredictions.forEach(dataPoint => {
+      const timestamp = dataPoint.timestamp ? new Date(dataPoint.timestamp).toISOString().substring(11, 16) : '';
+      result += `${timestamp}: P0.5=$${(dataPoint.p0_5 || 0).toFixed(0)} P5=$${(dataPoint.p5 || 0).toFixed(0)} P20=$${(dataPoint.p20 || 0).toFixed(0)} P35=$${(dataPoint.p35 || 0).toFixed(0)} P50=$${(dataPoint.p50 || 0).toFixed(0)} P65=$${(dataPoint.p65 || 0).toFixed(0)} P80=$${(dataPoint.p80 || 0).toFixed(0)} P95=$${(dataPoint.p95 || 0).toFixed(0)} P99.5=$${(dataPoint.p99_5 || 0).toFixed(0)}\n`;
+    });
+  }
+    
+  return result;
+}
+
+// Function to filter invalid data and align hourly predictions
+export function getValidHourlyPredictions(percentileData: PercentileDataPoint[], currentTimestamp?: string): PercentileDataPoint[] {
+  // Helper function to check if percentile data is valid (not all identical values)
+  function isValidPercentileData(dataPoint: PercentileDataPoint): boolean {
+    const values = [
+      dataPoint.p0_5 || 0,
+      dataPoint.p5 || 0,
+      dataPoint.p20 || 0,
+      dataPoint.p35 || 0,
+      dataPoint.p50 || 0,
+      dataPoint.p65 || 0,
+      dataPoint.p80 || 0,
+      dataPoint.p95 || 0,
+      dataPoint.p99_5 || 0
+    ].filter(v => v > 0); // Only consider non-zero values
+    
+    if (values.length < 5) return false; // Need at least 5 valid percentiles
+    
+    // Check if values are properly ordered (ascending)
+    for (let i = 1; i < values.length; i++) {
+      if (values[i] < values[i-1]) return false;
+    }
+    
+    // Check if not all values are identical (with small tolerance for floating point)
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    const tolerance = minVal * 0.001; // 0.1% tolerance
+    
+    return (maxVal - minVal) > tolerance;
+  }
+  
+  // Calculate target time for first prediction (current time + 1 hour)
+  let targetTime: Date;
+  if (currentTimestamp) {
+    targetTime = new Date(currentTimestamp);
+    targetTime.setHours(targetTime.getHours() + 1);
+  } else {
+    targetTime = new Date();
+    targetTime.setHours(targetTime.getHours() + 1);
+  }
+  
+  const validPredictions: PercentileDataPoint[] = [];
+  const usedIndices = new Set<number>(); // Track used data points to avoid duplicates
+  let currentTargetTime = new Date(targetTime);
+  
+  // Look for up to 24 hourly predictions
+  for (let hour = 0; hour < 24 && validPredictions.length < 24; hour++) {
+    let bestMatch: PercentileDataPoint | null = null;
+    let bestMatchIndex = -1;
+    let bestTimeDiff = Infinity;
+    
+    // Find the valid data point closest to current target time
+    for (let i = 0; i < percentileData.length; i++) {
+      if (usedIndices.has(i)) continue; // Skip already used data points
+      
+      const dataPoint = percentileData[i];
+      if (!dataPoint.timestamp || !isValidPercentileData(dataPoint)) {
+        continue; // Skip invalid data
+      }
+      
+      const dataTime = new Date(dataPoint.timestamp);
+      const timeDiff = Math.abs(dataTime.getTime() - currentTargetTime.getTime());
+      
+      // Only consider data points within 30 minutes of target time
+      if (timeDiff < 30 * 60 * 1000 && timeDiff < bestTimeDiff) {
+        bestTimeDiff = timeDiff;
+        bestMatch = dataPoint;
+        bestMatchIndex = i;
+      }
+    }
+    
+    if (bestMatch && bestMatchIndex >= 0) {
+      validPredictions.push(bestMatch);
+      usedIndices.add(bestMatchIndex); // Mark as used
+    }
+    
+    // Move to next hour target
+    currentTargetTime.setHours(currentTargetTime.getHours() + 1);
+  }
+  
+  return validPredictions;
+}
+
+// Fetch synth data - used by cache and direct calls
+export const fetchSynthData = async (asset: 'BTC' | 'ETH'): Promise<any[]> => {
+    // Step 1: Fetch top miners from leaderboard
+    const leaderboardResponse = await fetch(`https://api.synthdata.co/leaderboard/latest`);
+    
+    if (leaderboardResponse.status === 429) {
+        throw new Error('Rate limited - predictions temporarily unavailable');
+    }
+    
+    if (!leaderboardResponse.ok) {
+        throw new Error(`Failed to fetch predictions leaderboard: ${leaderboardResponse.statusText}`);
+    }
+    
+    const leaderboardData = await leaderboardResponse.json();
+    
+    if (!leaderboardData || !Array.isArray(leaderboardData)) {
+        throw new Error("Invalid leaderboard data format");
+    }
+    
+    const topMiners = leaderboardData.slice(0, 10);
+    
+    if (topMiners.length === 0) {
+        throw new Error('No miners available on leaderboard');
+    }
+    
+    // Leaderboard rank values loaded
+    
+    // Step 2: Fetch predictions for each miner individually
+    const minerIds = topMiners.map((m: any) => m.neuron_uid);
+    const allPredictions = [];
+    
+    for (let i = 0; i < minerIds.length; i++) {
+        const minerId = minerIds[i];
+        const predictionsUrl = `https://api.synthdata.co/prediction/latest?miner=${minerId}&asset=${asset}&time_increment=300&time_length=86400`;
+        
+        try {
+            const predictionsResponse = await fetch(predictionsUrl, {
+                headers: {
+                    'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`
+                }
+            });
+            
+            if (predictionsResponse.status === 429) {
+                console.warn(`Rate limited for miner ${minerId} - skipping`);
+                continue;
+            }
+            
+            if (!predictionsResponse.ok) {
+                console.warn(`Failed to fetch predictions for miner ${minerId}: ${predictionsResponse.statusText}`);
+                continue;
+            }
+            
+            const minerPredictions = await predictionsResponse.json();
+            
+            if (minerPredictions && Array.isArray(minerPredictions) && minerPredictions.length > 0) {
+                allPredictions.push(...minerPredictions);
+            }
+        } catch (error) {
+            console.warn(`Error fetching predictions for miner ${minerId}:`, error);
+            continue;
+        }
+        
+        // Add 2 second delay between requests (except for the last one)
+        if (i < minerIds.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+    
+    if (allPredictions.length === 0) {
+        throw new Error('No predictions available from any miners');
+    }
+    
+    const predictionsData = allPredictions;
+    
+    // Step 3: Consolidate predictions by original 5-minute intervals
+    const consolidatedMap = new Map<string, any>();
+    
+    predictionsData.forEach((minerPrediction: any) => {
+        const minerInfo = topMiners.find((m: any) => m.neuron_uid === minerPrediction.miner_uid);
+        if (!minerInfo) {
+            console.warn(`Miner ${minerPrediction.miner_uid} not found in top miners list`);
+            return;
+        }
+        
+        if (!minerPrediction.prediction || !Array.isArray(minerPrediction.prediction) || 
+            !minerPrediction.prediction[0] || !Array.isArray(minerPrediction.prediction[0])) {
+            console.warn(`Invalid prediction structure for miner ${minerPrediction.miner_uid}`);
+            return;
+        }
+        
+        const predictions = minerPrediction.prediction[0];
+        
+        predictions.forEach((pred: any) => {
+            if (!pred.time || pred.price === undefined) {
+                return;
+            }
+            
+            // Keep original 5-minute timestamp
+            const time = pred.time;
+            const price = pred.price;
+            
+            if (!consolidatedMap.has(time)) {
+                consolidatedMap.set(time, {
+                    time,
+                    predictions: []
+                });
+            }
+            
+            const prediction = {
+                miner_uid: minerPrediction.miner_uid,
+                rank: minerInfo.rank, // Use actual rank/incentive value from leaderboard
+                price
+            };
+            
+            // Rank assigned to miner prediction
+            
+            consolidatedMap.get(time)!.predictions.push(prediction);
+        });
+    });
+    
+    // Convert to array and sort by time
+    const consolidatedArray = Array.from(consolidatedMap.values())
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+        return consolidatedArray;
+};
+
+// Generate trading signal based on percentile rank - optimized for Claude Sonnet 4 agent processing
+export function generateTradingSignalFromPercentile(
+  currentPricePercentile: number, 
+): { signal: string; explanation: string } {
+  // Precise calculation of prediction distribution
+  const predictionsAbove = Math.round(100 - currentPricePercentile);
+  const predictionsBelow = Math.round(currentPricePercentile);
+  
+  // Extreme zones - maximum conviction signals
+  if (currentPricePercentile <= 0.5) {
+    return {
+      signal: 'EXTREME_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. FLOOR LEVEL - Maximum size, minimal stop risk.`
+    };
+  }
+  if (currentPricePercentile >= 99.5) {
+    return {
+      signal: 'EXTREME_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. CEILING LEVEL - Maximum size, minimal stop risk.`
+    };
+  }
+  
+  // Strong conviction zones
+  if (currentPricePercentile <= 5) {
+    return {
+      signal: 'STRONG_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. EXTREME LOW - Large size, tight stops at P0.5.`
+    };
+  }
+  if (currentPricePercentile <= 10) {
+    return {
+      signal: 'STRONG_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM DECILE - Large size, stops at P5.`
+    };
+  }
+  if (currentPricePercentile >= 95) {
+    return {
+      signal: 'STRONG_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. EXTREME HIGH - Large size, tight stops at P99.5.`
+    };
+  }
+  if (currentPricePercentile >= 90) {
+    return {
+      signal: 'STRONG_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP DECILE - Large size, stops at P95.`
+    };
+  }
+  
+  // Standard opportunity zones
+  if (currentPricePercentile <= 15) {
+    return {
+      signal: 'LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. SOLID LONG - Standard size, target P65-P80.`
+    };
+  }
+  if (currentPricePercentile <= 20) {
+    return {
+      signal: 'LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUINTILE - Standard size, target P65.`
+    };
+  }
+  if (currentPricePercentile <= 25) {
+    return {
+      signal: 'LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUARTILE - Standard size, stops P5-P10.`
+    };
+  }
+  if (currentPricePercentile >= 85) {
+    return {
+      signal: 'SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. SOLID SHORT - Standard size, target P20-P35.`
+    };
+  }
+  if (currentPricePercentile >= 80) {
+    return {
+      signal: 'SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUINTILE - Standard size, target P35.`
+    };
+  }
+  if (currentPricePercentile >= 75) {
+    return {
+      signal: 'SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUARTILE - Standard size, stops P90-P95.`
+    };
+  }
+  
+  // Weak opportunity zones - require careful execution
+  if (currentPricePercentile <= 30) {
+    return {
+      signal: 'POSSIBLE_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. WEAK LONG - Reduced size, tight management.`
+    };
+  }
+  if (currentPricePercentile <= 35) {
+    return {
+      signal: 'POSSIBLE_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BORDERLINE LONG - Small size, quick exit if wrong.`
+    };
+  }
+  if (currentPricePercentile >= 70) {
+    return {
+      signal: 'POSSIBLE_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. WEAK SHORT - Reduced size, tight management.`
+    };
+  }
+  if (currentPricePercentile >= 65) {
+    return {
+      signal: 'POSSIBLE_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. BORDERLINE SHORT - Small size, quick exit if wrong.`
+    };
+  }
+  
+  // Neutral zone - no edge
+  return {
+    signal: 'NEUTRAL',
+    explanation: `P${currentPricePercentile}: ${predictionsAbove}% above, ${predictionsBelow}% below. NO EDGE - Wait for clearer levels.`
+  };
 }
 

@@ -196,7 +196,6 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 - open_long_limit: Open long position with limit order (executes when price reaches or goes below limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_market: Open short position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_limit: Open short position with limit order (executes when price reaches or goes above limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
-- close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
 - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
 #### 💱 Token Swaps

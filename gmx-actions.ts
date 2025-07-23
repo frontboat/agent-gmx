@@ -1160,7 +1160,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
 
     // Close Position (Universal - handles both long and short)
-    action({
+    /*action({
         name: "close_position",
         description: "Fully close an existing position (long or short) automatically. Detects position direction and closes the entire position.",
         schema: z.object({
@@ -1388,7 +1388,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 return errorResult;
             }
         }
-    }),
+    }),*/
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💱 TOKEN SWAPS

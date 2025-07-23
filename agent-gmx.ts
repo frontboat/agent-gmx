@@ -61,6 +61,56 @@ const { sdk, walletClient, account, chainConfig } = createGmxWalletFromEnv(env);
 const gmxDataCache = new EnhancedDataCache(sdk);
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 HELPER FUNCTIONS FOR EVENT-DRIVEN MONITORING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Extract percentile value from Synth analysis string
+function extractPercentileFromSynthAnalysis(synthAnalysis: string): number | null {
+    const match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+}
+
+// Extract position count from positions string
+function extractPositionCount(positionsStr: string): number {
+    if (!positionsStr || positionsStr.includes('No positions')) return 0;
+    const matches = positionsStr.match(/Position \d+:/g);
+    return matches ? matches.length : 0;
+}
+
+// Trigger a trading cycle with context update and proper memory state tracking
+async function triggerTradingCycle(send: any, reason: string, eventType: string, stateUpdates?: {
+    btcPercentile?: number | null,
+    ethPercentile?: number | null,
+    positionCount?: number
+}) {
+    const now = Date.now();
+    console.log(`🚨 [${eventType}] ${reason} - Triggering immediate trading cycle`);
+
+    await send(gmxContext, {
+        instructions: vega_template,
+        currentTask: `${eventType} Event: ${reason}`,
+        lastResult: `${eventType} triggered at ${new Date().toISOString()}: ${reason}`,
+        positions: "",
+        portfolio: "",
+        markets: "",
+        tokens: "",
+        volumes: "",
+        orders: "",
+        trading_history: "",
+        synth_btc_predictions: "",
+        synth_eth_predictions: "",
+        btc_technical_analysis: "",
+        eth_technical_analysis: "",
+        // Update memory state with current values
+        lastSynthBtcPercentile: stateUpdates?.btcPercentile,
+        lastSynthEthPercentile: stateUpdates?.ethPercentile,
+        lastPositionCount: stateUpdates?.positionCount,
+        lastCycleTimestamp: now,
+        nextScheduledCycle: now + 1800000, // Reset 30min timer
+    }, {text: `${eventType}: ${reason}`});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 🤖 VEGA CHARACTER DEFINITION
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -328,7 +378,23 @@ After each trade:
 
 ---
 
-## ⏰ 30-MINUTE TRADING CYCLE
+## ⏰ EVENT-DRIVEN TRADING SYSTEM
+
+### CURRENT MONITORING STATE
+{{#if lastCycleTimestamp}}
+- **Last Cycle**: {{lastResult}}
+- **Monitoring Status**: 
+  - BTC: {{#if lastSynthBtcPercentile}}P{{lastSynthBtcPercentile}}{{else}}Loading...{{/if}}
+  - ETH: {{#if lastSynthEthPercentile}}P{{lastSynthEthPercentile}}{{else}}Loading...{{/if}}
+  - Positions: {{#if lastPositionCount}}{{lastPositionCount}}{{else}}Loading...{{/if}}
+{{else}}
+- **System Status**: Initializing monitoring systems...
+{{/if}}
+
+### TRIGGER CONDITIONS
+- **High-Conviction Signals**: BTC/ETH P≤20 (LONG) or P≥80 (SHORT) → Immediate cycle within 5 minutes
+- **Position Changes**: New fills or closes → Immediate cycle within 5 minutes  
+- **Scheduled Backup**: Regular 30-minute cycles if no events trigger
 
 ### CYCLE START: Position Management Questions
 Answer these first, before looking for new trades:
@@ -443,6 +509,12 @@ const gmxContext = context({
         synth_eth_predictions: z.string().describe("The agent's ETH predictions"),
         btc_technical_analysis: z.string().describe("The agent's BTC technical analysis"),
         eth_technical_analysis: z.string().describe("The agent's ETH technical analysis"),
+        // State tracking for event-driven cycles
+        lastSynthBtcPercentile: z.number().optional().describe("Last BTC percentile for threshold monitoring"),
+        lastSynthEthPercentile: z.number().optional().describe("Last ETH percentile for threshold monitoring"),
+        lastPositionCount: z.number().optional().describe("Last position count for change detection"),
+        lastCycleTimestamp: z.number().optional().describe("Timestamp of last triggered cycle"),
+        nextScheduledCycle: z.number().optional().describe("Timestamp of next scheduled 30min cycle"),
     }),
 
     key({ id }) {
@@ -465,6 +537,12 @@ const gmxContext = context({
             synth_eth_predictions:state.args.synth_eth_predictions,
             btc_technical_analysis:state.args.btc_technical_analysis,
             eth_technical_analysis:state.args.eth_technical_analysis,
+            // Initialize state tracking
+            lastSynthBtcPercentile: state.args.lastSynthBtcPercentile,
+            lastSynthEthPercentile: state.args.lastSynthEthPercentile,
+            lastPositionCount: state.args.lastPositionCount,
+            lastCycleTimestamp: state.args.lastCycleTimestamp,
+            nextScheduledCycle: state.args.nextScheduledCycle,
           };
       },
 
@@ -511,10 +589,20 @@ const gmxContext = context({
             memory.synth_eth_predictions = eth_predictions;
             memory.btc_technical_analysis = btc_technical_analysis;
             memory.eth_technical_analysis = eth_technical_analysis;
+            
+            // Update state tracking for monitoring systems
+            const btcPercentile = extractPercentileFromSynthAnalysis(btc_predictions);
+            const ethPercentile = extractPercentileFromSynthAnalysis(eth_predictions);
+            const positionCount = extractPositionCount(positions);
+            
+            memory.lastSynthBtcPercentile = btcPercentile;
+            memory.lastSynthEthPercentile = ethPercentile;
+            memory.lastPositionCount = positionCount;
+            
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
 
-            console.log("✅ GMX trading data loaded successfully!");
+            console.log(`✅ GMX trading data loaded successfully! BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${positionCount}`);
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
@@ -539,42 +627,155 @@ const gmxContext = context({
             synth_eth_predictions: memory.synth_eth_predictions,
             btc_technical_analysis: memory.btc_technical_analysis,
             eth_technical_analysis: memory.eth_technical_analysis,
+            // Include state tracking for event-driven monitoring
+            lastSynthBtcPercentile: memory.lastSynthBtcPercentile,
+            lastSynthEthPercentile: memory.lastSynthEthPercentile,
+            lastPositionCount: memory.lastPositionCount,
+            lastCycleTimestamp: memory.lastCycleTimestamp,
+            nextScheduledCycle: memory.nextScheduledCycle,
           });
     },
     }).setInputs({
-        "gmx:trading-cycle": input({
+        // 🚨 EVENT MONITOR - Check for Synth signals and position changes every 5 minutes
+        "gmx:event-monitor": input({
             schema: z.object({
                 text: z.string(),
-          }),
+            }),
             subscribe: (send) => {
-                const tradingCycle = async () => {
-                    console.log("⏰ [CYCLE] Trading cycle triggered - loader will fetch fresh data");
-
-                    await send(gmxContext, {
-                        instructions: vega_template,
-                        currentTask: "Trading cycle initiated - Data refreshed",
-                        lastResult: "Trading cycle initiated - Data refreshed",
-                        positions: "",
-                        portfolio: "",
-                        markets: "",
-                        tokens: "",
-                        volumes: "",
-                        orders: "",
-                        trading_history: "",
-                        synth_btc_predictions: "",
-                        synth_eth_predictions: "",
-                        btc_technical_analysis: "",
-                        eth_technical_analysis: "",
-                    }, {text: "Trading cycle initiated"});
-                }
-                //initial run
-                tradingCycle();
-
-                const interval = setInterval(tradingCycle, 1800000); // 30 minutes
-
-                console.warn("✅ Trading cycle subscription setup complete");
+                // Track state across monitor runs
+                let lastBtcPercentile: number | null = null;
+                let lastEthPercentile: number | null = null;
+                let lastKnownPositionCount: number | null = null;
+                
+                const eventMonitor = async () => {
+                    try {
+                        console.log("🚨 [EVENT] Monitoring Synth signals & position changes...");
+                        
+                        // Fetch Synth data and positions in parallel
+                        const [btc_predictions, eth_predictions, positions] = await Promise.all([
+                            get_synth_analysis_str('BTC', gmxDataCache),
+                            get_synth_analysis_str('ETH', gmxDataCache),
+                            get_positions_str(sdk, gmxDataCache)
+                        ]);
+                        
+                        const btcPercentile = extractPercentileFromSynthAnalysis(btc_predictions);
+                        const ethPercentile = extractPercentileFromSynthAnalysis(eth_predictions);
+                        const currentPositionCount = extractPositionCount(positions);
+                        
+                        // Initialize position tracking on first run
+                        if (lastKnownPositionCount === null) {
+                            lastKnownPositionCount = currentPositionCount;
+                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount}`);
+                            lastBtcPercentile = btcPercentile;
+                            lastEthPercentile = ethPercentile;
+                            return;
+                        }
+                        
+                        // Check for triggers (priority: position changes > synth signals)
+                        let triggered = false;
+                        let triggerReason = "";
+                        let triggerType = "";
+                        
+                        // 1. Check for position changes (highest priority)
+                        if (currentPositionCount !== lastKnownPositionCount) {
+                            const change = currentPositionCount - lastKnownPositionCount;
+                            triggerReason = `Position count changed: ${lastKnownPositionCount}→${currentPositionCount} (${change > 0 ? 'new fill' : 'position closed'})`;
+                            triggerType = "POSITION";
+                            triggered = true;
+                        }
+                        // 2. Check for Synth threshold breaches
+                        else if (btcPercentile !== null && (btcPercentile <= 20 || btcPercentile >= 80)) {
+                            triggerReason = `BTC reached P${btcPercentile} (${btcPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
+                            triggerType = "SYNTH";
+                            triggered = true;
+                        }
+                        else if (ethPercentile !== null && (ethPercentile <= 20 || ethPercentile >= 80)) {
+                            triggerReason = `ETH reached P${ethPercentile} (${ethPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
+                            triggerType = "SYNTH";
+                            triggered = true;
+                        }
+                        
+                        if (triggered) {
+                            await triggerTradingCycle(send, triggerReason, triggerType, {
+                                btcPercentile,
+                                ethPercentile,
+                                positionCount: currentPositionCount
+                            });
+                            
+                            // Update local state after triggering
+                            lastBtcPercentile = btcPercentile;
+                            lastEthPercentile = ethPercentile;
+                            lastKnownPositionCount = currentPositionCount;
+                        } else {
+                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need P≤20/P≥80 or position change)`);
+                        }
+                        
+                    } catch (error) {
+                        console.error("❌ [EVENT] Monitoring error:", error);
+                    }
+                };
+                
+                // Initial run
+                eventMonitor();
+                
+                const interval = setInterval(eventMonitor, 300000); // 5 minutes
+                
+                console.warn("✅ Event monitor subscription setup complete");
                 return () => {
-                    console.warn("🛑 Trading cycle subscription cleanup");
+                    console.warn("🛑 Event monitor subscription cleanup");
+                    clearInterval(interval);
+                };
+            }
+        }),
+        
+        // ⏰ SCHEDULED CYCLE - Fallback 30-minute timer with reset logic
+        "gmx:scheduled-cycle": input({
+            schema: z.object({
+                text: z.string(),
+            }),
+            subscribe: (send) => {
+                let nextScheduledTime = Date.now() + 1800000; // 30 minutes from now
+                
+                const scheduledCycle = async () => {
+                    const now = Date.now();
+                    
+                    // Only trigger if we've reached the scheduled time
+                    if (now >= nextScheduledTime) {
+                        console.log("⏰ [SCHEDULED] 30-minute timer triggered - regular trading cycle");
+                        
+                        await send(gmxContext, {
+                            instructions: vega_template,
+                            currentTask: "Scheduled Trading Cycle - Regular 30min check",
+                            lastResult: `Scheduled cycle at ${new Date().toISOString()}`,
+                            positions: "",
+                            portfolio: "",
+                            markets: "",
+                            tokens: "",
+                            volumes: "",
+                            orders: "",
+                            trading_history: "",
+                            synth_btc_predictions: "",
+                            synth_eth_predictions: "",
+                            btc_technical_analysis: "",
+                            eth_technical_analysis: "",
+                            // Memory state will be refreshed by loader
+                            lastSynthBtcPercentile: undefined,
+                            lastSynthEthPercentile: undefined,
+                            lastPositionCount: undefined,
+                            lastCycleTimestamp: now,
+                            nextScheduledCycle: now + 1800000,
+                        }, {text: "Scheduled 30min cycle"});
+                        
+                        nextScheduledTime = now + 1800000; // Reset for next 30 minutes
+                    }
+                };
+                
+                // Check every minute to see if we should trigger
+                const interval = setInterval(scheduledCycle, 60000); // 1 minute checks
+                
+                console.warn("✅ Scheduled cycle subscription setup complete");
+                return () => {
+                    console.warn("🛑 Scheduled cycle subscription cleanup");
                     clearInterval(interval);
                 };
             }
@@ -637,6 +838,12 @@ await agent.start({
     synth_eth_predictions: "Loading...",
     btc_technical_analysis: "Loading...",
     eth_technical_analysis: "Loading...",
+    // Initialize state tracking
+    lastSynthBtcPercentile: undefined,
+    lastSynthEthPercentile: undefined,
+    lastPositionCount: undefined,
+    lastCycleTimestamp: undefined,
+    nextScheduledCycle: Date.now() + 1800000, // First scheduled cycle in 30 minutes
 });
 
 console.warn("🎯 Vega is now live and ready for GMX trading!");

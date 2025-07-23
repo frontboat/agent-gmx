@@ -1622,6 +1622,13 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     pos.marketAddress === data.marketAddress
                 );
                 
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) { 
+                    console.error('SET_TAKE_PROFIT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
+                    throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
+                }
+
                 if (!position) {
                     throw new Error(`No position found for market address ${data.marketAddress}. Use get_positions to see current positions.`);
                 }
@@ -1844,6 +1851,13 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const position = Object.values(positionsInfoResult).find((pos: any) => 
                     pos.marketAddress === data.marketAddress
                 );
+
+                // Validate market exists
+                const marketInfo = marketsInfoData[data.marketAddress];
+                if (!marketInfo) { 
+                    console.error('SET_STOP_LOSS', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
+                    throw new Error(`Market not found: ${data.marketAddress}. Please use get_positions to find valid market addresses.`);
+                }
                 
                 if (!position) {
                     throw new Error(`No position found for market address ${data.marketAddress}. Use get_positions to see current positions.`);

@@ -663,12 +663,13 @@ const gmxContext = context({
                         const currentPositionCount = extractPositionCount(positions);
                         
                         // Initialize position tracking on first run
-                        if (lastKnownPositionCount === null) {
+                        const isFirstRun = lastKnownPositionCount === null;
+                        if (isFirstRun) {
                             lastKnownPositionCount = currentPositionCount;
-                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount}`);
                             lastBtcPercentile = btcPercentile;
                             lastEthPercentile = ethPercentile;
-                            return;
+                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount}`);
+                            // Don't return - continue to check for triggers even on first run
                         }
                         
                         // Check for triggers (priority: position changes > synth signals)
@@ -676,8 +677,8 @@ const gmxContext = context({
                         let triggerReason = "";
                         let triggerType = "";
                         
-                        // 1. Check for position changes (highest priority)
-                        if (currentPositionCount !== lastKnownPositionCount) {
+                        // 1. Check for position changes (highest priority) - skip on first run
+                        if (!isFirstRun && currentPositionCount !== lastKnownPositionCount) {
                             const change = currentPositionCount - lastKnownPositionCount;
                             triggerReason = `Position count changed: ${lastKnownPositionCount}→${currentPositionCount} (${change > 0 ? 'new fill' : 'position closed'})`;
                             triggerType = "POSITION";
@@ -688,11 +689,13 @@ const gmxContext = context({
                             triggerReason = `BTC reached P${btcPercentile} (${btcPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
                             triggerType = "SYNTH";
                             triggered = true;
+                            console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= 20 ? '≤20 (LONG)' : '≥80 (SHORT)'}`);
                         }
                         else if (ethPercentile !== null && (ethPercentile <= 20 || ethPercentile >= 80)) {
                             triggerReason = `ETH reached P${ethPercentile} (${ethPercentile <= 20 ? 'LONG signal' : 'SHORT signal'})`;
                             triggerType = "SYNTH";
                             triggered = true;
+                            console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= 20 ? '≤20 (LONG)' : '≥80 (SHORT)'}`);
                         }
                         
                         if (triggered) {
@@ -702,10 +705,12 @@ const gmxContext = context({
                                 positionCount: currentPositionCount
                             });
                             
-                            // Update local state after triggering
-                            lastBtcPercentile = btcPercentile;
-                            lastEthPercentile = ethPercentile;
-                            lastKnownPositionCount = currentPositionCount;
+                            // Update local state after triggering (only if not first run, as first run already updated)
+                            if (!isFirstRun) {
+                                lastBtcPercentile = btcPercentile;
+                                lastEthPercentile = ethPercentile;
+                                lastKnownPositionCount = currentPositionCount;
+                            }
                         } else {
                             console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need P≤20/P≥80 or position change)`);
                         }

@@ -118,7 +118,6 @@ export function calculatePercentilesFromConsolidated(
     new Date(a.time).getTime() - new Date(b.time).getTime()
   );
   
-  console.log(`[Synth] Processing ${sortedArray.length} 5-minute time slots directly (no hourly grouping)`);
 
   // Calculate percentiles for each 5-minute time slot
   const percentileData: PercentileDataPoint[] = [];
@@ -201,14 +200,6 @@ function calculateWeightedPercentileValue(
   // Sort by price
   const sorted = [...pricesWithWeights].sort((a, b) => a.price - b.price);
   
-  // Log details for P50 calculation only
-  const isP50 = Math.abs(percentile - 50) < 0.1;
-  if (isP50 && Math.random() < 0.1) { // Log 10% of P50 calculations to avoid spam
-    console.log(`\n[DEBUG] calculateWeightedPercentileValue for P${percentile}:`);
-    console.log(`  Total items: ${sorted.length}`);
-    console.log(`  Price range: $${sorted[0].price.toFixed(0)} - $${sorted[sorted.length-1].price.toFixed(0)}`);
-    console.log(`  First 5 weights: ${sorted.slice(0, 5).map(item => item.weight.toFixed(6)).join(', ')}`);
-  }
   
   // Calculate cumulative weights
   let cumulativeWeight = 0;
@@ -220,18 +211,11 @@ function calculateWeightedPercentileValue(
   // Find the percentile position
   const targetWeight = percentile / 100;
   
-  if (isP50 && Math.random() < 0.1) {
-    console.log(`  Target weight for P50: ${targetWeight}`);
-  }
-  
   // Find the price at the target percentile
   for (let i = 0; i < cumulativeWeights.length; i++) {
     if (cumulativeWeights[i].cumWeight >= targetWeight) {
       // Linear interpolation if between two values
       if (i === 0 || cumulativeWeights[i].cumWeight === targetWeight) {
-        if (isP50 && Math.random() < 0.1) {
-          console.log(`  Found exact match at index ${i}: $${cumulativeWeights[i].price.toFixed(0)}`);
-        }
         return cumulativeWeights[i].price;
       }
       
@@ -243,14 +227,6 @@ function calculateWeightedPercentileValue(
       
       const fraction = (targetWeight - prevWeight) / (currWeight - prevWeight);
       const result = prevPrice + fraction * (currPrice - prevPrice);
-      
-      if (isP50 && Math.random() < 0.1) {
-        console.log(`  Interpolating at index ${i}:`);
-        console.log(`    Previous: weight=${prevWeight.toFixed(6)}, price=$${prevPrice.toFixed(0)}`);
-        console.log(`    Current: weight=${currWeight.toFixed(6)}, price=$${currPrice.toFixed(0)}`);
-        console.log(`    Fraction: ${fraction.toFixed(6)}`);
-        console.log(`    Result: $${result.toFixed(0)}`);
-      }
       
       return result;
     }
@@ -433,7 +409,6 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
     const data = figure.data;
     
     if (!data || data.length === 0) {
-      console.warn('[Synth] No percentile data found in dashboard response');
       return [];
     }
 
@@ -442,7 +417,6 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
     const timestamps = data[0].x; // All percentiles share the same timestamps
     
     if (!timestamps || timestamps.length === 0) {
-      console.warn('[Synth] No timestamps found in percentile data');
       return [];
     }
 
@@ -466,12 +440,6 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
       else if (hoverTemplate.includes('20th Percentile')) percentileKey = 'p20';
       else if (hoverTemplate.includes('5th Percentile')) percentileKey = 'p5';
       
-      // Debug logging for 0.5th percentile specifically
-      if (hoverTemplate.includes('0.5th Percentile')) {
-        console.log(`[Synth] Found 0.5th percentile at index ${i}, mode: ${line.mode}, fill: ${line.fill}, existing: ${!!percentileLines.p0_5}`);
-        console.log(`[Synth] Hover template: "${hoverTemplate}"`);
-        console.log(`[Synth] Will set percentileKey to: ${percentileKey}`);
-      }
       
       // Process if we found a percentile key and don't already have it (avoid duplicates)
       if (percentileKey && line.y && !percentileLines[percentileKey]) {
@@ -492,18 +460,10 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
             }
             
             percentileLines[percentileKey] = Array.from(float64Array);
-            console.log(`[Synth] Decoded ${float64Array.length} binary values for ${percentileKey} (index ${i})`);
-            
-            // Debug for 0.5th percentile
-            if (hoverTemplate.includes('0.5th Percentile')) {
-              console.log(`[Synth] *** STORED 0.5th percentile as key: ${percentileKey} ***`);
-            }
           } catch (error) {
-            console.warn(`[Synth] Failed to decode binary data for ${percentileKey}:`, error);
           }
         } else if (Array.isArray(line.y)) {
           percentileLines[percentileKey] = line.y;
-          console.log(`[Synth] Found array data for ${percentileKey} (index ${i})`);
         }
       }
     }
@@ -530,15 +490,6 @@ export function parseSynthPercentileData(dashboardResponse: any): PercentileData
       percentileData.push(dataPoint);
     }
 
-    console.log(`[Synth] Parsed ${percentileData.length} percentile data points from dashboard`);
-    console.log(`[Synth] Found percentiles: ${Object.keys(percentileLines).sort().join(', ')}`);
-    
-    // Debug: Check if we have all expected percentiles
-    const expectedPercentiles = ['p0_5', 'p5', 'p20', 'p35', 'p50', 'p65', 'p80', 'p95', 'p99_5'];
-    const missingPercentiles = expectedPercentiles.filter(p => !percentileLines[p]);
-    if (missingPercentiles.length > 0) {
-      console.warn(`[Synth] Missing percentiles: ${missingPercentiles.join(', ')}`);
-    }
     
     return percentileData;
     

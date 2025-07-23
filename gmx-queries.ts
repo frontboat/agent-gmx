@@ -983,8 +983,10 @@ async function fetchSynthAnalysis(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedD
     let currentPricePercentile = 0;
     
     try {
-      console.log(`[Synth] Fetching percentile data from dashboard for ${asset}`);
-      const dashboardResponse = await fetchSynthPercentileData(asset);
+      // Use cached percentile data if available
+      const dashboardResponse = gmxDataCache 
+        ? await gmxDataCache.getSynthPercentileData(asset)
+        : await fetchSynthPercentileData(asset);
       percentileData = parseSynthPercentileData(dashboardResponse);
       
       if (percentileData.length === 0) {
@@ -996,11 +998,9 @@ async function fetchSynthAnalysis(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedD
       if (lastDataPoint) {
         currentPricePercentile = calculateCurrentPricePercentile(lastDataPoint, currentPrice);
       }
-      
-      console.log(`[Synth] Successfully parsed ${percentileData.length} percentile data points from dashboard`);
     } catch (error) {
-      console.error(`[Synth] Failed to fetch dashboard data for ${asset}:`, error);
-      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nFailed to fetch percentile data from dashboard: ${error.message}`;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return `=== SYNTH DATA ${asset} [${new Date().toISOString()}] ===\n\nFailed to fetch percentile data: ${errorMsg}`;
     }
     
     // Fetch volatility dial data (keeping this API call)

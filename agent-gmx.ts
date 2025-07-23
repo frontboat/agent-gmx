@@ -376,7 +376,11 @@ After each trade:
 {{/if}}
 
 ### TRIGGER CONDITIONS
-- **High-Conviction Signals**: BTC/ETH P≤15 (LONG) or P≥85 (SHORT) → Immediate cycle within 5 minutes
+- **High-Conviction Signals**: Volatility-adjusted thresholds → Immediate cycle within 5 minutes
+  - Low volatility (<25%): P≤20 or P≥80
+  - Standard volatility (25-40%): P≤15 or P≥85
+  - High volatility (40-60%): P≤10 or P≥90
+  - Very high volatility (≥60%): P≤5 or P≥95
 - **Position Changes**: New fills or closes → Immediate cycle within 5 minutes  
 - **Scheduled Backup**: Regular 30-minute cycles if no events trigger
 
@@ -713,11 +717,14 @@ const gmxContext = context({
                     if (volatilityPercent < 25) {
                         // Low volatility: P20/P80
                         return { lowThreshold: 20, highThreshold: 80 };
-                    } else if (volatilityPercent <= 50) {
-                        // Standard volatility: P10/P90
+                    } else if (volatilityPercent < 40) {
+                        // Standard volatility: P15/P85
+                        return { lowThreshold: 15, highThreshold: 85 };
+                    } else if (volatilityPercent < 60) {
+                        // High volatility: P10/P90
                         return { lowThreshold: 10, highThreshold: 90 };
                     } else {
-                        // High volatility: P5/P95
+                        // Very high volatility: P5/P95
                         return { lowThreshold: 5, highThreshold: 95 };
                     }
                 };
@@ -781,7 +788,7 @@ const gmxContext = context({
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
                                 console.log(`🧊 [EVENT] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
-                                const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility <= 50 ? 'STD' : 'HIGH';
+                                const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility < 40 ? 'STD' : btcVolatility < 60 ? 'HIGH' : 'VERY HIGH';
                                 triggerReason = `BTC reached P${btcPercentile} (${signalType} signal, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
@@ -796,7 +803,7 @@ const gmxContext = context({
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
                                 console.log(`🧊 [EVENT] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
-                                const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility <= 50 ? 'STD' : 'HIGH';
+                                const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility < 40 ? 'STD' : ethVolatility < 60 ? 'HIGH' : 'VERY HIGH';
                                 triggerReason = `ETH reached P${ethPercentile} (${signalType} signal, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
@@ -840,7 +847,7 @@ const gmxContext = context({
                                 lastKnownPositionCount = currentPositionCount;
                             }
                         } else {
-                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need P≤15/P≥85 or position change)`);
+                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need volatility-adjusted thresholds or position change)`);
                         }
                         
                     } catch (error) {

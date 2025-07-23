@@ -569,7 +569,7 @@ const gmxContext = context({
                     }, {text: "Trading cycle initiated"});
                 }
                 //initial run
-                //tradingCycle();
+                tradingCycle();
 
                 const interval = setInterval(tradingCycle, 1800000); // 30 minutes
 
@@ -634,8 +634,8 @@ await agent.start({
     volumes: "Loading...",
     orders: "Loading...",
     trading_history: "Loading...",
-    synth_btc_predictions: await get_synth_analysis_str('BTC', gmxDataCache),
-    synth_eth_predictions: await get_synth_analysis_str('ETH', gmxDataCache),
+    synth_btc_predictions: "Loading...",
+    synth_eth_predictions: "Loading...",
     btc_technical_analysis: "Loading...",
     eth_technical_analysis: "Loading...",
 });

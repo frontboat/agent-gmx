@@ -26,6 +26,7 @@ import { createGmxActions } from './gmx-actions';
 import { createGmxWalletFromEnv } from './gmx-wallet';
 import { EnhancedDataCache } from './gmx-cache';
 import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
+import { fetchVolatilityDialRaw, extractVolatilityData } from "./synth-utils";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -707,16 +708,43 @@ const gmxContext = context({
                 let lastBtcTriggerType: string | undefined = undefined;
                 let lastEthTriggerType: string | undefined = undefined;
                 
+                // Helper function to get volatility-based thresholds
+                const getVolatilityThresholds = (volatilityPercent: number): { lowThreshold: number, highThreshold: number } => {
+                    if (volatilityPercent < 25) {
+                        // Low volatility: P20/P80
+                        return { lowThreshold: 20, highThreshold: 80 };
+                    } else if (volatilityPercent <= 50) {
+                        // Standard volatility: P10/P90
+                        return { lowThreshold: 10, highThreshold: 90 };
+                    } else {
+                        // High volatility: P5/P95
+                        return { lowThreshold: 5, highThreshold: 95 };
+                    }
+                };
+                
                 const eventMonitor = async () => {
                     try {
                         console.log("🚨 [EVENT] Monitoring Synth signals & position changes...");
                         
-                        // Fetch Synth data and positions in parallel
-                        const [btc_predictions, eth_predictions, positions] = await Promise.all([
+                        // Fetch Synth data, positions, and volatility in parallel
+                        const [btc_predictions, eth_predictions, positions, btcVolatilityRaw, ethVolatilityRaw] = await Promise.all([
                             get_synth_analysis_str('BTC', gmxDataCache),
                             get_synth_analysis_str('ETH', gmxDataCache),
-                            get_positions_str(sdk, gmxDataCache)
+                            get_positions_str(sdk, gmxDataCache),
+                            fetchVolatilityDialRaw('BTC'),
+                            fetchVolatilityDialRaw('ETH')
                         ]);
+                        
+                        // Extract volatility values (required for dynamic thresholds)
+                        const btcVolData = extractVolatilityData(btcVolatilityRaw, 'BTC');
+                        const ethVolData = extractVolatilityData(ethVolatilityRaw, 'ETH');
+                        
+                        const btcVolatility = btcVolData.value;
+                        const ethVolatility = ethVolData.value;
+                        
+                        // Get volatility-based thresholds
+                        const btcThresholds = getVolatilityThresholds(btcVolatility);
+                        const ethThresholds = getVolatilityThresholds(ethVolatility);
                         
                         const btcPercentile = extractPercentileFromSynthAnalysis(btc_predictions);
                         const ethPercentile = extractPercentileFromSynthAnalysis(eth_predictions);
@@ -728,7 +756,7 @@ const gmxContext = context({
                             lastKnownPositionCount = currentPositionCount;
                             lastBtcPercentile = btcPercentile;
                             lastEthPercentile = ethPercentile;
-                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount}`);
+                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} (Vol:${btcVolatility.toFixed(1)}% Thresholds:P${btcThresholds.lowThreshold}/P${btcThresholds.highThreshold}) ETH:P${ethPercentile || 'N/A'} (Vol:${ethVolatility.toFixed(1)}% Thresholds:P${ethThresholds.lowThreshold}/P${ethThresholds.highThreshold}) Positions:${currentPositionCount}`);
                             // Don't return - continue to check for triggers even on first run
                         }
                         
@@ -745,32 +773,34 @@ const gmxContext = context({
                             triggered = true;
                         }
                         // 2. Check for Synth threshold breaches with cooldown protection
-                        else if (btcPercentile !== null && (btcPercentile <= 15 || btcPercentile >= 85)) {
-                            const signalType: 'LONG' | 'SHORT' = btcPercentile <= 15 ? 'LONG' : 'SHORT';
+                        else if (btcPercentile !== null && (btcPercentile <= btcThresholds.lowThreshold || btcPercentile >= btcThresholds.highThreshold)) {
+                            const signalType: 'LONG' | 'SHORT' = btcPercentile <= btcThresholds.lowThreshold ? 'LONG' : 'SHORT';
                             const inCooldown = isInCooldown('BTC', signalType, lastBtcTriggerTime, lastBtcTriggerType);
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
                                 console.log(`🧊 [EVENT] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
-                                triggerReason = `BTC reached P${btcPercentile} (${signalType} signal)`;
+                                const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility <= 50 ? 'STD' : 'HIGH';
+                                triggerReason = `BTC reached P${btcPercentile} (${signalType} signal, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
-                                console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= 15 ? '≤15 (LONG)' : '≥85 (SHORT)'}`);
+                                console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= btcThresholds.lowThreshold ? `≤${btcThresholds.lowThreshold}` : `≥${btcThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
                             }
                         }
-                        else if (ethPercentile !== null && (ethPercentile <= 15 || ethPercentile >= 85)) {
-                            const signalType: 'LONG' | 'SHORT' = ethPercentile <= 15 ? 'LONG' : 'SHORT';
+                        else if (ethPercentile !== null && (ethPercentile <= ethThresholds.lowThreshold || ethPercentile >= ethThresholds.highThreshold)) {
+                            const signalType: 'LONG' | 'SHORT' = ethPercentile <= ethThresholds.lowThreshold ? 'LONG' : 'SHORT';
                             const inCooldown = isInCooldown('ETH', signalType, lastEthTriggerTime, lastEthTriggerType);
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
                                 console.log(`🧊 [EVENT] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
-                                triggerReason = `ETH reached P${ethPercentile} (${signalType} signal)`;
+                                const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility <= 50 ? 'STD' : 'HIGH';
+                                triggerReason = `ETH reached P${ethPercentile} (${signalType} signal, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
-                                console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= 15 ? '≤15 (LONG)' : '≥85 (SHORT)'}`);
+                                console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= ethThresholds.lowThreshold ? `≤${ethThresholds.lowThreshold}` : `≥${ethThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
                             }
                         }
                         
@@ -782,13 +812,13 @@ const gmxContext = context({
                             if (triggerType === "SYNTH") {
                                 if (triggerReason.includes('BTC')) {
                                     triggeredAsset = 'BTC';
-                                    triggeredSignalType = btcPercentile! <= 15 ? 'LONG' : 'SHORT';
+                                    triggeredSignalType = btcPercentile! <= btcThresholds.lowThreshold ? 'LONG' : 'SHORT';
                                     // Update local cooldown state
                                     lastBtcTriggerTime = Date.now();
                                     lastBtcTriggerType = triggeredSignalType;
                                 } else if (triggerReason.includes('ETH')) {
                                     triggeredAsset = 'ETH';
-                                    triggeredSignalType = ethPercentile! <= 15 ? 'LONG' : 'SHORT';
+                                    triggeredSignalType = ethPercentile! <= ethThresholds.lowThreshold ? 'LONG' : 'SHORT';
                                     // Update local cooldown state
                                     lastEthTriggerTime = Date.now();
                                     lastEthTriggerType = triggeredSignalType;

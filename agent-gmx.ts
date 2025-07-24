@@ -249,9 +249,9 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 
 **Take Profit Structure:**
 - **Target Selection**: 
-  - LONG: Target 3 percentile levels above current price percentile (example: if current price percentile is 20, target levels are P25, P35, P50)
-  - SHORT: Target 3 percentile levels below current price percentile (example: if current price percentile is 85, target levels are P80, P65, P50)
-  - Never target higher than P50 for LONG, or lower than P50 for SHORT
+  - LONG: Target 2-3 percentile levels above current price percentile (example: if current price percentile is 20, target levels are P25, P35, P50)
+  - SHORT: Target 2-3 percentile levels below current price percentile (example: if current price percentile is 85, target levels are P80, P65, P50)
+  - Never target higher than P50 for LONG, or lower than P50 for SHORT (example: for a short position, if current price percentile is 75, target levels are P65 and P50)
 - **Staged Exits**: 40% at first target, 40% at second target, 20% at final target
 - **Execution**: Three separate take_profit orders ONCE
 

@@ -830,7 +830,7 @@ const gmxContext = context({
                 text: z.string(),
             }),
             subscribe: (send) => {
-                let nextScheduledTime = Date.now() + 300000; // First scheduled cycle happens 5 minutes from now
+                let nextScheduledTime = Date.now() + 60000; // First scheduled cycle happens 1 minute from now
                 
                 const scheduledCycle = async () => {
                     const now = Date.now();

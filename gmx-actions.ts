@@ -19,8 +19,8 @@ import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, 
 import { EnhancedDataCache } from './gmx-cache';
 import { transactionQueue } from './transaction-queue';
 
-// Fixed slippage constant (1.25%)
-const FIXED_SLIPPAGE_BPS = 125;
+// Fixed slippage constant (1%)
+const FIXED_SLIPPAGE_BPS = 100;
 
 // Fixed price impact for take profit/stop loss orders (0.3%)
 const FIXED_PRICE_IMPACT_BPS = 30;

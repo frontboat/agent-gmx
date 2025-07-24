@@ -12,7 +12,8 @@ import {
     formatTokenAmount, 
     formatUsdAmount,
     convertToUsd,
-    safeBigInt
+    safeBigInt,
+    calculatePositionPnl
 } from './gmx-utils';
 import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from './gmx-queries';
 import { EnhancedDataCache } from './gmx-cache';
@@ -24,7 +25,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // 📈 READ METHODS - MARKET DATA
     // ═══════════════════════════════════════════════════════════════════════════════
     
-    // BTC/ETH Markets Info - Focused on trading markets
+    // BTC/ETH Markets Info
     action({
         name: "get_btc_eth_markets",
         description: "Get detailed information about BTC and ETH markets optimized for trading - includes prices, liquidity, funding rates, and market addresses for trading",
@@ -34,11 +35,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[Action] Fetching BTC/ETH markets data');
-                // Use the formatted string function from queries
                 const marketsString = await get_btc_eth_markets_str(sdk, gmxDataCache);
                 console.warn(`[Action] Successfully fetched markets data (${marketsString.length} chars)`);
                 
-                // Update memory
                 memory = {
                     ...memory,
                     markets: marketsString,
@@ -72,11 +71,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[action] Fetching daily volumes data');
-                // Use the formatted string function from queries
                 const volumesString = await get_daily_volumes_str(sdk, gmxDataCache);
                 console.warn(`[action] Successfully fetched volumes data (dataLength: ${volumesString.length})`);
                 
-                // Update memory
                 memory = {
                     ...memory,
                     volumes: volumesString,
@@ -110,11 +107,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[action] Fetching tokens data');
-                // Use the formatted string function from queries
                 const tokensString = await get_tokens_data_str(sdk, gmxDataCache);
                 console.warn(`[action] Successfully fetched tokens data (dataLength: ${tokensString.length})`);
                 
-                // Update memory
                 memory = {
                     ...memory,
                     tokens: tokensString,
@@ -148,11 +143,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[action] Fetching portfolio balance');
-                // Use the formatted string function from queries
                 const portfolioString = await get_portfolio_balance_str(sdk, gmxDataCache);
                 console.warn(`[action] Successfully fetched portfolio balance (dataLength: ${portfolioString.length})`);
                 
-                // Extract portfolio information from formatted string for memory
                 const totalValueMatch = portfolioString.match(/Total Value: \$([0-9.,]+)/);
                 const totalValue = totalValueMatch ? parseFloat(totalValueMatch[1].replace(/,/g, '')) : 0;
                 
@@ -186,12 +179,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_positions action');
             try {
-                // Queue the read operation to ensure fresh data after any pending writes
                 const positionsString = await transactionQueue.enqueueReadAfterWrite(
                     "get_positions",
                     async () => {
                         console.warn('[action] Fetching positions data');
-                        // Use the formatted string function from queries
                         return await get_positions_str(sdk, gmxDataCache);
                     }
                 );
@@ -227,19 +218,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // 💹 POSITIONS & TRADES
     // ═══════════════════════════════════════════════════════════════════════════════
 
-    // Orders (Official SDK Method) - Enhanced with Comprehensive Calculations
     action({
         name: "get_orders",
         description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_orders action');
             try {
-                // Queue the read operation to ensure fresh data after any pending writes
                 const ordersString = await transactionQueue.enqueueReadAfterWrite(
                     "get_orders",
                     async () => {
                         console.warn('[action] Fetching orders data');
-                        // Get formatted orders string using the query function
                         return await get_orders_str(sdk, gmxDataCache);
                     }
                 );
@@ -247,7 +235,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Update memory with the result
                 memory = {
                     ...memory,
                     orders: ordersString,
@@ -271,7 +258,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         }
     }),
 
-    // Trading History - Comprehensive performance analysis
+    // Trading History
     action({
         name: "get_trading_history",
         description: "Get comprehensive trading history analysis including performance metrics, win rates, profit factors, and recent trades. Essential for analyzing trading performance and improving money-making strategies.",
@@ -281,11 +268,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[action] Fetching trading history data');
-                // Use the formatted string function from queries
                 const historyString = await get_trading_history_str(sdk, gmxDataCache);
                 console.warn(`[action] Successfully fetched trading history data (dataLength: ${historyString.length})`);
                 
-                // Update memory with trading history insights
                 memory = {
                     ...memory,
                     tradingHistory: historyString,
@@ -314,10 +299,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // 🧠 SYNTH MARKET INTELLIGENCE & PREDICTIONS
     // ═══════════════════════════════════════════════════════════════════════════════
 
-    // Get BTC Predictions - Consolidated from top miners
+    // Get BTC Predictions
     action({
         name: "get_synth_btc_predictions",
-        description: "Get intelligent BTC analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners",
+        description: "Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).",
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_synth_btc_predictions action');
             try {
@@ -327,17 +312,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Update memory with prediction data
                 memory = {
                     ...memory,
                     synthBtcPredictions: result,
-                    currentTask: "🤖 Analyzing BTC predictions from top AI miners",
-                    lastResult: "Retrieved consolidated BTC predictions from top Synth miners"
+                    currentTask: "🤖 Analyzing BTC percentile position and zone levels",
+                    lastResult: "Retrieved BTC percentile analysis and current zone price levels"
                 };
 
                 return {
                     success: true,
-                    message: "Retrieved consolidated BTC predictions from top Synth miners",
+                    message: "Retrieved BTC percentile analysis with current zone levels",
                     synthBtcPredictions: result
                 };
             } catch (error) {
@@ -351,10 +335,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         }
     }),
 
-    // Get ETH Predictions - Consolidated from top miners
+    // Get ETH Predictions
     action({
         name: "get_synth_eth_predictions",
-        description: "Get intelligent ETH analysis with predictions, trading signals, support/resistance levels, and dynamic stop/take profit recommendations from top-performing Synth AI miners",
+        description: "Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).",
         async handler(data, ctx, agent) {
             console.warn('[action] Starting get_synth_eth_predictions action');
             try {
@@ -364,17 +348,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Update memory with prediction data
                 memory = {
                     ...memory,
                     synthEthPredictions: result,
-                    currentTask: "🤖 Analyzing ETH predictions from top AI miners",
-                    lastResult: "Retrieved consolidated ETH predictions from top Synth miners"
+                    currentTask: "🤖 Analyzing ETH percentile position and zone levels",
+                    lastResult: "Retrieved ETH percentile analysis and current zone price levels"
                 };
 
                 return {
                     success: true,
-                    message: "Retrieved consolidated ETH predictions from top Synth miners",
+                    message: "Retrieved ETH percentile analysis with current zone levels",
                     synthEthPredictions: result
                 };
             } catch (error) {
@@ -388,7 +371,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         }
     }),
 
-    // Get BTC Technical Analysis - Multi-timeframe indicators
+    // Get BTC Technical Analysis
     action({
         name: "get_btc_technical_analysis",
         description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
@@ -398,11 +381,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                               
                 console.warn('[action] Fetching BTC technical analysis');
-                // Get BTC technical analysis data
                 const technicalData = await get_technical_analysis_str(sdk, 'BTC', gmxDataCache);
                 console.warn(`[action] Successfully fetched BTC technical analysis (dataLength: ${technicalData.length})`);
                 
-                // Update memory with technical analysis
                 memory = {
                     ...memory,
                     btcTechnicalAnalysis: technicalData,
@@ -428,7 +409,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         }
     }),
 
-    // Get ETH Technical Analysis - Multi-timeframe indicators
+    // Get ETH Technical Analysis
     action({
         name: "get_eth_technical_analysis",
         description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
@@ -438,11 +419,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 let memory = ctx.memory as GmxMemory;
                 
                 console.warn('[action] Fetching ETH technical analysis');
-                // Get ETH technical analysis data
                 const technicalData = await get_technical_analysis_str(sdk, 'ETH', gmxDataCache);
                 console.warn(`[action] Successfully fetched ETH technical analysis (dataLength: ${technicalData.length})`);
                 
-                // Update memory with technical analysis
                 memory = {
                     ...memory,
                     ethTechnicalAnalysis: technicalData,
@@ -483,7 +462,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
             try {
                 console.warn(`[CANCEL_ORDERS] Starting order cancellation (input: ${JSON.stringify(data)})`);
                 
-                // Queue the write transaction
                 const result = await transactionQueue.enqueueWriteTransaction(
                     "cancel_orders",
                     async () => {
@@ -491,20 +469,13 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         return await sdk.orders.cancelOrders(data.orderKeys);
                     }
                 );
-
-                console.warn('CANCEL_ORDERS', 'Transaction successful', { 
-                    transactionHash: result?.transactionHash || result?.hash,
-                    orderCount: data.orderKeys.length 
-                });
                 
-                // Invalidate position and order caches after successful trade
                 if (gmxDataCache) {
                     gmxDataCache.invalidatePositions();
                 }
 
                 let memory = ctx.memory as GmxMemory;
                 
-                // Update memory with cancellation info
                 memory = {
                     ...memory,
                     currentTask: "❌ Cancelling stale orders",
@@ -555,7 +526,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_LONG_MARKET] Starting long market order (input: ${JSON.stringify(data)})`);
                     
-                    // Get market and token data for proper fee calculation
                     const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_LONG_MARKET', error, { stage: 'getMarketsInfo' });
@@ -568,16 +538,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         throw new Error("Invalid market data received");
                     }
                     
-                    // Validate market exists
                     const marketInfo = marketsInfoData[data.marketAddress];
                     if (!marketInfo) {
                         console.error('OPEN_LONG_MARKET', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                         throw new Error(`Market not found: ${data.marketAddress}`);
                     }
-                    
-                    console.warn(`[OPEN_LONG_MARKET] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                                        
-                    // Validate tokens exist
+                                                            
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
                     
@@ -590,13 +556,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         console.error('OPEN_LONG_MARKET', `Collateral token not found: ${data.collateralTokenAddress}`, { availableTokens: Object.keys(tokensData) });
                         throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
                     }
-                    
-                    console.warn('OPEN_LONG_MARKET', 'Tokens validated', { 
-                        payToken: payToken.symbol, 
-                        collateralToken: collateralToken.symbol 
-                    });
-                    
-                    // Prepare parameters for helper function
+                                        
                     const helperParams: any = {
                         payAmount: BigInt(data.payAmount),
                         marketAddress: data.marketAddress,
@@ -605,14 +565,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         allowedSlippageBps: data.allowedSlippageBps || 125,
                     };
     
-                    // Add optional parameters (SDK expects BigInt objects)
                     if (data.leverage) {
                         helperParams.leverage = BigInt(data.leverage);
                     }
                     
                     console.warn('OPEN_LONG_MARKET', 'Helper params prepared', helperParams);
     
-                    // Queue the write transaction
                     const result = await transactionQueue.enqueueWriteTransaction(
                         "open_long_market",
                         async () => {
@@ -622,7 +580,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 leverage: data.leverage ? `${parseFloat(data.leverage) / 10000}x` : 'Auto'
                             });
                             
-                            // Use the simplified helper function with enhanced error handling
                             return await sdk.orders.long(helperParams).catch(error => {
                                 console.error('OPEN_LONG_MARKET', error, { 
                                     helperParams, 
@@ -638,7 +595,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
-                    // Update memory with order info
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -664,7 +620,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.warn('OPEN_LONG_MARKET', 'Long market order opened successfully', successResult);
                     
-                    // Invalidate position and order caches after successful trade
                     if (gmxDataCache) {
                         gmxDataCache.invalidatePositions();
                     }
@@ -684,7 +639,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
             }
         }),
 
-        // Open Long Limit Order (Execute at Specific Price)
+        // Open Long Limit Order
         action({
             name: "open_long_limit",
             description: "Open a long position with a limit order (executes when price reaches or goes below your specified limit price).",
@@ -701,7 +656,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_LONG_LIMIT] Starting long limit order (input: ${JSON.stringify(data)})`);
                     
-                    // Get market and token data for proper fee calculation
                     const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_LONG_LIMIT', error, { stage: 'getMarketsInfo' });
@@ -714,16 +668,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         throw new Error("Invalid market data received");
                     }
                     
-                    // Validate market exists
                     const marketInfo = marketsInfoData[data.marketAddress];
                     if (!marketInfo) {
                         console.error('OPEN_LONG_LIMIT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                         throw new Error(`Market not found: ${data.marketAddress}`);
                     }
                     
-                    console.warn(`[OPEN_LONG_LIMIT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                    
-                    // Validate tokens exist
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
                     
@@ -736,23 +686,15 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         console.error('OPEN_LONG_LIMIT', `Collateral token not found: ${data.collateralTokenAddress}`, { availableTokens: Object.keys(tokensData) });
                         throw new Error(`Collateral token not found: ${data.collateralTokenAddress}`);
                     }
-                    
-                    console.warn('OPEN_LONG_LIMIT', 'Tokens validated', { 
-                        payToken: payToken.symbol, 
-                        collateralToken: collateralToken.symbol 
-                    });
-                    
-                    // Get index token and current market price
+                                        
                     const indexToken = tokensData[marketInfo.indexTokenAddress];
                     if (!indexToken) {
                         throw new Error(`Index token not found: ${marketInfo.indexTokenAddress}`);
                     }
                     
-                    // For long positions, use maxPrice (the price at which we'd buy)
                     const currentMarketPrice = indexToken.prices?.maxPrice || 0n;
                     const limitPriceBigInt = BigInt(data.limitPrice);
                     
-                    // Failsafe: For long limit orders, limit price must be LOWER than current market price
                     if (limitPriceBigInt >= currentMarketPrice) {
                         const currentPriceFormatted = formatUsdAmount(currentMarketPrice, 2);
                         const limitPriceFormatted = formatUsdAmount(limitPriceBigInt, 2);
@@ -765,7 +707,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         priceCheck: 'limitPrice < currentPrice ✓'
                     });
                     
-                    // Prepare parameters for helper function
                     const helperParams: any = {
                         payAmount: BigInt(data.payAmount),
                         marketAddress: data.marketAddress,
@@ -775,14 +716,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         limitPrice: BigInt(data.limitPrice) // Always include limit price for limit orders
                     };
     
-                    // Add optional parameters (SDK expects BigInt objects)
                     if (data.leverage) {
                         helperParams.leverage = BigInt(data.leverage);
                     }
     
                     console.warn('OPEN_LONG_LIMIT', 'Helper params prepared', helperParams);
     
-                    // Queue the write transaction
                     const result = await transactionQueue.enqueueWriteTransaction(
                         "open_long_limit",
                         async () => {
@@ -793,7 +732,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2)
                             });
                             
-                            // Use the simplified helper function with enhanced error handling
                             return await sdk.orders.long(helperParams).catch(error => {
                                 console.error('OPEN_LONG_LIMIT', error, { 
                                     helperParams, 
@@ -809,7 +747,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
-                    // Update memory with order info
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -836,7 +773,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.warn('OPEN_LONG_LIMIT', 'Long limit order placed successfully', successResult);
                     
-                    // Invalidate position and order caches after successful trade
                     if (gmxDataCache) {
                         gmxDataCache.invalidatePositions();
                     }
@@ -856,7 +792,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
             }
         }),
     
-        // Open Short Market Order (Immediate Execution)
         action({
             name: "open_short_market", 
             description: "Open a short position with a market order (immediate execution at current market price).",
@@ -872,7 +807,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_SHORT] Starting short position open (input: ${JSON.stringify(data)})`);
                     
-                    // Get market and token data for validation and proper error handling
                     const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_SHORT', error, { stage: 'getMarketsInfo' });
@@ -892,8 +826,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         throw new Error(`Market not found: ${data.marketAddress}`);
                     }
                     
-                    console.warn(`[OPEN_SHORT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
-                                        
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
                     
@@ -905,14 +837,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         });
                         throw new Error("Invalid token addresses provided");
                     }
-                    
-                    console.warn('OPEN_SHORT', 'Tokens validated', { 
-                        payToken: payToken.symbol, 
-                        collateralToken: collateralToken.symbol 
-                    });
-                    
-    
-                    // Prepare parameters for helper function
+                        
                     const helperParams: any = {
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
@@ -921,14 +846,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         payAmount: safeBigInt(data.payAmount),
                     };
     
-                    // Add optional parameters (SDK expects BigInt objects)
                     if (data.leverage) {
                         helperParams.leverage = safeBigInt(data.leverage);
                     }
     
                     console.warn('OPEN_SHORT', 'Helper params prepared', helperParams);
     
-                    // Queue the write transaction
                     const result = await transactionQueue.enqueueWriteTransaction(
                         "open_short_market",
                         async () => {
@@ -939,7 +862,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 orderType: 'Market'
                             });
                             
-                            // Use the simplified helper function with enhanced error handling
                             return await sdk.orders.short(helperParams).catch(error => {
                                 console.error('OPEN_SHORT_MARKET', error, { helperParams, stage: 'sdk.orders.short' });
                                 throw new Error(`Failed to open short position: ${error.message || error}`);
@@ -949,7 +871,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
-                    // Update memory with order info
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -975,7 +896,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.warn('OPEN_SHORT_MARKET', 'Short market order opened successfully', successResult);
                     
-                    // Invalidate position and order caches after successful trade
                     if (gmxDataCache) {
                         gmxDataCache.invalidatePositions();
                     }
@@ -1012,7 +932,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_SHORT_LIMIT] Starting short limit order (input: ${JSON.stringify(data)})`);
                     
-                    // Get market and token data for validation and proper error handling
                     const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_SHORT_LIMIT', error, { stage: 'getMarketsInfo' });
@@ -1025,14 +944,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         throw new Error("Invalid market data received");
                     }
                     
-                    // Validate market and tokens exist
                     const marketInfo = marketsInfoData[data.marketAddress];
                     if (!marketInfo) {
                         console.error('OPEN_SHORT_LIMIT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
                         throw new Error(`Market not found: ${data.marketAddress}`);
                     }
-                    
-                    console.warn(`[OPEN_SHORT_LIMIT] Market validated (marketName: ${marketInfo.name}, marketAddress: ${data.marketAddress})`);
                     
                     const payToken = tokensData[data.payTokenAddress];
                     const collateralToken = tokensData[data.collateralTokenAddress];
@@ -1046,22 +962,14 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         throw new Error("Invalid token addresses provided");
                     }
                     
-                    console.warn('OPEN_SHORT_LIMIT', 'Tokens validated', { 
-                        payToken: payToken.symbol, 
-                        collateralToken: collateralToken.symbol 
-                    });
-                    
-                    // Get index token and current market price
                     const indexToken = tokensData[marketInfo.indexTokenAddress];
                     if (!indexToken) {
                         throw new Error(`Index token not found: ${marketInfo.indexTokenAddress}`);
                     }
                     
-                    // For short positions, use minPrice (the price at which we'd sell)
                     const currentMarketPrice = indexToken.prices?.minPrice || 0n;
                     const limitPriceBigInt = BigInt(data.limitPrice);
                     
-                    // Failsafe: For short limit orders, limit price must be HIGHER than current market price
                     if (limitPriceBigInt <= currentMarketPrice) {
                         const currentPriceFormatted = formatUsdAmount(currentMarketPrice, 2);
                         const limitPriceFormatted = formatUsdAmount(limitPriceBigInt, 2);
@@ -1074,7 +982,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         priceCheck: 'limitPrice > currentPrice ✓'
                     });
     
-                    // Prepare parameters for helper function
                     const helperParams: any = {
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
@@ -1084,7 +991,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         limitPrice: safeBigInt(data.limitPrice) // Always include limit price for limit orders
                     };
     
-                    // Add optional parameters (SDK expects BigInt objects)
                     if (data.leverage) {
                         helperParams.leverage = safeBigInt(data.leverage);
                     }
@@ -1101,7 +1007,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2)
                             });
             
-                            // Use the simplified helper function with enhanced error handling
                             return await sdk.orders.short(helperParams).catch(error => {
                                 console.error('OPEN_SHORT_LIMIT', error, { helperParams, stage: 'sdk.orders.short' });
                                 throw new Error(`Failed to open short limit order: ${error.message || error}`);
@@ -1111,7 +1016,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
-                    // Update memory with order info
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -1138,7 +1042,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.warn('OPEN_SHORT_LIMIT', 'Short limit order placed successfully', successResult);
                     
-                    // Invalidate position and order caches after successful trade
                     if (gmxDataCache) {
                         gmxDataCache.invalidatePositions();
                     }
@@ -1160,7 +1063,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
 
     // Close Position (Universal - handles both long and short)
-    /*action({
+    action({
         name: "close_position",
         description: "Fully close an existing position (long or short) automatically. Detects position direction and closes the entire position.",
         schema: z.object({
@@ -1215,8 +1118,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const direction = isLong ? 'LONG' : 'SHORT';
                 console.warn(`[CLOSE_POSITION] Found ${direction} position to close`);
                 console.warn(`[CLOSE_POSITION] Position size: ${position.sizeInUsd.toString()} USD`);
-                console.warn(`[CLOSE_POSITION] Position tokens: ${position.sizeInTokens.toString()}`);
-                console.warn(`[CLOSE_POSITION] Collateral amount: ${position.collateralAmount.toString()}`);
                 
                 // Validate receive token
                 const receiveToken = tokensData[data.receiveTokenAddress];
@@ -1231,14 +1132,30 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 if (!indexToken || !collateralToken) {
                     throw new Error("Failed to get token data for position");
                 }
-                               
-                // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
-                const slippageBps = data.allowedSlippageBps || 125;
                 
-                // Calculate acceptable price with slippage based on position direction
+                // Calculate PnL to check if positive
                 const markPrice = isLong ? 
                     (indexToken.prices?.maxPrice || 0n) : 
                     (indexToken.prices?.minPrice || 0n);
+                    
+                const calculatedPnl = calculatePositionPnl({
+                    sizeInUsd: position.sizeInUsd,
+                    sizeInTokens: position.sizeInTokens,
+                    markPrice,
+                    isLong: position.isLong,
+                    indexTokenDecimals: indexToken.decimals || 18
+                });
+                
+                // Check if PnL is positive
+                if (calculatedPnl <= 5n) {
+                    const pnlFormatted = formatUsdAmount(calculatedPnl, 2);
+                    throw new Error(`Cannot close position with negative PnL (${pnlFormatted}). Position must be in small profit to close.`);
+                }
+                
+                console.warn(`[CLOSE_POSITION] Position PnL: ${formatUsdAmount(calculatedPnl, 2)} - Proceeding with close`);
+                               
+                // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
+                const slippageBps = data.allowedSlippageBps || 125;
                     
                 // For longs: subtract slippage (willing to accept lower price)
                 // For shorts: add slippage (willing to accept higher price)
@@ -1246,7 +1163,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     markPrice - (markPrice * BigInt(slippageBps) / 10000n) :
                     markPrice + (markPrice * BigInt(slippageBps) / 10000n);
                 
-                // Calculate collateral USD value
                 const collateralPrice = collateralToken.prices?.minPrice || 0n;
                 const collateralDeltaUsd = convertToUsd(
                     position.collateralAmount,
@@ -1256,27 +1172,20 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                                 
                 // Create complete DecreasePositionAmounts object with ALL required fields
                 const decreaseAmounts = {
-                    // Core position data
                     isFullClose: true,
                     sizeDeltaUsd: position.sizeInUsd,
                     sizeDeltaInTokens: position.sizeInTokens,
                     collateralDeltaUsd: collateralDeltaUsd,
                     collateralDeltaAmount: position.collateralAmount,
-                    
-                    // Price fields
                     indexPrice: markPrice,
                     collateralPrice: collateralPrice,
                     acceptablePrice: acceptablePrice,
                     acceptablePriceDeltaBps: BigInt(slippageBps),
                     recommendedAcceptablePriceDeltaBps: BigInt(slippageBps),
-                    
-                    // PnL fields (estimated - SDK will calculate final values)
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
                     realizedPnlPercentage: 0n,
-                    
-                    // Fee fields (estimated - SDK will calculate)
                     positionFeeUsd: 0n,
                     uiFeeUsd: 0n,
                     swapUiFeeUsd: 0n,
@@ -1287,14 +1196,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
-                    
-                    // Output fields (estimated)
                     payedOutputUsd: 0n,
                     payedRemainingCollateralUsd: 0n,
                     receiveTokenAmount: 0n,
                     receiveUsd: 0n,
-                    
-                    // Swap configuration
                     decreaseSwapType: 0, // No swap by default
                 };
                 
@@ -1302,16 +1207,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     fieldCount: Object.keys(decreaseAmounts).length,
                     decreaseAmounts 
                 });
-                                
-                console.warn('CLOSE_POSITION', 'Executing close position transaction', { 
-                    market: marketInfo.name,
-                    direction,
-                    sizeUsd: formatUsdAmount(position.sizeInUsd, 2),
-                    receiveToken: receiveToken.symbol,
-                    slippage: `${slippageBps / 100}%`
-                });
-                                
-                // Use the SDK's createDecreaseOrder method
+
                 const result = await sdk.orders.createDecreaseOrder({
                     marketsInfoData,
                     tokensData,
@@ -1345,12 +1241,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[CLOSE_POSITION] Transaction successful (transactionHash: result?.transactionHash || 'No hash returned')`);
                 
-                // Invalidate position and order caches after successful trade
                 if (gmxDataCache) {
                     gmxDataCache.invalidatePositions();
                 }
                                
-                // Update memory
                 memory = {
                     ...memory,
                     currentTask: `📉 Closing ${direction} position`,
@@ -1388,7 +1282,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 return errorResult;
             }
         }
-    }),*/
+    }),
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 💱 TOKEN SWAPS
@@ -1414,7 +1308,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[SWAP_TOKENS] Starting token swap (input: ${JSON.stringify(data)})`);
 
-                // Get token data for validation (no need for markets info for swaps)
                 const tokensResult = gmxDataCache ? await gmxDataCache.getTokensData() : await sdk.tokens.getTokensData().catch(error => {
                     console.error('SWAP_TOKENS', error, { stage: 'getTokensData' });
                     throw new Error(`Failed to get token data: ${error.message || error}`);
@@ -1426,7 +1319,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error("Failed to get token data");
                 }
 
-                // Validate tokens exist
                 const fromToken = tokensData[data.fromTokenAddress];
                 const toToken = tokensData[data.toTokenAddress];
                 
@@ -1440,7 +1332,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error(`To token not found: ${data.toTokenAddress}`);
                 }
 
-                // Check for synthetic tokens (not supported)
                 if (fromToken.isSynthetic) {
                     throw new Error(`Synthetic tokens are not supported: ${fromToken.symbol}`);
                 }
@@ -1448,12 +1339,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error(`Synthetic tokens are not supported: ${toToken.symbol}`);
                 }
 
-                console.warn('SWAP_TOKENS', 'Tokens validated', { 
-                    fromToken: fromToken.symbol, 
-                    toToken: toToken.symbol 
-                });
-
-                // Prepare swap parameters
                 const swapParams: any = {
                     fromTokenAddress: data.fromTokenAddress,
                     toTokenAddress: data.toTokenAddress,
@@ -1469,21 +1354,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error("Either fromAmount or toAmount must be specified");
                 }
 
-                // Add triggerPrice for limit swaps if provided
                 if (data.triggerPrice) {
                     swapParams.triggerPrice = BigInt(data.triggerPrice);
                 }
 
                 const isLimitOrder = !!data.triggerPrice;
                 const orderType = isLimitOrder ? 'Limit' : 'Market';
-
-                console.warn('SWAP_TOKENS', 'Swap params prepared', {
-                    ...swapParams,
-                    orderType,
-                    fromAmount: swapParams.fromAmount?.toString(),
-                    toAmount: swapParams.toAmount?.toString(),
-                    triggerPrice: swapParams.triggerPrice?.toString()
-                });
 
                 const result = await transactionQueue.enqueueWriteTransaction(
                     "swap_tokens",
@@ -1498,7 +1374,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
                         });
 
-                        // Execute the swap using the SDK helper
                         return await sdk.orders.swap(swapParams).catch(error => {
                             console.error('SWAP_TOKENS', error, { 
                                 swapParams,
@@ -1523,13 +1398,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                 );
 
-                // Calculate swap amounts for display
                 let swapAmountDisplay = '';
                 let receiveAmountDisplay = '';
                 
                 if (data.fromAmount) {
                     swapAmountDisplay = formatTokenAmount(BigInt(data.fromAmount), fromToken.decimals, 6);
-                    // For market swaps, we can't know exact output until execution
                     receiveAmountDisplay = isLimitOrder && data.triggerPrice ? 
                         `~${(Number(data.fromAmount) / Math.pow(10, fromToken.decimals) * Number(data.triggerPrice) / 1e30).toFixed(6)}` :
                         'Market rate';
@@ -1538,7 +1411,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     swapAmountDisplay = 'Market rate';
                 }
 
-                // Update memory
                 memory = {
                     ...memory,
                     currentTask: `💱 Swapping ${fromToken.symbol} to ${toToken.symbol}`,
@@ -1560,7 +1432,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
 
                 console.warn('SWAP_TOKENS', 'Swap initiated successfully', successResult);
 
-                // Invalidate token and position caches after successful swap
                 if (gmxDataCache) {
                     gmxDataCache.invalidateTokens();
                     gmxDataCache.invalidatePositions();
@@ -1617,12 +1488,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     showPnlInLeverage: false
                 });
                 
-                // Find the position using enhanced positions data (same as get_positions_str)
                 const position = Object.values(positionsInfoResult).find((pos: any) => 
                     pos.marketAddress === data.marketAddress
                 );
                 
-                // Validate market exists
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) { 
                     console.error('SET_TAKE_PROFIT', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
@@ -1636,12 +1505,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
                 
-                // Use the position's mark price (this is the current market price for the position)
                 const markPrice = position.markPrice;
                 const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
                 
-                // FAILSAFE: Validate price direction for take profit
                 const triggerPriceBigInt = BigInt(data.triggerPrice);
                 const currentPriceFormatted = currentPrice.toFixed(2);
                 const triggerPriceFormatted = triggerPriceDecimal.toFixed(2);
@@ -1653,7 +1520,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error(`Invalid take profit for SHORT: price ($${triggerPriceFormatted}) must be lower than current price ($${currentPriceFormatted})`);
                 }
                 
-                // FAILSAFE: Minimum distance check (0.1%)
                 const priceDiff = Math.abs(triggerPriceDecimal - currentPrice);
                 const minDistance = currentPrice * 0.001; // 0.1%
                 if (priceDiff < minDistance) {
@@ -1687,22 +1553,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         position.sizeInTokens,
                     collateralDeltaUsd: 0n, // Let SDK calculate
                     collateralDeltaAmount: 0n, // Let SDK calculate
-                    
-                    // Price fields
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
                     acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
                     recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
-                    
-                    // PnL fields (SDK will calculate)
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
                     realizedPnlPercentage: 0n,
-                    
-                    // Fee fields (SDK will calculate)
                     positionFeeUsd: 0n,
                     uiFeeUsd: 0n,
                     swapUiFeeUsd: 0n,
@@ -1713,14 +1573,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
-                    
-                    // Output fields
                     payedOutputUsd: 0n,
                     payedRemainingCollateralUsd: 0n,
                     receiveTokenAmount: 0n,
                     receiveUsd: 0n,
-                    
-                    // Order specific
                     triggerOrderType: 5, // LimitDecrease
                     decreaseSwapType: 0, // NoSwap
                 };
@@ -1746,7 +1602,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                                 `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`
                         });
                         
-                        // Create the take profit order
                         return await sdk.orders.createDecreaseOrder({
                             marketsInfoData,
                             tokensData,
@@ -1795,7 +1650,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn('SET_TAKE_PROFIT', 'Take profit order created successfully', successResult);
                 
-                // Invalidate position and order caches after successful trade
                 if (gmxDataCache) {
                     gmxDataCache.invalidatePositions();
                 }
@@ -1847,12 +1701,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     showPnlInLeverage: false
                 });
                 
-                // Find the position using enhanced positions data (same as get_positions_str)
                 const position = Object.values(positionsInfoResult).find((pos: any) => 
                     pos.marketAddress === data.marketAddress
                 );
 
-                // Validate market exists
                 const marketInfo = marketsInfoData[data.marketAddress];
                 if (!marketInfo) { 
                     console.error('SET_STOP_LOSS', `Market not found: ${data.marketAddress}`, { availableMarkets: Object.keys(marketsInfoData) });
@@ -1866,12 +1718,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
                 
-                // Use the position's mark price (this is the current market price for the position)
                 const markPrice = position.markPrice;
                 const currentPrice = bigIntToDecimal(markPrice, USD_DECIMALS);
                 const triggerPriceDecimal = bigIntToDecimal(BigInt(data.triggerPrice), USD_DECIMALS);
                 
-                // FAILSAFE: Validate price direction for stop loss
                 const triggerPriceBigInt = BigInt(data.triggerPrice);
                 const currentPriceFormatted = currentPrice.toFixed(2);
                 const triggerPriceFormatted = triggerPriceDecimal.toFixed(2);
@@ -1883,7 +1733,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error(`Invalid stop loss for SHORT: price ($${triggerPriceFormatted}) must be higher than current price ($${currentPriceFormatted})`);
                 }
                 
-                // FAILSAFE: Minimum distance check (0.1%)
                 const priceDiff = Math.abs(triggerPriceDecimal - currentPrice);
                 const minDistance = currentPrice * 0.001; // 0.1%
                 if (priceDiff < minDistance) {
@@ -1909,7 +1758,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 // Create comprehensive DecreaseAmounts object for stop loss
                 const decreaseAmounts = {
-                    // Core position data
                     isFullClose: !data.sizeDeltaUsd, // Full close if no specific size provided
                     sizeDeltaUsd: positionSizeUsd,
                     sizeDeltaInTokens: data.sizeDeltaUsd ? 
@@ -1917,22 +1765,16 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         position.sizeInTokens,
                     collateralDeltaUsd: 0n, // Let SDK calculate
                     collateralDeltaAmount: 0n, // Let SDK calculate
-                    
-                    // Price fields
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
                     acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
                     recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
-                    
-                    // PnL fields (SDK will calculate)
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
                     realizedPnlPercentage: 0n,
-                    
-                    // Fee fields (SDK will calculate)
                     positionFeeUsd: 0n,
                     uiFeeUsd: 0n,
                     swapUiFeeUsd: 0n,
@@ -1943,25 +1785,14 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
-                    
-                    // Output fields
                     payedOutputUsd: 0n,
                     payedRemainingCollateralUsd: 0n,
                     receiveTokenAmount: 0n,
                     receiveUsd: 0n,
-                    
-                    // Order specific
                     triggerOrderType: 6, // StopLossDecrease
                     decreaseSwapType: 0, // NoSwap
                 };
-                
-                console.warn('SET_STOP_LOSS', 'Creating stop loss order', { 
-                    direction,
-                    triggerPrice: triggerPriceDecimal,
-                    currentPrice,
-                    positionSize: formatUsdAmount(positionSizeUsd, 2)
-                });
-                
+                                
                 console.warn('SET_STOP_LOSS', 'Executing stop loss order transaction', { 
                     market: marketInfo.name,
                     direction,
@@ -1976,7 +1807,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const result = await transactionQueue.enqueueWriteTransaction(
                     "set_stop_loss",
                     async () => {
-                        // Create the stop loss order
                         return await sdk.orders.createDecreaseOrder({
                             marketsInfoData,
                             tokensData,
@@ -1998,7 +1828,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                 );
                 
-                // Update memory
                 memory = {
                     ...memory,
                     currentTask: `🛡️ Setting stop loss for ${direction} position`,
@@ -2025,7 +1854,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn('SET_STOP_LOSS', 'Stop loss order created successfully', successResult);
                 
-                // Invalidate position and order caches after successful trade
                 if (gmxDataCache) {
                     gmxDataCache.invalidatePositions();
                 }

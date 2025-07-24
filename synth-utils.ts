@@ -600,6 +600,46 @@ export function calculatePricePercentile(currentPrice: number, currentPercentile
   return currentPricePercentile;
 }
 
+// Simplified function to format Synth analysis with only current percentile data
+export function formatSynthAnalysisSimplified(
+  asset: 'BTC' | 'ETH', 
+  currentPrice: number, 
+  volatilityData: VolatilityData | undefined,
+  currentPricePercentile: number,
+  currentPercentiles: PercentileDataPoint
+): string {
+  // Generate trading signal based on percentile rank
+  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile);
+  
+  // Build structured output for AI consumption
+  let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
+
+  // PRIORITY SECTION - Most important info first
+  result += `TRADING_SIGNAL: ${signal}\n`;
+  result += `SIGNAL_EXPLANATION: ${explanation}\n`;
+  result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
+  result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
+  
+  if (volatilityData) {
+    result += `VOLATILITY_FORECAST: ${volatilityData.value}%\n`;
+    result += `VOLATILITY_CATEGORY: ${volatilityData.category}\n`;
+  }
+  
+  // CURRENT ZONE PERCENTILES - Show the percentile price levels
+  result += `\nCURRENT_ZONE_PERCENTILES:\n`;
+  result += `P0.5: $${(currentPercentiles.p0_5 || 0).toFixed(0)}\n`;
+  result += `P5: $${(currentPercentiles.p5 || 0).toFixed(0)}\n`;
+  result += `P20: $${(currentPercentiles.p20 || 0).toFixed(0)}\n`;
+  result += `P35: $${(currentPercentiles.p35 || 0).toFixed(0)}\n`;
+  result += `P50: $${(currentPercentiles.p50 || 0).toFixed(0)}\n`;
+  result += `P65: $${(currentPercentiles.p65 || 0).toFixed(0)}\n`;
+  result += `P80: $${(currentPercentiles.p80 || 0).toFixed(0)}\n`;
+  result += `P95: $${(currentPercentiles.p95 || 0).toFixed(0)}\n`;
+  result += `P99.5: $${(currentPercentiles.p99_5 || 0).toFixed(0)}\n`;
+  
+  return result;
+}
+
 // Function to format the Synth AI analysis output optimized for AI processing
 export function formatSynthAnalysis(
   percentileData: PercentileDataPoint[], 

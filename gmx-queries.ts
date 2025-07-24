@@ -12,6 +12,7 @@ import {
     parseSynthPastPercentileData,
     calculatePricePercentile,
     formatSynthAnalysis,
+    formatSynthAnalysisSimplified,
     type PercentileDataPoint,
     type VolatilityData
 } from './synth-utils';
@@ -985,18 +986,7 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache?
         // Calculate where the current GMX price sits in the Synth percentile distribution
         const currentPricePercentile = calculatePricePercentile(currentPrice, currentPercentiles);
         
-        // Get future percentile predictions
-        let percentileData: PercentileDataPoint[] = [];
-        
-        // Use cached percentile data if available
-        const dashboardResponse = gmxDataCache 
-            ? await gmxDataCache.getSynthPercentileData(asset)
-            : await fetchSynthPercentileData(asset);
-        percentileData = parseSynthPercentileData(dashboardResponse);
-        
-        if (percentileData.length === 0) {
-            throw new Error(`No future percentile data could be parsed from dashboard for ${asset}`);
-        }
+        // We no longer need future predictions - just use current percentiles
         
         // Fetch volatility dial data (keeping this API call)
         let volatilityData: VolatilityData | undefined;
@@ -1007,8 +997,8 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache?
             console.error(`Failed to fetch volatility dial for ${asset}:`, error);
         }
         
-        // Format and return analysis with current data as first point
-        return formatSynthAnalysis(percentileData, asset, currentPrice, volatilityData, currentPricePercentile, currentPercentiles);
+        // Format and return analysis with only current percentile data
+        return formatSynthAnalysisSimplified(asset, currentPrice, volatilityData, currentPricePercentile, currentPercentiles);
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

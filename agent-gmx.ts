@@ -106,7 +106,7 @@ async function triggerTradingCycle(send: any, reason: string, eventType: string,
     triggerType?: 'LONG' | 'SHORT'
 }) {
     const now = Date.now();
-    console.log(`🚨 [${eventType}] ${reason} - Triggering immediate trading cycle`);
+    console.warn(`🚨 [${eventType}] ${reason} - Triggering immediate trading cycle`);
 
     // Calculate cooldown updates for Synth triggers
     let btcTriggerUpdate = undefined;
@@ -189,14 +189,15 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 #### 📈 Technical Analysis
 - get_btc_technical_analysis: Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.
 - get_eth_technical_analysis: Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.
-- get_synth_btc_predictions: Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and hourly percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5) for next 24 hours.
-- get_synth_eth_predictions: Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and hourly percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5) for next 24 hours.
+- get_synth_btc_predictions: Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).
+- get_synth_eth_predictions: Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).
 
 #### ⚡ Trading Execution
 - open_long_market: Open long position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_long_limit: Open long position with limit order (executes when price reaches or goes below limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_market: Open short position with market order (immediate execution). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals). OPTIONAL: leverage, allowedSlippageBps.
 - open_short_limit: Open short position with limit order (executes when price reaches or goes above limit). REQUIRED: marketAddress, payTokenAddress, collateralTokenAddress, payAmount (6 decimals), limitPrice (30 decimals). OPTIONAL: leverage, allowedSlippageBps.
+- close_position: Fully close existing position (long or short) automatically. Detects position direction and closes the entire position. REQUIRED: marketAddress (from get_positions), receiveTokenAddress. OPTIONAL: allowedSlippageBps.
 - cancel_orders: Cancel pending orders. REQUIRED: orderKeys (array of 32-byte hex strings).
 
 #### 💱 Token Swaps
@@ -230,8 +231,9 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
    - open_short_limit({"marketAddress": "0x...", "payAmount": "1000000", "payTokenAddress": "0x...", "collateralTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "limitPrice": "110000000000000000000000000000000000"}) // Limit order at $110000 with USDC as collateral
    - set_take_profit({"marketAddress": "0x...", "triggerPrice": "115000000000000000000000000000000000"}) // Take profit at $115000
    - set_stop_loss({"marketAddress": "0x...", "triggerPrice": "1050000000000000000000000000000000"}) // Stop loss at $105000
-   - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount
-   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount
+   - close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "allowedSlippageBps": 125}) // Close position with USDC as receive token
+   - swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // When swapping FROM USDC, use fromAmount, here 50$)
+   - swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // When swapping TO USDC, use toAmount, here 50$)
    
 #### 📋 Parameter Format Requirements
 - **Decimal String Values**: All amounts must be BigInt strings (converted to BigInt internally)
@@ -303,15 +305,19 @@ SHORT Setups:
 - **Adjust for**: Setup quality, volatility, existing exposure
 
 ### Risk Controls
-- **Stop loss**: Check technical invalidation and synth percentile levels to set it up
-- **Take profit**: Check logical resistance/support and synth percentile levels to set it up
+- **For long positions**:
+    - Stop loss: Setup one stop loss order at the p0.5 percentile. Adjust with logical resistance/support.
+    - Take profit: Setup three take profit orders (size 20%, 60%, 30%) at the three percentiles above the current price percentile. Adjust with logical resistance/support.
+- **For short positions**:
+    - Stop loss: Setup one stop loss order at the p99.5 percentile. Adjust with logical resistance/support.
+    - Take profit: Setup three take profit orders (size 20%, 60%, 30%)at the three percentiles below the current price percentile. Adjust with logical resistance/support.
 - **Portfolio heat**: Monitor total risk exposure
 - **Correlation**: Avoid concentrated directional bias
 
 ### Scaled Position Management
 - **Combined risk**: Total position risk stays within original plan
 - **Stop adjustment**: One stop for entire position at key level
-- **Profit taking**: Can scale out in reverse - setup multiple take profit limit orders (50% tp 1 and 50% tp 2)
+- **Profit taking**: Always setup three take profit limit orders (20% tp 1, 60% tp 2 and 20% tp 3)
 - **Record keeping**: Track average entry and total size
 
 ### Capital Allocation
@@ -387,21 +393,22 @@ After each trade:
 ### STEP 1: Position Management (COMPLETE FIRST)
 **Q1: What is the status of my current positions?**
 - What is the current P&L of each position?
-- Are any positions profitable enough to move stops to breakeven?
-- Are any losing positions approaching my stop loss?
+- Are any positions profitable enough to move the stop loss to breakeven?
+- Did I setup 3 take profit orders (20% size, 60% size, 20% size) at the percentile levels?
 - Has the original thesis for any position been invalidated?
 
 **Q2: Should I take any immediate action on existing positions?**
 - Are any positions at or near profit targets?
 - Are any positions showing signs of reversal?
-- Are any stops too tight and need adjustment?
+- Is my stop loss too tight and need adjustment?
 - How good is my entry?
 
 **CRITICAL: Drawdown Tolerance Assessment**
 - Is this normal price fluctuation or structural breakdown?
 - Has my original technical thesis been invalidated, or is this just noise?
-- What is the synth analysis telling me? Does the price prediction over the next 24h align with my position?
-- Is my stop loss still at the logical technical level where I planned it?
+- What is the synth analysis telling me? Does the price percentiles align with my position?
+- Is my stop loss still at the logical technical and price percentile level where I planned it?
+- Close positions should only be used as a last resort
 
 **Q3: What is the status of my current limit orders?**
 - Has the original thesis for each limit order been invalidated?
@@ -422,7 +429,7 @@ After each trade:
 - What is the nearest major support level below current price?
 - What is the nearest major resistance level above current price?
 - How far is price from each level (percentage distance)?
-- Which level is price gravitating toward?
+- Which percentile level is price gravitating toward?
 
 **Q3: How strong is the current momentum?**
 - Are shorter timeframes (15m, 1h) aligned with longer timeframes (4h)?
@@ -463,7 +470,7 @@ After each trade:
 - What is my maximum total position size for this trade?
 
 **Q9: What is my complete risk management plan?**
-- Where exactly is my stop loss? (must be at technical level)
+- Where exactly is my stop loss? (must be at technical level and synth percentile level, not too tight)
 - What invalidates this trade? (price action, not just stop level)
 - Where are my profit targets? (first target, second target)
 - What is my risk:reward ratio? (must be minimum 2:1)
@@ -516,7 +523,7 @@ After each trade:
 3. Never buy resistance, never sell support
 4. Minimum 2:1 risk/reward or skip
 5. One position per asset maximum
-6. Always set stop loss and take profit after entering a position
+6. Always set one stop loss and two take profit orders after entering a position
 7. Document every trade for learning
 
 ### The Mental Framework
@@ -602,7 +609,7 @@ const gmxContext = context({
       },
 
     async loader({ memory }) {
-        console.log("🔄 Loading fresh GMX trading data into memory...");
+        console.warn("🔄 Loading fresh GMX trading data into memory...");
         
         try {
             // Load all data in parallel for maximum speed
@@ -657,7 +664,7 @@ const gmxContext = context({
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
 
-            console.log(`✅ GMX trading data loaded successfully! BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${positionCount}`);
+            console.warn(`✅ GMX trading data loaded successfully! BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${positionCount}`);
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
@@ -665,7 +672,7 @@ const gmxContext = context({
     },
 
     render({ memory }) {
-        console.log("🔄 Rendering GMX trading data...");
+        console.warn("🔄 Rendering GMX trading data...");
 
         return render(vega_template, {
             instructions: memory.instructions,
@@ -731,7 +738,7 @@ const gmxContext = context({
                 
                 const eventMonitor = async () => {
                     try {
-                        console.log("🚨 [EVENT] Monitoring Synth signals & position changes...");
+                        console.warn("🚨 [EVENT] Monitoring Synth signals & position changes...");
                         
                         // Fetch Synth data, positions, and volatility in parallel
                         const [btc_predictions, eth_predictions, positions, btcVolatilityRaw, ethVolatilityRaw] = await Promise.all([
@@ -763,7 +770,7 @@ const gmxContext = context({
                             lastKnownPositionCount = currentPositionCount;
                             lastBtcPercentile = btcPercentile;
                             lastEthPercentile = ethPercentile;
-                            console.log(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} (Vol:${btcVolatility.toFixed(1)}% Thresholds:P${btcThresholds.lowThreshold}/P${btcThresholds.highThreshold}) ETH:P${ethPercentile || 'N/A'} (Vol:${ethVolatility.toFixed(1)}% Thresholds:P${ethThresholds.lowThreshold}/P${ethThresholds.highThreshold}) Positions:${currentPositionCount}`);
+                            console.warn(`🚨 [EVENT] Initialized - BTC:P${btcPercentile || 'N/A'} (Vol:${btcVolatility.toFixed(1)}% Thresholds:P${btcThresholds.lowThreshold}/P${btcThresholds.highThreshold}) ETH:P${ethPercentile || 'N/A'} (Vol:${ethVolatility.toFixed(1)}% Thresholds:P${ethThresholds.lowThreshold}/P${ethThresholds.highThreshold}) Positions:${currentPositionCount}`);
                             // Don't return - continue to check for triggers even on first run
                         }
                         
@@ -786,13 +793,13 @@ const gmxContext = context({
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
-                                console.log(`🧊 [EVENT] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                console.warn(`🧊 [EVENT] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
                                 const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility < 40 ? 'STD' : btcVolatility < 60 ? 'HIGH' : 'VERY HIGH';
                                 triggerReason = `BTC reached P${btcPercentile} (${signalType} signal, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
-                                console.log(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= btcThresholds.lowThreshold ? `≤${btcThresholds.lowThreshold}` : `≥${btcThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
+                                console.warn(`🚨 [EVENT] BTC trigger detected: P${btcPercentile} ${btcPercentile <= btcThresholds.lowThreshold ? `≤${btcThresholds.lowThreshold}` : `≥${btcThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
                             }
                         }
                         else if (ethPercentile !== null && (ethPercentile <= ethThresholds.lowThreshold || ethPercentile >= ethThresholds.highThreshold)) {
@@ -801,13 +808,13 @@ const gmxContext = context({
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
-                                console.log(`🧊 [EVENT] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                console.warn(`🧊 [EVENT] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
                                 const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility < 40 ? 'STD' : ethVolatility < 60 ? 'HIGH' : 'VERY HIGH';
                                 triggerReason = `ETH reached P${ethPercentile} (${signalType} signal, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
                                 triggerType = "SYNTH";
                                 triggered = true;
-                                console.log(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= ethThresholds.lowThreshold ? `≤${ethThresholds.lowThreshold}` : `≥${ethThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
+                                console.warn(`🚨 [EVENT] ETH trigger detected: P${ethPercentile} ${ethPercentile <= ethThresholds.lowThreshold ? `≤${ethThresholds.lowThreshold}` : `≥${ethThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
                             }
                         }
                         
@@ -847,7 +854,7 @@ const gmxContext = context({
                                 lastKnownPositionCount = currentPositionCount;
                             }
                         } else {
-                            console.log(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need volatility-adjusted thresholds or position change)`);
+                            console.warn(`🚨 [EVENT] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Positions:${currentPositionCount} (need volatility-adjusted thresholds or position change)`);
                         }
                         
                     } catch (error) {
@@ -881,7 +888,7 @@ const gmxContext = context({
                     
                     // Only trigger if we've reached the scheduled time
                     if (now >= nextScheduledTime) {
-                        console.log("⏰ [SCHEDULED] 30-minute timer triggered - regular trading cycle");
+                        console.warn("⏰ [SCHEDULED] 30-minute timer triggered - regular trading cycle");
                         
                         await send(gmxContext, {
                             instructions: vega_template,
@@ -983,7 +990,7 @@ await agent.start({
     lastSynthEthPercentile: undefined,
     lastPositionCount: undefined,
     lastCycleTimestamp: undefined,
-    nextScheduledCycle: Date.now() + 1800000, // First scheduled cycle in 30 minutes
+    nextScheduledCycle: Date.now() + 300000, // First scheduled cycle in 5 minutes
     // Initialize cooldown tracking
     lastSynthBtcTrigger: undefined,
     lastSynthEthTrigger: undefined,

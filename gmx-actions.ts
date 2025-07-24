@@ -519,7 +519,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 payAmount: z.string().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
                 payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
                 collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-                allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 125)"),
                 leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
             }),
             async handler(data, ctx, agent) {
@@ -562,7 +561,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: data.allowedSlippageBps || 125,
+                        allowedSlippageBps: 125,
                     };
     
                     if (data.leverage) {
@@ -613,7 +612,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             payToken: data.payTokenAddress,
                             collateralToken: data.collateralTokenAddress,
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },
                         transactionHash: result?.transactionHash || null
                     };
@@ -649,7 +647,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
                 collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
                 limitPrice: z.string().describe("Limit price for the order in BigInt string with 30-decimal precision (e.g. '65000000000000000000000000000000000' for $65,000). Order executes when market price reaches this level or better."),
-                allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 125)"),
                 leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
             }),
             async handler(data, ctx, agent) {
@@ -712,7 +709,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: data.allowedSlippageBps || 125,
+                        allowedSlippageBps: 125,
                         limitPrice: BigInt(data.limitPrice) // Always include limit price for limit orders
                     };
     
@@ -766,7 +763,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             collateralToken: data.collateralTokenAddress,
                             limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2),
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },
                         transactionHash: result?.transactionHash || null
                     };
@@ -800,7 +796,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 payAmount: z.string().describe("Amount to pay in BigInt string format using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this for collateral-based position sizing."),
                 payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
                 collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
-                allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 125)"),
                 leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
             }),
             async handler(data, ctx, agent) {
@@ -842,7 +837,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: data.allowedSlippageBps || 125,
+                        allowedSlippageBps: 125,
                         payAmount: safeBigInt(data.payAmount),
                     };
     
@@ -889,7 +884,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             payToken: data.payTokenAddress,
                             collateralToken: data.collateralTokenAddress,
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },
                         transactionHash: result?.transactionHash || null
                     };
@@ -925,7 +919,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 payTokenAddress: z.string().describe("ERC20 token contract address you're paying with (e.g. '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' for USDC)"),
                 collateralTokenAddress: z.string().describe("ERC20 token contract address for collateral (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
                 limitPrice: z.string().describe("Limit price for the order in BigInt string with 30-decimal precision (e.g. '67000000000000000000000000000000000' for $67,000). Order executes when market price reaches this level or better."),
-                allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 125)"),
                 leverage: z.string().optional().describe("Leverage in basis points as BigInt string (e.g. '50000' = 5x, '10000' = 1x, '200000' = 20x). Optional for helper function."),
             }),
             async handler(data, ctx, agent) {
@@ -986,7 +979,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: data.allowedSlippageBps || 125,
+                        allowedSlippageBps: 125,
                         payAmount: safeBigInt(data.payAmount),
                         limitPrice: safeBigInt(data.limitPrice) // Always include limit price for limit orders
                     };
@@ -1035,7 +1028,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             collateralToken: data.collateralTokenAddress,
                             limitPrice: formatUsdAmount(BigInt(data.limitPrice), 2),
                             leverage: typeof leverageX === 'number' ? `${leverageX}x` : leverageX,
-                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                         },
                         transactionHash: result?.transactionHash || null
                     };
@@ -1069,7 +1061,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
         schema: z.object({
             marketAddress: z.string().describe("Market token address from get_positions response - must be the exact marketAddress field"),
             receiveTokenAddress: z.string().describe("Token address to receive proceeds in (typically USDC: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 or the collateral token)"),
-            allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (default: 100 = 1%)")
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1155,7 +1146,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 console.warn(`[CLOSE_POSITION] Position PnL: ${formatUsdAmount(calculatedPnl, 2)} - Proceeding with close`);
                                
                 // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
-                const slippageBps = data.allowedSlippageBps || 125;
+                const slippageBps = 125;
                     
                 // For longs: subtract slippage (willing to accept lower price)
                 // For shorts: add slippage (willing to accept higher price)
@@ -1214,7 +1205,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     marketInfo,
                     decreaseAmounts,
                     collateralToken,
-                    allowedSlippage: slippageBps,
+                    allowedSlippage: 125,
                     isLong: isLong,
                     referralCode: undefined,
                     isTrigger: false // Market order
@@ -1263,7 +1254,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         collateralReturned: formatTokenAmount(position.collateralAmount, collateralToken.decimals, 6),
                         receiveToken: receiveToken.symbol,
                         closePercentage: `100%`,
-                        slippage: `${slippageBps / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };
@@ -1297,7 +1287,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
             toTokenAddress: z.string().describe("ERC20 token address to receive (e.g. '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' for WETH)"),
             fromAmount: z.string().optional().describe("Amount to swap in BigInt string using token's native decimals (e.g. '1000000' for 1 USDC with 6 decimals). Use this when swapping FROM a stablecoin like USDC."),
             toAmount: z.string().optional().describe("Exact amount to receive in BigInt string using token's native decimals (e.g. '1000000000000000000' for 1 WETH with 18 decimals). Use this when you need exact output amount."),
-            allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (100 = 1%, range: 50-500, default: 100)"),
             triggerPrice: z.string().optional().describe("For limit swaps: price at which to execute swap in BigInt string with 30-decimal precision. Omit for market swaps.")
         }).refine(data => data.fromAmount || data.toAmount, {
             message: "Either fromAmount or toAmount must be specified"
@@ -1342,7 +1331,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const swapParams: any = {
                     fromTokenAddress: data.fromTokenAddress,
                     toTokenAddress: data.toTokenAddress,
-                    allowedSlippageBps: data.allowedSlippageBps || 125,
+                    allowedSlippageBps: 125,
                 };
 
                 // Add amount parameter (either fromAmount or toAmount)
@@ -1370,7 +1359,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             orderType,
                             fromAmount: data.fromAmount,
                             toAmount: data.toAmount,
-                            slippage: `${(data.allowedSlippageBps || 125) / 100}%`,
                             triggerPrice: data.triggerPrice ? `$${(Number(data.triggerPrice) / 1e30).toFixed(6)}` : undefined
                         });
 
@@ -1458,12 +1446,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // Set Take Profit Order
     action({
         name: "set_take_profit",
-        description: "Set a take profit order for an existing position. Creates a LimitDecrease order that executes when price reaches profit target.",
+        description: "Set a take profit order for an existing position. Creates a LimitDecrease order that executes when price reaches profit target. Specify percentage of position to close (1-100).",
         schema: z.object({
             marketAddress: z.string().describe("Market address of the position (from get_positions response)"),
             triggerPrice: z.string().describe("Price at which to take profit in BigInt string with 30-decimal precision (e.g. '67000000000000000000000000000000000' for $67,000)"),
-            sizeDeltaUsd: z.string().optional().describe("Position size to close in USD with 30-decimal precision. If not provided, closes entire position."),
-            allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (50 = 0.5%, default)")
+            percentage: z.number().min(1).max(100).describe("Percentage of position to close (1-100). Use 100 for full position close.")
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1534,8 +1521,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionSize: formatUsdAmount(position.sizeInUsd, 2)
                 });
                 
-                // Determine position size to close
-                const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
+                // Calculate position size to close based on percentage
+                const positionSizeUsd = data.percentage === 100 ? 
+                    position.sizeInUsd : 
+                    (position.sizeInUsd * BigInt(data.percentage)) / 100n;
                 
                 // Get collateral token
                 const collateralToken = tokensData[position.collateralTokenAddress];
@@ -1546,19 +1535,19 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 // Create comprehensive DecreaseAmounts object for take profit
                 const decreaseAmounts = {
                     // Core position data
-                    isFullClose: !data.sizeDeltaUsd, // Full close if no specific size provided
+                    isFullClose: data.percentage === 100,
                     sizeDeltaUsd: positionSizeUsd,
-                    sizeDeltaInTokens: data.sizeDeltaUsd ? 
-                        (position.sizeInTokens * BigInt(data.sizeDeltaUsd)) / position.sizeInUsd :
-                        position.sizeInTokens,
+                    sizeDeltaInTokens: data.percentage === 100 ?
+                        position.sizeInTokens :
+                        (position.sizeInTokens * BigInt(data.percentage)) / 100n,
                     collateralDeltaUsd: 0n, // Let SDK calculate
                     collateralDeltaAmount: 0n, // Let SDK calculate
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
-                    acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
-                    recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
+                    acceptablePriceDeltaBps: 125n,
+                    recommendedAcceptablePriceDeltaBps: 125n,
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
@@ -1608,7 +1597,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             marketInfo,
                             decreaseAmounts,
                             collateralToken,
-                            allowedSlippage: data.allowedSlippageBps || 125,
+                            allowedSlippage: 125,
                             isLong: isLong,
                             referralCode: undefined,
                             isTrigger: true // This is a trigger order
@@ -1639,11 +1628,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         orderType: 'Take Profit (LimitDecrease)',
                         triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
                         currentPrice: `$${currentPrice.toFixed(2)}`,
+                        percentage: `${data.percentage}%`,
                         sizeDeltaUsd: formatUsdAmount(positionSizeUsd, 2),
                         profitTarget: isLong ? 
                             `+${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%` :
                             `+${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%`,
-                        slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };
@@ -1671,12 +1660,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     // Set Stop Loss Order
     action({
         name: "set_stop_loss",
-        description: "Set a stop loss order for an existing position. Creates a StopLossDecrease order that executes when price reaches stop loss level.",
+        description: "Set a stop loss order for an existing position. Creates a StopLossDecrease order that executes when price reaches stop loss level. Specify percentage of position to close (1-100).",
         schema: z.object({
             marketAddress: z.string().describe("Market address of the position (from get_positions response)"),
             triggerPrice: z.string().describe("Price at which to stop loss in BigInt string with 30-decimal precision (e.g. '63000000000000000000000000000000000' for $63,000)"),
-            sizeDeltaUsd: z.string().optional().describe("Position size to close in USD with 30-decimal precision. If not provided, closes entire position."),
-            allowedSlippageBps: z.number().optional().default(125).describe("Allowed slippage in basis points (50 = 0.5%, default)")
+            percentage: z.number().min(1).max(100).describe("Percentage of position to close (1-100). Use 100 for full position close.")
         }),
         async handler(data, ctx, agent) {
             try {
@@ -1747,8 +1735,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     positionSize: formatUsdAmount(position.sizeInUsd, 2)
                 });
                 
-                // Determine position size to close
-                const positionSizeUsd = data.sizeDeltaUsd ? BigInt(data.sizeDeltaUsd) : position.sizeInUsd;
+                // Calculate position size to close based on percentage
+                const positionSizeUsd = data.percentage === 100 ? 
+                    position.sizeInUsd : 
+                    (position.sizeInUsd * BigInt(data.percentage)) / 100n;
                 
                 // Get collateral token
                 const collateralToken = tokensData[position.collateralTokenAddress];
@@ -1769,8 +1759,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
-                    acceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
-                    recommendedAcceptablePriceDeltaBps: BigInt(data.allowedSlippageBps || 125),
+                    acceptablePriceDeltaBps: 125n,
+                    recommendedAcceptablePriceDeltaBps: 125n,
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
@@ -1813,7 +1803,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             marketInfo,
                             decreaseAmounts,
                             collateralToken,
-                            allowedSlippage: data.allowedSlippageBps || 125,
+                            allowedSlippage: 125,
                             isLong: isLong,
                             referralCode: undefined,
                             isTrigger: true // This is a trigger order
@@ -1843,11 +1833,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         orderType: 'Stop Loss (StopLossDecrease)',
                         triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
                         currentPrice: `$${currentPrice.toFixed(2)}`,
+                        percentage: `${data.percentage}%`,
                         sizeDeltaUsd: formatUsdAmount(positionSizeUsd, 2),
                         maxLoss: isLong ? 
                             `-${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%` :
                             `-${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%`,
-                        slippage: `${(data.allowedSlippageBps || 125) / 100}%`
                     },
                     transactionHash: result?.transactionHash || null
                 };

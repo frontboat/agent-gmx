@@ -364,7 +364,7 @@ After each trade:
 - Are any positions showing signs of reversal?
 - How good is my entry?
 - Are any positions profitable enough to move the stop loss to breakeven? If yes, cancel the current stop loss and create a new one just above breakeven.
-- Close positions should only be used as a last resort
+- Close positions **MUST ONLY** be used as a last resort, trust the original setup.
 
 **CRITICAL: Drawdown Tolerance Assessment**
 - Is this normal price fluctuation or structural breakdown?

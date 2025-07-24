@@ -19,6 +19,9 @@ import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, 
 import { EnhancedDataCache } from './gmx-cache';
 import { transactionQueue } from './transaction-queue';
 
+// Fixed slippage constant (1.25%)
+const FIXED_SLIPPAGE_BPS = 125;
+
 export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) {
     return [
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -561,7 +564,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: 125,
+                        allowedSlippageBps: FIXED_SLIPPAGE_BPS,
                     };
     
                     if (data.leverage) {
@@ -709,7 +712,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: 125,
+                        allowedSlippageBps: FIXED_SLIPPAGE_BPS,
                         limitPrice: BigInt(data.limitPrice) // Always include limit price for limit orders
                     };
     
@@ -837,7 +840,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: 125,
+                        allowedSlippageBps: FIXED_SLIPPAGE_BPS,
                         payAmount: safeBigInt(data.payAmount),
                     };
     
@@ -979,7 +982,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                         marketAddress: data.marketAddress,
                         payTokenAddress: data.payTokenAddress,
                         collateralTokenAddress: data.collateralTokenAddress,
-                        allowedSlippageBps: 125,
+                        allowedSlippageBps: FIXED_SLIPPAGE_BPS,
                         payAmount: safeBigInt(data.payAmount),
                         limitPrice: safeBigInt(data.limitPrice) // Always include limit price for limit orders
                     };
@@ -1138,15 +1141,15 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 });
                 
                 // Check if PnL is positive
-                if (calculatedPnl <= 5n) {
+                if (calculatedPnl <= 0n) {
                     const pnlFormatted = formatUsdAmount(calculatedPnl, 2);
-                    throw new Error(`Cannot close position with negative PnL (${pnlFormatted}). Position must be in small profit to close.`);
+                    throw new Error(`Cannot close position with negative PnL (${pnlFormatted}). Position must be in profit to close.`);
                 }
                 
                 console.warn(`[CLOSE_POSITION] Position PnL: ${formatUsdAmount(calculatedPnl, 2)} - Proceeding with close`);
                                
                 // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
-                const slippageBps = 125;
+                const slippageBps = FIXED_SLIPPAGE_BPS;
                     
                 // For longs: subtract slippage (willing to accept lower price)
                 // For shorts: add slippage (willing to accept higher price)
@@ -1205,7 +1208,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     marketInfo,
                     decreaseAmounts,
                     collateralToken,
-                    allowedSlippage: 125,
+                    allowedSlippage: FIXED_SLIPPAGE_BPS,
                     isLong: isLong,
                     referralCode: undefined,
                     isTrigger: false // Market order
@@ -1331,7 +1334,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 const swapParams: any = {
                     fromTokenAddress: data.fromTokenAddress,
                     toTokenAddress: data.toTokenAddress,
-                    allowedSlippageBps: 125,
+                    allowedSlippageBps: FIXED_SLIPPAGE_BPS,
                 };
 
                 // Add amount parameter (either fromAmount or toAmount)
@@ -1546,8 +1549,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
-                    acceptablePriceDeltaBps: 125n,
-                    recommendedAcceptablePriceDeltaBps: 125n,
+                    acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
+                    recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
@@ -1597,7 +1600,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             marketInfo,
                             decreaseAmounts,
                             collateralToken,
-                            allowedSlippage: 125,
+                            allowedSlippage: FIXED_SLIPPAGE_BPS,
                             isLong: isLong,
                             referralCode: undefined,
                             isTrigger: true // This is a trigger order
@@ -1748,19 +1751,19 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 // Create comprehensive DecreaseAmounts object for stop loss
                 const decreaseAmounts = {
-                    isFullClose: !data.sizeDeltaUsd, // Full close if no specific size provided
+                    isFullClose: data.percentage === 100,
                     sizeDeltaUsd: positionSizeUsd,
-                    sizeDeltaInTokens: data.sizeDeltaUsd ? 
-                        (position.sizeInTokens * BigInt(data.sizeDeltaUsd)) / position.sizeInUsd :
-                        position.sizeInTokens,
+                    sizeDeltaInTokens: data.percentage === 100 ?
+                        position.sizeInTokens :
+                        (position.sizeInTokens * BigInt(data.percentage)) / 100n,
                     collateralDeltaUsd: 0n, // Let SDK calculate
                     collateralDeltaAmount: 0n, // Let SDK calculate
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: BigInt(data.triggerPrice),
-                    acceptablePriceDeltaBps: 125n,
-                    recommendedAcceptablePriceDeltaBps: 125n,
+                    acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
+                    recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
                     estimatedPnlPercentage: 0n,
                     realizedPnl: 0n,
@@ -1803,7 +1806,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                             marketInfo,
                             decreaseAmounts,
                             collateralToken,
-                            allowedSlippage: 125,
+                            allowedSlippage: FIXED_SLIPPAGE_BPS,
                             isLong: isLong,
                             referralCode: undefined,
                             isTrigger: true // This is a trigger order

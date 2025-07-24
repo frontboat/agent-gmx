@@ -22,6 +22,9 @@ import { transactionQueue } from './transaction-queue';
 // Fixed slippage constant (1.25%)
 const FIXED_SLIPPAGE_BPS = 125;
 
+// Fixed price impact for take profit/stop loss orders (0.3%)
+const FIXED_PRICE_IMPACT_BPS = 30;
+
 export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) {
     return [
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -573,7 +576,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     
                     console.warn('OPEN_LONG_MARKET', 'Helper params prepared', helperParams);
     
-                    const result = await transactionQueue.enqueueWriteTransaction(
+                    const result = await transactionQueue.enqueuePositionWrite(
                         "open_long_market",
                         async () => {
                             console.warn('OPEN_LONG_MARKET', 'Executing long market order transaction', { 
@@ -722,7 +725,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.warn('OPEN_LONG_LIMIT', 'Helper params prepared', helperParams);
     
-                    const result = await transactionQueue.enqueueWriteTransaction(
+                    const result = await transactionQueue.enqueuePositionWrite(
                         "open_long_limit",
                         async () => {
                             console.warn('OPEN_LONG_LIMIT', 'Executing long limit order transaction', { 
@@ -850,7 +853,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.warn('OPEN_SHORT', 'Helper params prepared', helperParams);
     
-                    const result = await transactionQueue.enqueueWriteTransaction(
+                    const result = await transactionQueue.enqueuePositionWrite(
                         "open_short_market",
                         async () => {
                             console.warn('OPEN_SHORT', 'Executing short position transaction', { 
@@ -993,7 +996,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     console.warn('OPEN_SHORT_LIMIT', 'Helper params prepared', helperParams);
     
-                    const result = await transactionQueue.enqueueWriteTransaction(
+                    const result = await transactionQueue.enqueuePositionWrite(
                         "open_short_limit",
                         async () => {
                             console.warn('OPEN_SHORT_LIMIT', 'Executing short limit order transaction', { 
@@ -1187,7 +1190,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: 0n,
+                    positionPriceImpactDeltaUsd: (position.sizeInUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,
@@ -1562,7 +1565,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: 0n,
+                    positionPriceImpactDeltaUsd: (positionSizeUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,
@@ -1775,7 +1778,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: 0n,
+                    positionPriceImpactDeltaUsd: (positionSizeUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,

@@ -791,7 +791,7 @@ const gmxContext = context({
                 // Initial run
                 eventMonitor();
                 
-                const interval = setInterval(eventMonitor, 60000); // 1 minute checks
+                const interval = setInterval(eventMonitor, 300000); // 5 minute checks
                 
                 console.warn("✅ Event monitor subscription setup complete");
                 return () => {

@@ -27,6 +27,7 @@ import { createGmxWalletFromEnv } from './gmx-wallet';
 import { EnhancedDataCache } from './gmx-cache';
 import { get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
 import { fetchVolatilityDialRaw, extractVolatilityData } from "./synth-utils";
+import { extractPercentileFromSynthAnalysis, extractPositionCount, isInCooldown, getVolatilityThresholds } from "./gmx-utils";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -60,42 +61,6 @@ const { sdk, walletClient, account, chainConfig } = createGmxWalletFromEnv(env);
 
 // Create enhanced data cache
 const gmxDataCache = new EnhancedDataCache(sdk);
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 🔧 HELPER FUNCTIONS FOR EVENT-DRIVEN MONITORING
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Extract percentile value from Synth analysis string
-function extractPercentileFromSynthAnalysis(synthAnalysis: string): number | null {
-    const match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
-}
-
-// Extract position count from positions string
-function extractPositionCount(positionsStr: string): number {
-    if (!positionsStr || positionsStr.includes('No positions')) return 0;
-    const matches = positionsStr.match(/Position \d+:/g);
-    return matches ? matches.length : 0;
-}
-
-// Check if a Synth signal is in cooldown period (30 minutes)
-function isInCooldown(
-    asset: 'BTC' | 'ETH', 
-    triggerType: 'LONG' | 'SHORT',
-    lastTriggerTimestamp?: number,
-    lastTriggerType?: string
-): boolean {
-    const COOLDOWN_MS = 1800000; // 30 minutes
-    const now = Date.now();
-    
-    if (!lastTriggerTimestamp || !lastTriggerType) return false;
-    
-    // Only apply cooldown if same asset and same signal type
-    const isSameSignal = lastTriggerType === triggerType;
-    const isInCooldownPeriod = (now - lastTriggerTimestamp) < COOLDOWN_MS;
-    
-    return isSameSignal && isInCooldownPeriod;
-}
 
 // Trigger a trading cycle with context update and proper memory state tracking
 async function triggerTradingCycle(send: any, reason: string, eventType: string, stateUpdates?: {
@@ -266,7 +231,7 @@ I am Vega, an elite autonomous crypto trader competing in a high-stakes trading 
 
 ## 🧠 Synth AI Framework
 
-**Core Logic:** P23 = 23% of top 10 AI miners predict price BELOW current level in next 24h. Lower percentile = more upside potential.
+**Core Logic:** P23 = 23% of top 10 AI miners predict price BELOW current level. Lower percentile = more upside potential.
 
 **Signal Hierarchy:**
 - **EXTREME (P≤0.5, P≥99.5)**: Maximum size, minimal stop risk
@@ -719,22 +684,6 @@ const gmxContext = context({
                 let lastBtcTriggerType: string | undefined = undefined;
                 let lastEthTriggerType: string | undefined = undefined;
                 
-                // Helper function to get volatility-based thresholds
-                const getVolatilityThresholds = (volatilityPercent: number): { lowThreshold: number, highThreshold: number } => {
-                    if (volatilityPercent < 25) {
-                        // Low volatility: P20/P80
-                        return { lowThreshold: 20, highThreshold: 80 };
-                    } else if (volatilityPercent < 40) {
-                        // Standard volatility: P15/P85
-                        return { lowThreshold: 15, highThreshold: 85 };
-                    } else if (volatilityPercent < 60) {
-                        // High volatility: P10/P90
-                        return { lowThreshold: 10, highThreshold: 90 };
-                    } else {
-                        // Very high volatility: P5/P95
-                        return { lowThreshold: 5, highThreshold: 95 };
-                    }
-                };
                 
                 const eventMonitor = async () => {
                     try {
@@ -881,7 +830,7 @@ const gmxContext = context({
                 text: z.string(),
             }),
             subscribe: (send) => {
-                let nextScheduledTime = Date.now() + 1800000; // 30 minutes from now
+                let nextScheduledTime = Date.now() + 300000; // First scheduled cycle happens 5 minutes from now
                 
                 const scheduledCycle = async () => {
                     const now = Date.now();
@@ -990,7 +939,7 @@ await agent.start({
     lastSynthEthPercentile: undefined,
     lastPositionCount: undefined,
     lastCycleTimestamp: undefined,
-    nextScheduledCycle: Date.now() + 300000, // First scheduled cycle in 5 minutes
+    nextScheduledCycle: undefined,
     // Initialize cooldown tracking
     lastSynthBtcTrigger: undefined,
     lastSynthEthTrigger: undefined,

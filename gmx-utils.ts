@@ -263,6 +263,59 @@ export function getTradeActionDescriptionEnhanced(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 HELPER FUNCTIONS FOR EVENT-DRIVEN MONITORING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Extract percentile value from Synth analysis string
+export function extractPercentileFromSynthAnalysis(synthAnalysis: string): number | null {
+    const match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+}
+
+// Extract position count from positions string
+export function extractPositionCount(positionsStr: string): number {
+    if (!positionsStr || positionsStr.includes('No positions')) return 0;
+    const matches = positionsStr.match(/Position \d+:/g);
+    return matches ? matches.length : 0;
+}
+
+// Check if a Synth signal is in cooldown period (30 minutes)
+export function isInCooldown(
+    asset: 'BTC' | 'ETH', 
+    triggerType: 'LONG' | 'SHORT',
+    lastTriggerTimestamp?: number,
+    lastTriggerType?: string
+): boolean {
+    const COOLDOWN_MS = 1800000; // 30 minutes
+    const now = Date.now();
+    
+    if (!lastTriggerTimestamp || !lastTriggerType) return false;
+    
+    // Only apply cooldown if same asset and same signal type
+    const isSameSignal = lastTriggerType === triggerType;
+    const isInCooldownPeriod = (now - lastTriggerTimestamp) < COOLDOWN_MS;
+    
+    return isSameSignal && isInCooldownPeriod;
+}
+
+// Get volatility-based activation thresholds
+export function getVolatilityThresholds(volatilityPercent: number): { lowThreshold: number, highThreshold: number } {
+    if (volatilityPercent < 25) {
+        // Low volatility: P20/P80 (wider thresholds, filter noise)
+        return { lowThreshold: 20, highThreshold: 80 };
+    } else if (volatilityPercent < 40) {
+        // Standard volatility: P15/P85
+        return { lowThreshold: 15, highThreshold: 85 };
+    } else if (volatilityPercent < 60) {
+        // High volatility: P10/P90
+        return { lowThreshold: 10, highThreshold: 90 };
+    } else {
+        // Very high volatility: P5/P95 (tighter thresholds, catch real moves)
+        return { lowThreshold: 5, highThreshold: 95 };
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 📊 TRADING PERFORMANCE METRICS
 // ═══════════════════════════════════════════════════════════════════════════════
 

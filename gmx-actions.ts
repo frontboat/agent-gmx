@@ -1154,11 +1154,11 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
                 const slippageBps = FIXED_SLIPPAGE_BPS;
                     
-                // For longs: subtract slippage (willing to accept lower price)
-                // For shorts: add slippage (willing to accept higher price)
+                // For longs: subtract price impact buffer (willing to accept lower price)
+                // For shorts: add price impact buffer (willing to accept higher price)
                 const acceptablePrice = isLong ? 
-                    markPrice - (markPrice * BigInt(slippageBps) / 10000n) :
-                    markPrice + (markPrice * BigInt(slippageBps) / 10000n);
+                    markPrice - (markPrice * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                    markPrice + (markPrice * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n);
                 
                 const collateralPrice = collateralToken.prices?.minPrice || 0n;
                 const collateralDeltaUsd = convertToUsd(
@@ -1190,7 +1190,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: (position.sizeInUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
+                    positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,
@@ -1551,7 +1551,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
-                    acceptablePrice: BigInt(data.triggerPrice),
+                    acceptablePrice: isLong ? 
+                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
                     acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
@@ -1565,7 +1567,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: (positionSizeUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
+                    positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,
@@ -1764,7 +1766,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     indexPrice: position.markPrice || 0n,
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
-                    acceptablePrice: BigInt(data.triggerPrice),
+                    acceptablePrice: isLong ? 
+                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
                     acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
@@ -1778,7 +1782,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     borrowingFeeUsd: 0n,
                     fundingFeeUsd: 0n,
                     swapProfitFeeUsd: 0n,
-                    positionPriceImpactDeltaUsd: (positionSizeUsd * BigInt(FIXED_PRICE_IMPACT_BPS)) / 10000n,
+                    positionPriceImpactDeltaUsd: 0n,
                     priceImpactDiffUsd: 0n,
                     payedRemainingCollateralAmount: 0n,
                     payedOutputUsd: 0n,

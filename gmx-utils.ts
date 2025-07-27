@@ -304,14 +304,14 @@ export function getVolatilityThresholds(volatilityPercent: number): { lowThresho
         // Low volatility: P20/P80 (wider thresholds, filter noise)
         return { lowThreshold: 20, highThreshold: 80 };
     } else if (volatilityPercent < 40) {
-        // Standard volatility: P15/P85
-        return { lowThreshold: 15, highThreshold: 85 };
-    } else if (volatilityPercent < 60) {
-        // High volatility: P10/P90
+        // Standard volatility: P10/P90
         return { lowThreshold: 10, highThreshold: 90 };
-    } else {
-        // Very high volatility: P5/P95 (tighter thresholds, catch real moves)
+    } else if (volatilityPercent < 60) {
+        // High volatility: P5/P95
         return { lowThreshold: 5, highThreshold: 95 };
+    } else {
+        // Very high volatility: P0.5/P99.5 (tighter thresholds, catch real moves)
+        return { lowThreshold: 0.5, highThreshold: 99.5 };
     }
 }
 

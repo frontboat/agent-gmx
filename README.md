@@ -14,6 +14,7 @@ Vega is an autonomous AI-powered trading agent for GMX perpetual futures on Arbi
 ### Enhanced Safety
 - **Failsafe Validations**: Price direction validation for all take profit/stop loss orders
 - **Error Prevention**: Pre-validation eliminates common trading mistakes
+- **Dynamic Leverage Management**: Adjusts position sizes based on market volatility
 
 ### AI Intelligence
 - **Synth AI Integration**: Decentralized AI miner predictions for BTC/ETH
@@ -23,10 +24,11 @@ Vega is an autonomous AI-powered trading agent for GMX perpetual futures on Arbi
 - **Momentum Confluence**: Aligns multiple timeframes for high-probability setups
 
 ### Performance Optimization
-- **Enhanced Caching**: 85% reduction in API calls
-- **Request Deduplication**: Prevents concurrent duplicate API calls
-- **Cache Invalidation**: Strategic cache clearing after write operations
-- **Transaction Queue**: 3-second delays prevent nonce errors
+- **Advanced Caching System**: 5-minute TTL cache with promise deduplication prevents redundant API calls
+- **Smart Data Loading**: Context-based data loading with cache-first architecture
+- **Request Deduplication**: Prevents concurrent duplicate API calls at cache level
+- **Transaction Queue**: Sequential execution prevents nonce errors
+- **Optimized Trading Cycles**: Event-driven architecture with intelligent triggers
 
 ## 📋 Quick Start
 
@@ -109,10 +111,12 @@ bun run dev
 - **agent-gmx.ts** - Main agent with Vega personality and trading cycle
 - **gmx-actions.ts** - All trading actions with GMX SDK integration
 - **gmx-queries.ts** - Market data queries and Synth AI analysis
-- **gmx-cache.ts** - Enhanced caching system with TTL and deduplication
+- **gmx-cache.ts** - High-performance caching system with 5-minute TTL and promise deduplication
 - **gmx-utils.ts** - Financial calculations and BigInt precision utilities
 - **gmx-wallet.ts** - Wallet initialization and network configuration
+- **synth-utils.ts** - Synth AI integration for volatility and predictions
 - **transaction-queue.ts** - Sequential transaction execution management
+- **gmx-types.ts** - TypeScript type definitions for GMX data structures
 
 ### Design Patterns
 - **AI-First Data Formatting**: All data returned as AI-readable strings
@@ -157,6 +161,7 @@ bun run agent-gmx.ts
 2. **agent-gmx.ts** - Main entry point and agent configuration
 3. **gmx-actions.ts** - All trading logic and risk management
 4. **gmx-queries.ts** - Market data and AI analysis functions
+5. **gmx-cache.ts** - High-performance caching system for optimal data access
 
 ## 📝 License
 

@@ -51,11 +51,11 @@ bun run agent-gmx.ts
    - Position sizing, PnL calculations, liquidation prices
    - Risk management calculations
 
-5. **gmx-cache.ts** - Enhanced data caching system
-   - Multi-level caching with TTL (Time To Live) for different data types
-   - Request deduplication for concurrent API calls
-   - Cache invalidation strategies after write operations
-   - Reduces API calls by 85% (from 25-35 to 4-6 per trading cycle)
+5. **gmx-cache.ts** - High-performance caching system with promise deduplication
+   - Handles multi-level caching with 5-minute TTL for all GMX data types
+   - Prevents concurrent duplicate API calls with promise deduplication
+   - Used by all query functions for optimal data access and reduced latency
+   - Includes comprehensive cache management and status monitoring
 
 6. **transaction-queue.ts** - Sequential transaction execution
    - Singleton pattern for managing blockchain transactions
@@ -67,16 +67,23 @@ bun run agent-gmx.ts
    - Supports Arbitrum and Avalanche networks
    - Validates private keys, addresses, and chain configurations
 
+8. **synth-utils.ts** - Synth AI integration utilities
+   - Volatility dial data fetching and parsing
+   - Past percentile data analysis for BTC/ETH
+   - Consolidated prediction formatting for AI consumption
+   - Risk percentile calculations based on market conditions
+
 ### Key Design Patterns
 
 - **AI-First Data Formatting**: All data returned as formatted strings, not objects
 - **Action-Based Architecture**: Modular actions with consistent structure
-- **Cache-First Approach**: All SDK calls use cache when available with fallback to SDK
+- **Cache-First Data Access**: High-performance caching with 5-minute TTL and promise deduplication
 - **Sequential Transaction Execution**: Write operations queued with delays to prevent nonce errors
 - **Memory System**: Tracks positions, trades, and performance metrics
 - **Error Resilience**: Comprehensive error handling with detailed logging
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms with failsafe validations
 - **Intelligent Analysis**: Advanced Synth AI integration with momentum analysis and dynamic levels
+- **Event-Driven Trading**: Multiple trigger types (scheduled, Synth alerts, user input)
 
 ## Development Requirements
 
@@ -114,10 +121,12 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 2. **ES Modules**: Use import/export syntax, not require() (specified in package.json)
 3. **BigInt for Precision**: All financial values use BigInt to avoid floating-point precision issues
 4. **Async/Await**: All blockchain operations are asynchronous and use proper error handling
-5. **Cache-First Data Access**: Always use cache when available, fallback to SDK only when cache unavailable
+5. **Cache-First Data Access**: All query functions use cache for optimal performance and reduced API calls
 6. **Sequential Write Operations**: All write transactions must use the transaction queue to prevent nonce errors
 7. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
 8. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
+9. **Dynamic Leverage**: Position sizes adjusted based on volatility (higher volatility = lower leverage)
+10. **Synth Percentile Triggers**: Extreme market conditions (>90th or <10th percentile) trigger immediate trading cycles
 
 ## Trading Action Pattern
 
@@ -132,8 +141,9 @@ When adding new trading actions to `gmx-actions.ts`:
       console.log('[Action] Starting actionName');
       let memory = ctx.memory as GmxMemory;
       
-      // Use cache-first approach for read operations
-      const cachedData = gmxDataCache ? await gmxDataCache.getSomeData() : await sdk.getSomeData();
+      // Access data from cache (passed via createGmxActions)
+      const marketsResult = await gmxDataCache.getMarketsInfo();
+      const { marketsInfoData, tokensData } = marketsResult;
       
       // For write operations, use transaction queue
       if (isWriteOperation) {
@@ -142,8 +152,7 @@ When adding new trading actions to `gmx-actions.ts`:
           async () => await sdk.doSomething()
         );
         
-        // Invalidate relevant caches after write operations
-        gmxDataCache?.invalidatePositions();
+        // Cache will provide fresh data on next access
         
         return `Success: ${result}`;
       }
@@ -178,30 +187,33 @@ When adding new trading actions to `gmx-actions.ts`:
 - **Synth AI**: Real-time market predictions from decentralized AI miners
 - **Supabase**: Persistent memory storage and vector storage for semantic memory
 
-## Cache System Architecture
+## Cache-First Data Architecture
 
-The caching system is designed to minimize API calls and improve performance:
+All data access uses the high-performance caching system:
 
-### Cache Types
-- **Markets Cache**: TTL 5 minutes - stores market info and token data
-- **Position Cache**: TTL 5 minutes - stores position data 
-- **Position Info Cache**: TTL 5 minutes - stores enhanced position info
-- **Synth Cache**: TTL 5 minutes - stores consolidated AI prediction arrays per asset
-
-### Cache Usage Pattern
+### Cache Initialization
 ```typescript
-// Always use cache-first approach
-const data = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo();
-
-// Invalidate cache after write operations
-gmxDataCache?.invalidatePositions(); // After position changes
-gmxDataCache?.invalidateAll(); // After major state changes
+// In agent-gmx.ts - initialize cache with SDK
+const gmxDataCache = new EnhancedDataCache(sdk);
+const gmxActions = createGmxActions(sdk, gmxDataCache);
 ```
 
-### Request Deduplication
-- Prevents concurrent duplicate API calls
-- Returns same promise for concurrent requests
-- Automatically handles race conditions
+### Data Access Pattern
+```typescript
+// In any query function or action
+const marketsResult = await gmxDataCache.getMarketsInfo();
+const { marketsInfoData, tokensData } = marketsResult;
+
+// Cache automatically handles TTL and promise deduplication
+const positionsResult = await gmxDataCache.getPositions(marketsInfoData, tokensData);
+```
+
+### Benefits
+- 5-minute TTL prevents redundant API calls
+- Promise deduplication prevents concurrent requests for same data
+- Automatic cache invalidation and refresh
+- Reduced latency and improved performance
+- Consistent data across all functions within TTL window
 
 ## Transaction Queue System
 
@@ -213,16 +225,16 @@ await transactionQueue.enqueueWriteTransaction('operation_name', async () => {
   return await sdk.doWriteOperation();
 });
 
-// Read operations immediately after writes
+// Read operations immediately after writes (if needed within same cycle)
 await transactionQueue.enqueueReadAfterWrite('get_fresh_data', async () => {
-  return await gmxDataCache.getPositions(marketsData, tokensData, true); // forceRefresh = true
+  return await sdk.positions.getPositions({marketsData, tokensData});
 });
 ```
 
 ## Enhanced Risk Management System
 
-### Failsafe Validations (v1.69+)
-All take profit and stop loss actions now include comprehensive failsafe mechanisms:
+### Failsafe Validations
+All take profit and stop loss actions include comprehensive failsafe mechanisms:
 
 #### Take Profit Failsafes:
 - **Price Direction Validation**: LONG positions require TP price > current price, SHORT positions require TP price < current price
@@ -248,7 +260,7 @@ if (isLong && triggerPriceBigInt < markPrice + minimumDistance) {
 
 ## Advanced Synth AI Integration
 
-### Intelligent Analysis System (v1.68+)
+### Intelligent Analysis System
 The `get_synth_analysis_str` function provides comprehensive market intelligence:
 
 #### Multi-Timeframe Momentum Analysis:
@@ -287,15 +299,16 @@ BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level
 - **Error Handling**: Comprehensive error logging with context
 - **Failsafe Logging**: Detailed validation error messages for debugging risk management
 
-## Recent Upgrades (v1.68-v1.69)
+## Recent Architectural Changes
 
-### Version 1.69 - Enhanced Safety
-- **Failsafe Limit Orders**: Complete validation system for all order types
-- **Risk Management**: Comprehensive stop/take profit validations
-- **Error Prevention**: Eliminates common trading errors through pre-validation
+### Advanced Caching System Implementation
+- **High-Performance Cache**: Implemented comprehensive caching with 5-minute TTL across all data types
+- **Promise Deduplication**: Prevents concurrent duplicate API calls for optimal performance
+- **Cache-First Architecture**: All query functions and actions use cache for data access
+- **Simplified Integration**: Clean separation between data fetching and string formatting
 
-### Version 1.68 - Intelligent Analysis  
-- **Synth AI Integration**: Advanced analysis with momentum and confluence
-- **Dynamic Levels**: Prediction-based stops and targets
-- **Smart Setup Detection**: Logical trade quality assessment
-- **Architectural Cleanup**: Optimized data flow and reduced circular dependencies
+### Enhanced Trading Intelligence
+- **Dynamic Leverage**: Position sizes adjust based on market volatility
+- **Synth Percentile Triggers**: Extreme market conditions trigger immediate trading cycles
+- **Multi-Event System**: Scheduled, Synth-based, and user-input triggers
+- **Volatility-Based Risk Management**: Higher volatility = lower leverage automatically

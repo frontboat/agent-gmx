@@ -6,6 +6,7 @@ import { action } from "@daydreamsai/core";
 import { z } from "zod/v4";
 import type { GmxSdk } from "@gmx-io/sdk";
 import type { GmxMemory } from './gmx-types';
+import type { EnhancedDataCache } from './gmx-cache';
 import { 
     USD_DECIMALS, 
     bigIntToDecimal, 
@@ -13,10 +14,10 @@ import {
     formatUsdAmount,
     convertToUsd,
     safeBigInt,
-    calculatePositionPnl
+    calculatePositionPnl,
+    sleep
 } from './gmx-utils';
-import { get_portfolio_balance_str, get_positions_str, get_btc_eth_markets_str, get_tokens_data_str, get_daily_volumes_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from './gmx-queries';
-import { EnhancedDataCache } from './gmx-cache';
+import { get_positions_str, get_portfolio_balance_str, get_orders_str } from './gmx-queries';
 import { transactionQueue } from './transaction-queue';
 
 // Fixed slippage constant (1%)
@@ -25,434 +26,163 @@ const FIXED_SLIPPAGE_BPS = 100;
 // Fixed price impact for take profit/stop loss orders (0.3%)
 const FIXED_PRICE_IMPACT_BPS = 30;
 
-export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) {
+// Delay after write operations before fetching fresh data (10 seconds)
+const MEMORY_UPDATE_DELAY_MS = 10000;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔄 MEMORY UPDATE UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Update positions in memory after position-affecting writes
+ * Forces cache invalidation for fresh data
+ */
+export async function updatePositionsMemory(
+    memory: GmxMemory, 
+    gmxDataCache: EnhancedDataCache
+): Promise<GmxMemory> {
+    try {
+        console.warn('[MemoryUpdate] Waiting 10s for blockchain state to settle...');
+        await sleep(MEMORY_UPDATE_DELAY_MS);
+        
+        console.warn('[MemoryUpdate] Invalidating position cache for fresh data');
+        
+        // Force cache invalidation for positions
+        gmxDataCache.invalidatePositions();
+        
+        // Get fresh data (cache will be refreshed due to invalidation)
+        console.warn('[MemoryUpdate] Fetching fresh position and portfolio data');
+        const [freshPositions, freshPortfolio] = await Promise.all([
+            get_positions_str(gmxDataCache),
+            get_portfolio_balance_str(gmxDataCache)
+        ]);
+        
+        console.warn('[MemoryUpdate] Position memory updated successfully');
+        
+        return {
+            ...memory,
+            positions: freshPositions,
+            portfolio: freshPortfolio,
+            lastResult: `Position data refreshed after write operation`,
+            currentTask: memory.currentTask
+        };
+        
+    } catch (error) {
+        console.error('[MemoryUpdate] Failed to update position memory:', error);
+        return memory; // Return unchanged memory on failure
+    }
+}
+
+/**
+ * Update orders in memory after order-affecting writes
+ * Orders are NOT cached, so we fetch fresh data directly
+ */
+export async function updateOrdersMemory(
+    memory: GmxMemory,
+    sdk: GmxSdk,
+    gmxDataCache: EnhancedDataCache
+): Promise<GmxMemory> {
+    try {
+        console.warn('[MemoryUpdate] Waiting 10s for blockchain state to settle...');
+        await sleep(MEMORY_UPDATE_DELAY_MS);
+        
+        console.warn('[MemoryUpdate] Fetching fresh order data (not cached)');
+        
+        // Orders are fetched directly from SDK, not cached
+        const freshOrders = await get_orders_str(sdk, gmxDataCache);
+        
+        console.warn('[MemoryUpdate] Order memory updated successfully');
+        
+        return {
+            ...memory,
+            orders: freshOrders,
+            lastResult: `Order data refreshed after write operation`,
+            currentTask: memory.currentTask
+        };
+        
+    } catch (error) {
+        console.error('[MemoryUpdate] Failed to update order memory:', error);
+        return memory;
+    }
+}
+
+/**
+ * Update portfolio (token balances) after swaps or position changes
+ */
+export async function updatePortfolioMemory(
+    memory: GmxMemory,
+    gmxDataCache: EnhancedDataCache
+): Promise<GmxMemory> {
+    try {
+        console.warn('[MemoryUpdate] Waiting 10s for blockchain state to settle...');
+        await sleep(MEMORY_UPDATE_DELAY_MS);
+        
+        console.warn('[MemoryUpdate] Invalidating token cache for fresh portfolio data');
+        
+        // Force cache invalidation for tokens
+        gmxDataCache.invalidateTokens();
+        
+        const freshPortfolio = await get_portfolio_balance_str(gmxDataCache);
+        
+        console.warn('[MemoryUpdate] Portfolio memory updated successfully');
+        
+        return {
+            ...memory,
+            portfolio: freshPortfolio,
+            lastResult: `Portfolio data refreshed after write operation`,
+            currentTask: memory.currentTask
+        };
+        
+    } catch (error) {
+        console.error('[MemoryUpdate] Failed to update portfolio memory:', error);
+        return memory;
+    }
+}
+
+/**
+ * Update multiple memory fields after complex operations like position close
+ */
+export async function updateMemoryAfterClose(
+    memory: GmxMemory,
+    sdk: GmxSdk,
+    gmxDataCache: EnhancedDataCache
+): Promise<GmxMemory> {
+    try {
+        console.warn('[MemoryUpdate] Waiting 10s for blockchain state to settle...');
+        await sleep(MEMORY_UPDATE_DELAY_MS);
+        
+        console.warn('[MemoryUpdate] Updating all relevant data after position close');
+        
+        // Invalidate position and token caches
+        gmxDataCache.invalidatePositions();
+        gmxDataCache.invalidateTokens();
+        
+        // Fetch all updated data in parallel
+        const [freshPositions, freshPortfolio, freshOrders] = await Promise.all([
+            get_positions_str(gmxDataCache),
+            get_portfolio_balance_str(gmxDataCache),
+            get_orders_str(sdk, gmxDataCache)
+        ]);
+        
+        console.warn('[MemoryUpdate] All memory fields updated successfully after close');
+        
+        return {
+            ...memory,
+            positions: freshPositions,
+            portfolio: freshPortfolio,
+            orders: freshOrders,
+            lastResult: `All data refreshed after position close`,
+            currentTask: memory.currentTask
+        };
+        
+    } catch (error) {
+        console.error('[MemoryUpdate] Failed to update memory after close:', error);
+        return memory;
+    }
+}
+
+export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
     return [
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 📈 READ METHODS - MARKET DATA
-    // ═══════════════════════════════════════════════════════════════════════════════
-    
-    // BTC/ETH Markets Info
-    action({
-        name: "get_btc_eth_markets",
-        description: "Get detailed information about BTC and ETH markets optimized for trading - includes prices, liquidity, funding rates, and market addresses for trading",
-        async handler(data, ctx, agent) {
-            console.warn('[Action] Starting get_btc_eth_markets action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[Action] Fetching BTC/ETH markets data');
-                const marketsString = await get_btc_eth_markets_str(sdk, gmxDataCache);
-                console.warn(`[Action] Successfully fetched markets data (${marketsString.length} chars)`);
-                
-                memory = {
-                    ...memory,
-                    markets: marketsString,
-                    currentTask: "📊 Fetching BTC/ETH market data for trading",
-                    lastResult: "Retrieved focused BTC/ETH market information"
-                };
-
-                return {
-                    success: true,
-                    message: "Successfully retrieved BTC/ETH markets data",
-                    formattedData: marketsString
-                };
-            } catch (error) {
-                console.error('[Action] get_btc_eth_markets error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch BTC/ETH markets data"
-                };
-            }
-        }
-    }),
-
-    // Daily Volumes - BTC/ETH focused
-    action({
-        name: "get_daily_volumes",
-        description: "Get daily volume data for BTC and ETH markets - filtered for trading focus",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_daily_volumes action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[action] Fetching daily volumes data');
-                const volumesString = await get_daily_volumes_str(sdk, gmxDataCache);
-                console.warn(`[action] Successfully fetched volumes data (dataLength: ${volumesString.length})`);
-                
-                memory = {
-                    ...memory,
-                    volumes: volumesString,
-                    currentTask: "📊 Analyzing BTC/ETH volume for liquidity conditions",
-                    lastResult: "Retrieved daily volumes for BTC/ETH markets"
-                };
-                
-                return {
-                    success: true,
-                    message: "Successfully retrieved BTC/ETH daily volumes",
-                    formattedData: volumesString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch daily volumes"
-                };
-            }
-        }
-    }),
-
-    // Tokens Data - BTC/ETH/USD focused
-    action({
-        name: "get_tokens_data",
-        description: "Get token data filtered for BTC/ETH/USD tokens - includes balances, prices, and addresses",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_tokens_data action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[action] Fetching tokens data');
-                const tokensString = await get_tokens_data_str(sdk, gmxDataCache);
-                console.warn(`[action] Successfully fetched tokens data (dataLength: ${tokensString.length})`);
-                
-                memory = {
-                    ...memory,
-                    tokens: tokensString,
-                    currentTask: "🪙 Fetching BTC/ETH/USD token data",
-                    lastResult: "Retrieved filtered token information"
-                };
-                
-                return {
-                    success: true,
-                    message: "Successfully retrieved BTC/ETH/USD tokens data",
-                    formattedData: tokensString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch tokens data"
-                };
-            }
-        }
-    }),
-
-    // Portfolio Balance Query
-    action({
-        name: "get_portfolio_balance",
-        description: "Get comprehensive portfolio balance including token balances, position values, and total portfolio worth. No parameters required - uses SDK account context automatically.",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_portfolio_balance action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[action] Fetching portfolio balance');
-                const portfolioString = await get_portfolio_balance_str(sdk, gmxDataCache);
-                console.warn(`[action] Successfully fetched portfolio balance (dataLength: ${portfolioString.length})`);
-                
-                const totalValueMatch = portfolioString.match(/Total Value: \$([0-9.,]+)/);
-                const totalValue = totalValueMatch ? parseFloat(totalValueMatch[1].replace(/,/g, '')) : 0;
-                
-                memory = {
-                    ...memory,
-                    portfolio: portfolioString,
-                    currentTask: "💰 Portfolio balance retrieved successfully",
-                    lastResult: `Total portfolio value: $${totalValue.toFixed(2)}`
-                };
-                
-                return {
-                    success: true,
-                    message: "Portfolio balance retrieved successfully",
-                    formattedData: portfolioString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to get portfolio balance"
-                };
-            }
-        }
-    }),
-
-    // Enhanced Positions with Complete Calculations
-    action({
-        name: "get_positions",
-        description: "Get all current trading positions with comprehensive PnL, liquidation price, and risk metrics calculations",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_positions action');
-            try {
-                const positionsString = await transactionQueue.enqueueReadAfterWrite(
-                    "get_positions",
-                    async () => {
-                        console.warn('[action] Fetching positions data');
-                        return await get_positions_str(sdk, gmxDataCache);
-                    }
-                );
-                console.warn(`[action] Successfully fetched positions (dataLength: ${positionsString.length})`);
-
-                let memory = ctx.memory as GmxMemory;
-                
-                // Update memory
-                memory = {
-                    ...memory,
-                    positions: positionsString,
-                    currentTask: "📈 Positions retrieved successfully",
-                    lastResult: "Current positions analyzed"
-                };
-                
-                return {
-                    success: true,
-                    message: "Positions retrieved successfully",
-                    formattedData: positionsString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to get positions"
-                };
-            }
-        }
-    }),
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 💹 POSITIONS & TRADES
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    action({
-        name: "get_orders",
-        description: "Get all pending orders with comprehensive analysis including PnL calculations, risk metrics, and market context",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_orders action');
-            try {
-                const ordersString = await transactionQueue.enqueueReadAfterWrite(
-                    "get_orders",
-                    async () => {
-                        console.warn('[action] Fetching orders data');
-                        return await get_orders_str(sdk, gmxDataCache);
-                    }
-                );
-                console.warn(`[action] Successfully fetched orders (dataLength: ${ordersString.length})`);
-                
-                let memory = ctx.memory as GmxMemory;
-                
-                memory = {
-                    ...memory,
-                    orders: ordersString,
-                    currentTask: "📋 Reviewing pending orders",
-                    lastResult: ordersString
-                };
-                
-                return {
-                    success: true,
-                    message: ordersString,
-                    ordersString: ordersString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch orders"
-                };
-            }
-        }
-    }),
-
-    // Trading History
-    action({
-        name: "get_trading_history",
-        description: "Get comprehensive trading history analysis including performance metrics, win rates, profit factors, and recent trades. Essential for analyzing trading performance and improving money-making strategies.",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_trading_history action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[action] Fetching trading history data');
-                const historyString = await get_trading_history_str(sdk, gmxDataCache);
-                console.warn(`[action] Successfully fetched trading history data (dataLength: ${historyString.length})`);
-                
-                memory = {
-                    ...memory,
-                    tradingHistory: historyString,
-                    currentTask: "📊 Analyzing trading history for performance insights",
-                    lastResult: "Retrieved comprehensive trading history and performance metrics"
-                };
-
-                return {
-                    success: true,
-                    message: "Successfully retrieved trading history analysis",
-                    formattedData: historyString
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch trading history"
-                };
-            }
-        }
-    }),
-
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // 🧠 SYNTH MARKET INTELLIGENCE & PREDICTIONS
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    // Get BTC Predictions
-    action({
-        name: "get_synth_btc_predictions",
-        description: "Get BTC AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_synth_btc_predictions action');
-            try {
-                console.warn('[action] Fetching BTC predictions from Synth');
-                const result = await get_synth_analysis_str('BTC', gmxDataCache);
-                console.warn(`[action] Successfully fetched BTC predictions (dataLength: ${result.length})`);
-                
-                let memory = ctx.memory as GmxMemory;
-                
-                memory = {
-                    ...memory,
-                    synthBtcPredictions: result,
-                    currentTask: "🤖 Analyzing BTC percentile position and zone levels",
-                    lastResult: "Retrieved BTC percentile analysis and current zone price levels"
-                };
-
-                return {
-                    success: true,
-                    message: "Retrieved BTC percentile analysis with current zone levels",
-                    synthBtcPredictions: result
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch BTC predictions from Synth"
-                };
-            }
-        }
-    }),
-
-    // Get ETH Predictions
-    action({
-        name: "get_synth_eth_predictions",
-        description: "Get ETH AI predictions from top 10 Synth miners. Returns current price percentile rank (P0-P100), trading signals based purely on percentile position, volatility forecast, and current zone percentile price levels (P0.5, P5, P20, P35, P50, P65, P80, P95, P99.5).",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_synth_eth_predictions action');
-            try {
-                console.warn('[action] Fetching ETH predictions from Synth');
-                const result = await get_synth_analysis_str('ETH', gmxDataCache);
-                console.warn(`[action] Successfully fetched ETH predictions (dataLength: ${result.length})`);
-                
-                let memory = ctx.memory as GmxMemory;
-                
-                memory = {
-                    ...memory,
-                    synthEthPredictions: result,
-                    currentTask: "🤖 Analyzing ETH percentile position and zone levels",
-                    lastResult: "Retrieved ETH percentile analysis and current zone price levels"
-                };
-
-                return {
-                    success: true,
-                    message: "Retrieved ETH percentile analysis with current zone levels",
-                    synthEthPredictions: result
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch ETH predictions from Synth"
-                };
-            }
-        }
-    }),
-
-    // Get BTC Technical Analysis
-    action({
-        name: "get_btc_technical_analysis",
-        description: "Get comprehensive BTC technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for BTC analysis.",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_btc_technical_analysis action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                              
-                console.warn('[action] Fetching BTC technical analysis');
-                const technicalData = await get_technical_analysis_str(sdk, 'BTC', gmxDataCache);
-                console.warn(`[action] Successfully fetched BTC technical analysis (dataLength: ${technicalData.length})`);
-                
-                memory = {
-                    ...memory,
-                    btcTechnicalAnalysis: technicalData,
-                    currentTask: "📊 Analyzing BTC technical indicators",
-                    lastResult: "Retrieved BTC technical indicators across 4 timeframes"
-                };
-                
-                return {
-                    success: true,
-                    message: "Successfully retrieved BTC technical indicators",
-                    btcTechnicalAnalysis: technicalData,
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                const errorResult = {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch BTC technical analysis"
-                };
-                
-                return errorResult;
-            }
-        }
-    }),
-
-    // Get ETH Technical Analysis
-    action({
-        name: "get_eth_technical_analysis",
-        description: "Get comprehensive ETH technical indicators across multiple timeframes (15m, 1h, 4h). Returns raw indicator data including moving averages, RSI, MACD, Bollinger Bands, ATR, Stochastic, and support/resistance levels for ETH analysis.",
-        async handler(data, ctx, agent) {
-            console.warn('[action] Starting get_eth_technical_analysis action');
-            try {
-                let memory = ctx.memory as GmxMemory;
-                
-                console.warn('[action] Fetching ETH technical analysis');
-                const technicalData = await get_technical_analysis_str(sdk, 'ETH', gmxDataCache);
-                console.warn(`[action] Successfully fetched ETH technical analysis (dataLength: ${technicalData.length})`);
-                
-                memory = {
-                    ...memory,
-                    ethTechnicalAnalysis: technicalData,
-                    currentTask: "📊 Analyzing ETH technical indicators",
-                    lastResult: "Retrieved ETH technical indicators across 4 timeframes"
-                };
-                                
-                return {
-                    success: true,
-                    message: "Successfully retrieved ETH technical indicators",
-                    ethTechnicalAnalysis: technicalData
-                };
-            } catch (error) {
-                console.error('[action] error:', error);
-                const errorResult = {
-                    success: false,
-                    error: error instanceof Error ? error.message : String(error),
-                    message: "Failed to fetch ETH technical analysis"
-                };
-
-                return errorResult;
-            }
-        }
-    }),
-
     // ═══════════════════════════════════════════════════════════════════════════════
     // ✍️ WRITE METHODS - TRADING ACTIONS
     // ═══════════════════════════════════════════════════════════════════════════════
@@ -476,11 +206,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                 );
                 
-                if (gmxDataCache) {
-                    gmxDataCache.invalidatePositions();
-                }
-
                 let memory = ctx.memory as GmxMemory;
+                
+                // Update memory with fresh order data after cancellation
+                memory = await updateOrdersMemory(memory, sdk, gmxDataCache);
                 
                 memory = {
                     ...memory,
@@ -531,7 +260,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_LONG_MARKET] Starting long market order (input: ${JSON.stringify(data)})`);
                     
-                    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                    const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_LONG_MARKET', error, { stage: 'getMarketsInfo' });
                         throw new Error(errorMsg);
@@ -600,6 +329,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
+                    // Update memory with fresh position and portfolio data after opening position
+                    memory = await updatePositionsMemory(memory, gmxDataCache);
+                    
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -623,11 +355,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     };
                     
                     console.warn('OPEN_LONG_MARKET', 'Long market order opened successfully', successResult);
-                    
-                    if (gmxDataCache) {
-                        gmxDataCache.invalidatePositions();
-                    }
-                    
+                                        
                     return successResult;
                 } catch (error) {
                     const errorResult = {
@@ -659,7 +387,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_LONG_LIMIT] Starting long limit order (input: ${JSON.stringify(data)})`);
                     
-                    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                    const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_LONG_LIMIT', error, { stage: 'getMarketsInfo' });
                         throw new Error(errorMsg);
@@ -750,6 +478,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
+                    // Update memory with fresh order data after placing limit order
+                    memory = await updateOrdersMemory(memory, sdk, gmxDataCache);
+                    
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -774,11 +505,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     };
                     
                     console.warn('OPEN_LONG_LIMIT', 'Long limit order placed successfully', successResult);
-                    
-                    if (gmxDataCache) {
-                        gmxDataCache.invalidatePositions();
-                    }
-                    
+                                        
                     return successResult;
                 } catch (error) {
                     const errorResult = {
@@ -808,7 +535,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_SHORT] Starting short position open (input: ${JSON.stringify(data)})`);
                     
-                    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                    const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_SHORT', error, { stage: 'getMarketsInfo' });
                         throw new Error(errorMsg);
@@ -872,6 +599,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
+                    // Update memory with fresh position and portfolio data after opening position
+                    memory = await updatePositionsMemory(memory, gmxDataCache);
+                    
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -895,11 +625,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     };
                     
                     console.warn('OPEN_SHORT_MARKET', 'Short market order opened successfully', successResult);
-                    
-                    if (gmxDataCache) {
-                        gmxDataCache.invalidatePositions();
-                    }
-                    
+                                        
                     return successResult;
                 } catch (error) {
                     const errorResult = {
@@ -931,7 +657,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 try {
                     console.warn(`[OPEN_SHORT_LIMIT] Starting short limit order (input: ${JSON.stringify(data)})`);
                     
-                    const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                    const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
                         console.error('OPEN_SHORT_LIMIT', error, { stage: 'getMarketsInfo' });
                         throw new Error(errorMsg);
@@ -1015,6 +741,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
     
                     let memory = ctx.memory as GmxMemory;
                     
+                    // Update memory with fresh order data after placing limit order
+                    memory = await updateOrdersMemory(memory, sdk, gmxDataCache);
+                    
                     const leverageX = data.leverage ? parseFloat(data.leverage) / 10000 : 'Auto';
                     memory = {
                         ...memory,
@@ -1039,11 +768,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     };
                     
                     console.warn('OPEN_SHORT_LIMIT', 'Short limit order placed successfully', successResult);
-                    
-                    if (gmxDataCache) {
-                        gmxDataCache.invalidatePositions();
-                    }
-                    
+                                        
                     return successResult;
                 } catch (error) {
                     const errorResult = {
@@ -1075,7 +800,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 console.warn(`[CLOSE_POSITION] Starting position close (input: ${JSON.stringify(data)})`);
 
                 // Get required market and token data
-                const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                     console.error('CLOSE_POSITION', error, { stage: 'getMarketsInfo' });
                     throw new Error(`Failed to get market data: ${error.message || error}`);
                 });
@@ -1094,12 +819,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 }
                                                 
                 // Get current positions to find the position to close
-                const positionsResult = gmxDataCache ? await gmxDataCache.getPositions(marketsInfoData, tokensData) : await sdk.positions.getPositions({
-                    marketsData: marketsInfoData,
-                    tokensData: tokensData,
-                    start: 0,
-                    end: 1000,
-                });
+                const positionsResult = await gmxDataCache.getPositions(marketsInfoData, tokensData);
                 
                 // Find ANY position for this market (long or short)
                 const positions = positionsResult.positionsData ? Object.values(positionsResult.positionsData) : [];
@@ -1238,10 +958,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[CLOSE_POSITION] Transaction successful (transactionHash: result?.transactionHash || 'No hash returned')`);
                 
-                if (gmxDataCache) {
-                    gmxDataCache.invalidatePositions();
-                }
-                               
+                // Update memory with fresh data after closing position
+                memory = await updateMemoryAfterClose(memory, sdk, gmxDataCache);
+                
                 memory = {
                     ...memory,
                     currentTask: `📉 Closing ${direction} position`,
@@ -1303,11 +1022,10 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[SWAP_TOKENS] Starting token swap (input: ${JSON.stringify(data)})`);
 
-                const tokensResult = gmxDataCache ? await gmxDataCache.getTokensData() : await sdk.tokens.getTokensData().catch(error => {
+                const tokensData = await gmxDataCache.getTokensData().catch(error => {
                     console.error('SWAP_TOKENS', error, { stage: 'getTokensData' });
                     throw new Error(`Failed to get token data: ${error.message || error}`);
                 });
-                const { tokensData } = tokensResult;
                 
                 if (!tokensData) {
                     console.error('SWAP_TOKENS', 'Invalid token data received');
@@ -1405,6 +1123,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     swapAmountDisplay = 'Market rate';
                 }
 
+                // Update memory with fresh portfolio data after swap
+                memory = await updatePortfolioMemory(memory, gmxDataCache);
+
                 memory = {
                     ...memory,
                     currentTask: `💱 Swapping ${fromToken.symbol} to ${toToken.symbol}`,
@@ -1425,11 +1146,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 };
 
                 console.warn('SWAP_TOKENS', 'Swap initiated successfully', successResult);
-
-                if (gmxDataCache) {
-                    gmxDataCache.invalidateTokens();
-                    gmxDataCache.invalidatePositions();
-                }
 
                 return successResult;
             } catch (error) {
@@ -1464,7 +1180,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[SET_TAKE_PROFIT] Starting take profit order creation`);
 
-                const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                     console.error('SET_TAKE_PROFIT', error, { stage: 'getMarketsInfo' });
                     throw new Error(`Failed to get market data: ${error.message || error}`);
                 });
@@ -1475,11 +1191,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error("Failed to get market and token data");
                 }
                 
-                const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
-                    marketsInfoData,
-                    tokensData,
-                    showPnlInLeverage: false
-                });
+                const positionsInfoResult = await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData);
                 
                 const position = Object.values(positionsInfoResult).find((pos: any) => 
                     pos.marketAddress === data.marketAddress
@@ -1620,7 +1332,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                 );
                 
-                // Update memory
+                // Update memory with fresh order data after setting take profit
+                memory = await updateOrdersMemory(memory, sdk, gmxDataCache);
+                
                 memory = {
                     ...memory,
                     currentTask: `🎯 Setting take profit for ${direction} position`,
@@ -1646,10 +1360,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 };
                 
                 console.warn('SET_TAKE_PROFIT', 'Take profit order created successfully', successResult);
-                
-                if (gmxDataCache) {
-                    gmxDataCache.invalidatePositions();
-                }
                 
                 return successResult;
             } catch (error) {
@@ -1680,7 +1390,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 
                 console.warn(`[SET_STOP_LOSS] Starting stop loss order creation`);
 
-                const marketsResult = gmxDataCache ? await gmxDataCache.getMarketsInfo() : await sdk.markets.getMarketsInfo().catch(error => {
+                const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                     console.error('SET_STOP_LOSS', error, { stage: 'getMarketsInfo' });
                     throw new Error(`Failed to get market data: ${error.message || error}`);
                 });
@@ -1691,11 +1401,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     throw new Error("Failed to get market and token data");
                 }
                 
-                const positionsInfoResult = gmxDataCache ? await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData) : await sdk.positions.getPositionsInfo({
-                    marketsInfoData,
-                    tokensData,
-                    showPnlInLeverage: false
-                });
+                const positionsInfoResult = await gmxDataCache.getPositionsInfo(marketsInfoData, tokensData);
                 
                 const position = Object.values(positionsInfoResult).find((pos: any) => 
                     pos.marketAddress === data.marketAddress
@@ -1828,6 +1534,9 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                     }
                 );
                 
+                // Update memory with fresh order data after setting stop loss
+                memory = await updateOrdersMemory(memory, sdk, gmxDataCache);
+                
                 memory = {
                     ...memory,
                     currentTask: `🛡️ Setting stop loss for ${direction} position`,
@@ -1853,10 +1562,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache?: EnhancedDataCache) 
                 };
                 
                 console.warn('SET_STOP_LOSS', 'Stop loss order created successfully', successResult);
-                
-                if (gmxDataCache) {
-                    gmxDataCache.invalidatePositions();
-                }
                 
                 return successResult;
             } catch (error) {

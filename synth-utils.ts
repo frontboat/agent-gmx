@@ -905,17 +905,31 @@ export function generateTradingSignalFromPercentile(
   const predictionsAbove = Math.round(100 - currentPricePercentile);
   const predictionsBelow = Math.round(currentPricePercentile);
   
+  // OUT-OF-RANGE SIGNALS
+  if (currentPricePercentile === 0) {
+    return {
+      signal: 'OUT_OF_RANGE_LONG',
+      explanation: `P0: PRICE BELOW ALL PREDICTIONS! 100% predictions above. ABSOLUTE FLOOR.`
+    };
+  }
+  if (currentPricePercentile === 100) {
+    return {
+      signal: 'OUT_OF_RANGE_SHORT',
+      explanation: `P100: PRICE ABOVE ALL PREDICTIONS! 100% predictions below. ABSOLUTE CEILING.`
+    };
+  }
+  
   // Extreme zones - maximum conviction signals
   if (currentPricePercentile <= 0.5) {
     return {
       signal: 'EXTREME_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. FLOOR LEVEL - Maximum size, minimal stop risk.`
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. FLOOR LEVEL.`
     };
   }
   if (currentPricePercentile >= 99.5) {
     return {
       signal: 'EXTREME_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. CEILING LEVEL - Maximum size, minimal stop risk.`
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. CEILING LEVEL.`
     };
   }
   
@@ -923,92 +937,54 @@ export function generateTradingSignalFromPercentile(
   if (currentPricePercentile <= 5) {
     return {
       signal: 'STRONG_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. EXTREME LOW - Large size, tight stops at P0.5.`
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. Reaching extreme lows.`
     };
   }
   if (currentPricePercentile <= 10) {
     return {
       signal: 'STRONG_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM DECILE - Large size, stops at P5.`
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM DECILE.`
     };
   }
   if (currentPricePercentile >= 95) {
     return {
       signal: 'STRONG_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. EXTREME HIGH - Large size, tight stops at P99.5.`
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. Reaching extreme highs.`
     };
   }
   if (currentPricePercentile >= 90) {
     return {
       signal: 'STRONG_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP DECILE - Large size, stops at P95.`
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP DECILE.`
     };
   }
   
   // Standard opportunity zones
   if (currentPricePercentile <= 15) {
     return {
-      signal: 'LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. SOLID LONG - Standard size, target P65-P80.`
+      signal: 'POSSIBLE_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. Reaching possible lows.`
     };
   }
   if (currentPricePercentile <= 20) {
     return {
-      signal: 'LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUINTILE - Standard size, target P65.`
-    };
-  }
-  if (currentPricePercentile <= 25) {
-    return {
-      signal: 'LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUARTILE - Standard size, stops P5-P10.`
+      signal: 'POSSIBLE_LONG',
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUINTILE.`
     };
   }
   if (currentPricePercentile >= 85) {
     return {
-      signal: 'SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. SOLID SHORT - Standard size, target P20-P35.`
+      signal: 'POSSIBLE_SHORT',
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. Reaching possible highs.`
     };
   }
   if (currentPricePercentile >= 80) {
     return {
-      signal: 'SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUINTILE - Standard size, target P35.`
-    };
-  }
-  if (currentPricePercentile >= 75) {
-    return {
-      signal: 'SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUARTILE - Standard size, stops P90-P95.`
-    };
-  }
-  
-  // Weak opportunity zones - require careful execution
-  if (currentPricePercentile <= 30) {
-    return {
-      signal: 'POSSIBLE_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. WEAK LONG - Reduced size, tight management.`
-    };
-  }
-  if (currentPricePercentile <= 35) {
-    return {
-      signal: 'POSSIBLE_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BORDERLINE LONG - Small size, quick exit if wrong.`
-    };
-  }
-  if (currentPricePercentile >= 70) {
-    return {
       signal: 'POSSIBLE_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. WEAK SHORT - Reduced size, tight management.`
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUINTILE.`
     };
   }
-  if (currentPricePercentile >= 65) {
-    return {
-      signal: 'POSSIBLE_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. BORDERLINE SHORT - Small size, quick exit if wrong.`
-    };
-  }
-  
+
   // Neutral zone - no edge
   return {
     signal: 'NEUTRAL',

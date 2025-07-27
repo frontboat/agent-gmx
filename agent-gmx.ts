@@ -517,7 +517,7 @@ const gmxContext = context({
                                 console.warn(`⏰ [SCHEDULED] 30-minute timer triggered - fallback trading cycle`);
                             } else {
                                 const minutesRemaining = Math.ceil((thirtyMinutes - timeSinceLastCycle) / 60000);
-                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC -${btcVolatility.toFixed(1)}% ETH -${ethVolatility.toFixed(1)}% | Next scheduled cycle in ${minutesRemaining}min`);
+                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC ${btcVolatility.toFixed(1)}% ETH ${ethVolatility.toFixed(1)}% | Next scheduled cycle in ${minutesRemaining}min`);
                             }
                         }
                         

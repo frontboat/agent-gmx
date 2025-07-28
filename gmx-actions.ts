@@ -1473,8 +1473,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: isLong ? 
-                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
-                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
+                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
                     acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,

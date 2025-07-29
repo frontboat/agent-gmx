@@ -3,9 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export enum TransactionType {
-    WRITE = 'write',
-    POSITION_WRITE = 'position_write',
-    READ_AFTER_WRITE = 'read_after_write'
+    WRITE = 'write'
 }
 
 export interface QueuedTransaction {
@@ -22,8 +20,7 @@ export class TransactionQueue {
     private static instance: TransactionQueue;
     private queue: QueuedTransaction[] = [];
     private isProcessing: boolean = false;
-    private readonly TRANSACTION_DELAY_MS = 3000; // 3 seconds between transactions
-    private readonly POSITION_DELAY_MS = 10000; // 10 seconds after position changes
+    private readonly TRANSACTION_DELAY_MS = 5000; // 5 seconds between all write transactions
 
     private constructor() {}
 
@@ -53,64 +50,7 @@ export class TransactionQueue {
             };
 
             this.queue.push(transaction);
-            console.warn(`[QUEUE] Added transaction: ${name} (Queue size: ${this.queue.length})`);
-            
-            // Start processing if not already running
-            if (!this.isProcessing) {
-                this.processQueue();
-            }
-        });
-    }
-
-    /**
-     * Add a position write transaction (open/close position) to the queue
-     * These require longer delays for GMX indexing
-     */
-    public async enqueuePositionWrite<T>(
-        name: string, 
-        executeFunction: () => Promise<T>
-    ): Promise<T> {
-        return new Promise<T>((resolve, reject) => {
-            const transaction: QueuedTransaction = {
-                id: `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                name,
-                type: TransactionType.POSITION_WRITE,
-                execute: executeFunction,
-                resolve,
-                reject,
-                timestamp: Date.now()
-            };
-
-            this.queue.push(transaction);
-            console.warn(`[QUEUE] Added position transaction: ${name} (Queue size: ${this.queue.length})`);
-            
-            // Start processing if not already running
-            if (!this.isProcessing) {
-                this.processQueue();
-            }
-        });
-    }
-
-    /**
-     * Add a read operation that needs fresh data after writes to the queue
-     */
-    public async enqueueReadAfterWrite<T>(
-        name: string, 
-        executeFunction: () => Promise<T>
-    ): Promise<T> {
-        return new Promise<T>((resolve, reject) => {
-            const transaction: QueuedTransaction = {
-                id: `${name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                name,
-                type: TransactionType.READ_AFTER_WRITE,
-                execute: executeFunction,
-                resolve,
-                reject,
-                timestamp: Date.now()
-            };
-
-            this.queue.push(transaction);
-            console.warn(`[QUEUE] Added read-after-write: ${name} (Queue size: ${this.queue.length})`);
+            console.warn(`[QUEUE] Added write transaction: ${name} (Queue size: ${this.queue.length})`);
             
             // Start processing if not already running
             if (!this.isProcessing) {
@@ -146,16 +86,11 @@ export class TransactionQueue {
                 // Resolve the promise
                 transaction.resolve(result);
                 
-                // Wait after write transactions before processing next transaction
-                // This prevents nonce conflicts and rate limiting
+                // Wait 5 seconds after write transactions before processing next transaction
+                // This prevents nonce conflicts and allows GMX state to settle
                 if (this.queue.length > 0) {
-                    if (transaction.type === TransactionType.POSITION_WRITE) {
-                        console.warn(`[QUEUE] Waiting ${this.POSITION_DELAY_MS}ms after position write for GMX indexing`);
-                        await this.sleep(this.POSITION_DELAY_MS);
-                    } else if (transaction.type === TransactionType.WRITE) {
-                        console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after write transaction before next`);
-                        await this.sleep(this.TRANSACTION_DELAY_MS);
-                    }
+                    console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after write transaction`);
+                    await this.sleep(this.TRANSACTION_DELAY_MS);
                 }
                 
             } catch (error) {
@@ -164,13 +99,8 @@ export class TransactionQueue {
                 
                 // Wait after failed write transactions to avoid overwhelming the network
                 if (this.queue.length > 0) {
-                    if (transaction.type === TransactionType.POSITION_WRITE) {
-                        console.warn(`[QUEUE] Waiting ${this.POSITION_DELAY_MS}ms after failed position write`);
-                        await this.sleep(this.POSITION_DELAY_MS);
-                    } else if (transaction.type === TransactionType.WRITE) {
-                        console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after failed write transaction`);
-                        await this.sleep(this.TRANSACTION_DELAY_MS);
-                    }
+                    console.warn(`[QUEUE] Waiting ${this.TRANSACTION_DELAY_MS}ms after failed write transaction`);
+                    await this.sleep(this.TRANSACTION_DELAY_MS);
                 }
             }
         }

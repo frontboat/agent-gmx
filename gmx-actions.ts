@@ -999,10 +999,12 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 
                 console.warn(`[SWAP_TOKENS] Starting token swap (input: ${JSON.stringify(data)})`);
 
-                const tokensData = await gmxDataCache.getTokensData().catch(error => {
+                const tokensResult = await gmxDataCache.getTokensData().catch(error => {
                     console.error('SWAP_TOKENS', error, { stage: 'getTokensData' });
                     throw new Error(`Failed to get token data: ${error.message || error}`);
                 });
+                
+                const { tokensData } = tokensResult;
                 
                 if (!tokensData) {
                     console.error('SWAP_TOKENS', 'Invalid token data received');

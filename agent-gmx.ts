@@ -213,7 +213,7 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 | **EXTREME** | P≤0.5, P≥99.5 | 40-50% | Floor/ceiling levels |
 | **STRONG** | P≤10, P≥90 | 20-30% | Top/bottom deciles |
 | **POSSIBLE** | P≤20, P≥80 | 10-20% | Standard opportunities |
-| **NEUTRAL** | P20-P80 | No position | No edge |
+| **NEUTRAL** | P20-P80 | No new position | No edge |
 
 ### Risk Management Rules
 
@@ -508,16 +508,16 @@ const gmxContext = context({
                         // 2. Check for scheduled cycle (lowest priority - only if no other triggers)
                         else {
                             const timeSinceLastCycle = now - lastTradingCycleTime;
-                            const thirtyMinutes = 1800000; // 30 minutes in milliseconds
+                            const cycleInterval = 1200000; // 20 minutes in milliseconds
                             
-                            if (timeSinceLastCycle >= thirtyMinutes) {
-                                triggerReason = "Regular 30-minute scheduled check";
+                            if (timeSinceLastCycle >= cycleInterval) {
+                                triggerReason = "Regular 20-minute scheduled check";
                                 triggerType = "SCHEDULED";
                                 triggered = true;
-                                console.warn(`⏰ [SCHEDULED] 30-minute timer triggered - fallback trading cycle`);
+                                console.warn(`⏰ [SCHEDULED] 20-minute timer triggered - fallback trading cycle`);
                             } else {
-                                const minutesRemaining = Math.ceil((thirtyMinutes - timeSinceLastCycle) / 60000);
-                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC ${btcVolatility.toFixed(1)}% ETH ${ethVolatility.toFixed(1)}% | Next scheduled cycle in ${minutesRemaining}min`);
+                                const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
+                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC:${btcVolatility.toFixed(1)}% ETH:${ethVolatility.toFixed(1)}% | Next scheduled cycle in ${minutesRemaining}min`);
                             }
                         }
                         
@@ -557,10 +557,10 @@ const gmxContext = context({
                 // Initial run
                 unifiedMonitor();
                 
-                // Check every 5 minutes
-                const interval = setInterval(unifiedMonitor, 300000);
+                // Check every minute
+                const interval = setInterval(unifiedMonitor, 60000);
                 
-                console.warn("✅ Unified trading monitor initialized - checking every 5 minutes");
+                console.warn("✅ Unified trading monitor initialized - checking every 1 minute");
                 return () => {
                     console.warn("🛑 Unified trading monitor cleanup");
                     clearInterval(interval);

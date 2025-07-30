@@ -5,7 +5,7 @@ export class EnhancedDataCache {
     // Market data cache
     private marketCache: Map<string, { marketsInfoData: any, tokensData: any }> = new Map();
     private lastMarketFetch: number = 0;
-    private readonly MARKET_TTL_MS = 300_000; // 5 minutes
+    private readonly MARKET_TTL_MS = 60_000; // 1 minute
     private marketFetchPromise: Promise<{ marketsInfoData: any, tokensData: any }> | null = null;
 
     // Token data cache

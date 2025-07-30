@@ -242,8 +242,9 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 ### Step 2: Position Management
 1. **Check existing positions:** P&L, take profit status, thesis validity
 2. **Move stops to breakeven:** When profitable (LONG: entry + 0.3%, SHORT: entry - 0.3%)
-3. **Close if at P50:** Positions near median percentile
-4. **Cancel invalid orders:** Orders with invalidated thesis
+3. **Never close positions early**: Trust setups, let stop loss and take profit do their jobs
+4. **Close if near P50:** Close positions near median percentile
+5. **Cancel invalid orders:** Orders with invalidated thesis
 
 ### Step 3: Market Analysis
 1. **Market structure:** Trend, range, or transition?

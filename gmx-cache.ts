@@ -1,4 +1,22 @@
 import { type GmxSdk } from "@gmx-io/sdk";
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import type { PercentileAnalysis } from './gmx-utils';
+
+// Types for LP bounds snapshots
+interface LPBoundsSnapshot {
+    timestamp: number;
+    bounds: any; // LPBoundsResponse from synth-utils
+}
+
+interface SnapshotStorage {
+    version: string;
+    snapshots: {
+        BTC: LPBoundsSnapshot[];
+        ETH: LPBoundsSnapshot[];
+    };
+}
+
 
 // Enhanced cache for all GMX data types and external APIs
 export class EnhancedDataCache {
@@ -40,7 +58,20 @@ export class EnhancedDataCache {
     private lastLPBoundsApiCall: number = 0;
     private readonly LP_BOUNDS_COOLDOWN_MS = 3000; // 3 seconds between API calls
     
-    constructor(private sdk: GmxSdk) {}
+    // LP Bounds snapshot storage
+    private readonly SNAPSHOT_FILE_PATH = './data/lp-bounds-snapshots.json';
+    private readonly SNAPSHOT_RETENTION_MS = 48 * 60 * 60 * 1000; // 48 hours
+    private lpBoundsSnapshots: SnapshotStorage = {
+        version: '1.0',
+        snapshots: { BTC: [], ETH: [] }
+    };
+    
+    constructor(private sdk: GmxSdk) {
+        // Load snapshots from file on initialization
+        this.loadSnapshots().catch(error => {
+            console.error('[SnapshotStorage] Failed to load snapshots on init:', error);
+        });
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════════
     // 📊 MARKET DATA METHODS
@@ -336,6 +367,9 @@ export class EnhancedDataCache {
             this.lpBoundsCache.set(cacheKey, result);
             this.lastLPBoundsFetch.set(cacheKey, now);
             
+            // Add to snapshots
+            this.addSnapshot(asset, result);
+            
             console.warn(`[LPBoundsCache] Cached fresh ${asset} LP bounds data`);
             return result;
         } finally {
@@ -382,6 +416,277 @@ export class EnhancedDataCache {
             console.error(`[LPBoundsCache] Error fetching LP bounds for ${asset}:`, error);
             throw error;
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // 📸 SNAPSHOT STORAGE METHODS
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    private async loadSnapshots(): Promise<void> {
+        try {
+            // Ensure directory exists
+            const dir = path.dirname(this.SNAPSHOT_FILE_PATH);
+            await fs.mkdir(dir, { recursive: true });
+
+            // Check if file exists
+            try {
+                await fs.access(this.SNAPSHOT_FILE_PATH);
+                const data = await fs.readFile(this.SNAPSHOT_FILE_PATH, 'utf-8');
+                const parsed = JSON.parse(data) as SnapshotStorage;
+                
+                // Validate version
+                if (parsed.version === '1.0' && parsed.snapshots) {
+                    this.lpBoundsSnapshots = parsed;
+                    console.warn(`[SnapshotStorage] Loaded ${parsed.snapshots.BTC.length} BTC and ${parsed.snapshots.ETH.length} ETH snapshots`);
+                    
+                    // Clean old snapshots on load
+                    this.cleanOldSnapshots();
+                }
+            } catch (error) {
+                // File doesn't exist yet, use default
+                console.warn('[SnapshotStorage] No existing snapshot file found, starting fresh');
+            }
+        } catch (error) {
+            console.error('[SnapshotStorage] Error loading snapshots:', error);
+        }
+    }
+
+    private async saveSnapshots(): Promise<void> {
+        try {
+            const dir = path.dirname(this.SNAPSHOT_FILE_PATH);
+            await fs.mkdir(dir, { recursive: true });
+            
+            await fs.writeFile(
+                this.SNAPSHOT_FILE_PATH, 
+                JSON.stringify(this.lpBoundsSnapshots, null, 2),
+                'utf-8'
+            );
+            
+            console.warn(`[SnapshotStorage] Saved ${this.lpBoundsSnapshots.snapshots.BTC.length} BTC and ${this.lpBoundsSnapshots.snapshots.ETH.length} ETH snapshots`);
+        } catch (error) {
+            console.error('[SnapshotStorage] Error saving snapshots:', error);
+        }
+    }
+
+    private addSnapshot(asset: 'BTC' | 'ETH', bounds: any): void {
+        const snapshot: LPBoundsSnapshot = {
+            timestamp: Date.now(),
+            bounds
+        };
+        
+        this.lpBoundsSnapshots.snapshots[asset].push(snapshot);
+        console.warn(`[SnapshotStorage] Added ${asset} snapshot, total: ${this.lpBoundsSnapshots.snapshots[asset].length}`);
+        
+        // Clean old snapshots
+        this.cleanOldSnapshots();
+        
+        // Save to file
+        this.saveSnapshots().catch(error => {
+            console.error('[SnapshotStorage] Failed to save after adding snapshot:', error);
+        });
+    }
+
+    private cleanOldSnapshots(): void {
+        const cutoffTime = Date.now() - this.SNAPSHOT_RETENTION_MS;
+        
+        for (const asset of ['BTC', 'ETH'] as const) {
+            const before = this.lpBoundsSnapshots.snapshots[asset].length;
+            this.lpBoundsSnapshots.snapshots[asset] = this.lpBoundsSnapshots.snapshots[asset].filter(
+                snapshot => snapshot.timestamp > cutoffTime
+            );
+            const after = this.lpBoundsSnapshots.snapshots[asset].length;
+            
+            if (before > after) {
+                console.warn(`[SnapshotStorage] Cleaned ${before - after} old ${asset} snapshots`);
+            }
+        }
+    }
+
+    public getHistoricalBounds(asset: 'BTC' | 'ETH', hoursAgo: number = 24): LPBoundsSnapshot | null {
+        const targetTime = Date.now() - (hoursAgo * 60 * 60 * 1000);
+        const snapshots = this.lpBoundsSnapshots.snapshots[asset];
+        
+        if (snapshots.length === 0) {
+            console.warn(`[SnapshotStorage] No ${asset} snapshots available`);
+            return null;
+        }
+        
+        // Find the snapshot closest to target time
+        let closestSnapshot = snapshots[0];
+        let closestDiff = Math.abs(snapshots[0].timestamp - targetTime);
+        
+        for (const snapshot of snapshots) {
+            const diff = Math.abs(snapshot.timestamp - targetTime);
+            if (diff < closestDiff) {
+                closestDiff = diff;
+                closestSnapshot = snapshot;
+            }
+        }
+        
+        const ageHours = (Date.now() - closestSnapshot.timestamp) / (1000 * 60 * 60);
+        console.warn(`[SnapshotStorage] Using ${asset} snapshot from ${ageHours.toFixed(1)}h ago for percentile calculation`);
+        
+        return closestSnapshot;
+    }
+
+    public async getPercentileTimeSeries(asset: 'BTC' | 'ETH', currentPrice: number): Promise<PercentileAnalysis> {
+        const now = Date.now();
+        const threeHoursAgo = now - (3 * 60 * 60 * 1000);
+        const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+        
+        // Filter snapshots in 3h-24h window
+        const snapshots = this.lpBoundsSnapshots.snapshots[asset].filter(
+            snapshot => snapshot.timestamp >= twentyFourHoursAgo && snapshot.timestamp <= threeHoursAgo
+        );
+        
+        if (snapshots.length === 0) {
+            console.warn(`[PercentileAnalysis] No snapshots available in 3h-24h window for ${asset}`);
+            // Return default analysis
+            return {
+                asset,
+                currentPrice,
+                dataPoints: [],
+                min: 50,
+                max: 50,
+                average: 50,
+                median: 50,
+                trend: 'stable',
+                trendStrength: 0,
+                currentPercentile: 50,
+                range: 0
+            };
+        }
+        
+        // Import required functions
+        const { convertProbabilitiesToPercentiles, calculatePricePercentile } = await import('./synth-utils');
+        
+        // Calculate percentile for current price in each historical snapshot
+        const dataPoints = snapshots.map(snapshot => {
+            const percentileData = convertProbabilitiesToPercentiles(snapshot.bounds);
+            const percentile = calculatePricePercentile(currentPrice, percentileData);
+            const hoursAgo = (now - snapshot.timestamp) / (1000 * 60 * 60);
+            
+            return {
+                timestamp: snapshot.timestamp,
+                percentile,
+                hoursAgo
+            };
+        }).sort((a, b) => a.timestamp - b.timestamp); // Sort by time ascending
+        
+        // Calculate statistics
+        const percentiles = dataPoints.map(dp => dp.percentile);
+        const min = Math.min(...percentiles);
+        const max = Math.max(...percentiles);
+        const average = percentiles.reduce((sum, p) => sum + p, 0) / percentiles.length;
+        const range = max - min;
+        
+        // Calculate median
+        const sortedPercentiles = [...percentiles].sort((a, b) => a - b);
+        const median = sortedPercentiles.length % 2 === 0
+            ? (sortedPercentiles[sortedPercentiles.length / 2 - 1] + sortedPercentiles[sortedPercentiles.length / 2]) / 2
+            : sortedPercentiles[Math.floor(sortedPercentiles.length / 2)];
+        
+        // Calculate trend using linear regression
+        const { trend, trendStrength } = this.calculateTrend(dataPoints);
+        
+        // Current percentile is from the most recent snapshot (closest to 3h ago)
+        const currentPercentile = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].percentile : 50;
+        
+        console.warn(`[PercentileAnalysis] ${asset} at $${currentPrice.toFixed(0)}: P${currentPercentile} (range: P${min}-P${max}, avg: P${average.toFixed(0)}, trend: ${trend})`);
+        
+        return {
+            asset,
+            currentPrice,
+            dataPoints,
+            min,
+            max,
+            average,
+            median,
+            trend,
+            trendStrength,
+            currentPercentile,
+            range
+        };
+    }
+    
+    private calculateTrend(dataPoints: Array<{ timestamp: number; percentile: number }>): { trend: 'rising' | 'falling' | 'stable'; trendStrength: number } {
+        if (dataPoints.length < 2) {
+            return { trend: 'stable', trendStrength: 0 };
+        }
+        
+        // Simple linear regression
+        const n = dataPoints.length;
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        
+        // Use hours as X values for easier interpretation
+        const firstTime = dataPoints[0].timestamp;
+        dataPoints.forEach((dp, i) => {
+            const x = (dp.timestamp - firstTime) / (1000 * 60 * 60); // Hours since first point
+            const y = dp.percentile;
+            
+            sumX += x;
+            sumY += y;
+            sumXY += x * y;
+            sumXX += x * x;
+        });
+        
+        // Calculate slope
+        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        
+        // Calculate R-squared for trend strength
+        const avgY = sumY / n;
+        let ssTotal = 0, ssResidual = 0;
+        
+        dataPoints.forEach((dp, i) => {
+            const x = (dp.timestamp - firstTime) / (1000 * 60 * 60);
+            const y = dp.percentile;
+            const yPredicted = (slope * x) + (sumY - slope * sumX) / n;
+            
+            ssTotal += (y - avgY) ** 2;
+            ssResidual += (y - yPredicted) ** 2;
+        });
+        
+        const rSquared = 1 - (ssResidual / ssTotal);
+        const trendStrength = Math.abs(rSquared);
+        
+        // Determine trend based on slope
+        // Slope is in percentile points per hour
+        let trend: 'rising' | 'falling' | 'stable';
+        if (Math.abs(slope) < 0.5) { // Less than 0.5 percentile points per hour
+            trend = 'stable';
+        } else if (slope > 0) {
+            trend = 'rising';
+        } else {
+            trend = 'falling';
+        }
+        
+        console.warn(`[PercentileAnalysis] Trend: ${trend} (slope: ${slope.toFixed(2)} pp/hour, R²: ${rSquared.toFixed(3)})`);
+        
+        return { trend, trendStrength };
+    }
+
+    public hasMinimumSnapshotData(minSnapshots: number = 10, minHours: number = 6): { BTC: boolean; ETH: boolean } {
+        const now = Date.now();
+        const minHoursAgo = now - (minHours * 60 * 60 * 1000);
+        
+        const result = { BTC: false, ETH: false };
+        
+        for (const asset of ['BTC', 'ETH'] as const) {
+            const snapshots = this.lpBoundsSnapshots.snapshots[asset];
+            
+            // Check we have minimum number of snapshots
+            const hasMinCount = snapshots.length >= minSnapshots;
+            
+            // Check we have data going back minimum hours
+            const oldestSnapshot = snapshots.length > 0 ? Math.min(...snapshots.map(s => s.timestamp)) : now;
+            const hasMinAge = oldestSnapshot <= minHoursAgo;
+            
+            result[asset] = hasMinCount && hasMinAge;
+            
+            console.warn(`[DataAvailability] ${asset}: ${snapshots.length} snapshots, oldest: ${((now - oldestSnapshot) / (1000 * 60 * 60)).toFixed(1)}h ago, sufficient: ${result[asset]}`);
+        }
+        
+        return result;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════

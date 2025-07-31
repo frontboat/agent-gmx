@@ -7,7 +7,8 @@ import {
     fetchLPBoundsData,
     convertProbabilitiesToPercentiles,
     calculatePricePercentile,
-    formatSynthAnalysisSimplified
+    formatSynthAnalysisSimplified,
+    formatSynthAnalysisWithPercentileAnalysis
 } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
@@ -961,20 +962,17 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
             throw new Error(`Failed to get current ${asset} price from GMX SDK`);
         }
         
-        // Fetch LP bounds data from new API
+        // Fetch LP bounds data from new API (this will add to snapshots)
         const lpBoundsData = await fetchLPBoundsData(asset, gmxDataCache);
         
-        // Convert probability data to percentiles
-        const currentPercentiles = convertProbabilitiesToPercentiles(lpBoundsData);
-        
-        // Calculate where the current GMX price sits in the percentile distribution
-        const currentPricePercentile = calculatePricePercentile(currentPrice, currentPercentiles);
+        // Get historical percentile analysis (3h-24h window)
+        const percentileAnalysis = await gmxDataCache.getPercentileTimeSeries(asset, currentPrice);
         
         // Get 24-hour volatility
         const volatility24h = await get24HourVolatility(asset, gmxDataCache);
         
-        // Format and return analysis with volatility
-        let result = formatSynthAnalysisSimplified(asset, currentPrice, currentPricePercentile, currentPercentiles);
+        // Format and return analysis with historical percentile data
+        let result = formatSynthAnalysisWithPercentileAnalysis(asset, percentileAnalysis);
         
         // Add volatility information
         if (volatility24h > 0) {

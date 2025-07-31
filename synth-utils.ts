@@ -5,6 +5,7 @@
  */
 
 import type { EnhancedDataCache } from './gmx-cache';
+import type { PercentileAnalysis } from './gmx-utils';
 
 
 // Types for the new LP bounds API
@@ -126,6 +127,102 @@ export function formatSynthAnalysisSimplified(
     });
   
   return result;
+}
+
+// Format analysis with historical percentile data
+export function formatSynthAnalysisWithPercentileAnalysis(asset: 'BTC' | 'ETH', analysis: PercentileAnalysis): string {
+  // Generate trading signal based on analysis
+  const { signal, explanation } = generateTradingSignalFromAnalysis(analysis);
+  
+  let result = '';
+  result += `ASSET: ${asset}\n`;
+  result += `SIGNAL: ${signal}\n`;
+  result += `SIGNAL_EXPLANATION: ${explanation}\n`;
+  result += `CURRENT_PRICE: $${analysis.currentPrice.toFixed(0)}\n`;
+  result += `CURRENT_PERCENTILE: P${Math.round(analysis.currentPercentile)}\n`;
+  
+  // Historical analysis
+  result += `\nHISTORICAL_ANALYSIS (3h-24h window):\n`;
+  result += `PERCENTILE_RANGE: P${Math.round(analysis.min)}-P${Math.round(analysis.max)} (${Math.round(analysis.range)} point range)\n`;
+  result += `AVERAGE_PERCENTILE: P${Math.round(analysis.average)}\n`;
+  result += `MEDIAN_PERCENTILE: P${Math.round(analysis.median)}\n`;
+  result += `TREND: ${analysis.trend.toUpperCase()} (strength: ${(analysis.trendStrength * 100).toFixed(0)}%)\n`;
+  result += `DATA_POINTS: ${analysis.dataPoints.length} snapshots\n`;
+  
+  // Position analysis
+  const positionVsAvg = analysis.currentPercentile - analysis.average;
+  const positionDesc = positionVsAvg > 10 ? 'well above average' :
+                      positionVsAvg > 5 ? 'above average' :
+                      positionVsAvg < -10 ? 'well below average' :
+                      positionVsAvg < -5 ? 'below average' : 'near average';
+  
+  result += `POSITION_ANALYSIS: Currently ${positionDesc} (${positionVsAvg > 0 ? '+' : ''}${Math.round(positionVsAvg)} vs avg)\n`;
+  
+  return result;
+}
+
+// Generate trading signal from percentile analysis
+function generateTradingSignalFromAnalysis(analysis: PercentileAnalysis): { signal: string; explanation: string } {
+  const { currentPercentile, min, max, average, trend, trendStrength, range } = analysis;
+  
+  // Strong signals based on extremes + trend
+  if (currentPercentile <= 10 && trend === 'falling' && trendStrength > 0.3) {
+    return {
+      signal: 'EXTREME_LONG',
+      explanation: `P${Math.round(currentPercentile)} with strong falling trend. Price crashed through historical predictions.`
+    };
+  }
+  
+  if (currentPercentile >= 90 && trend === 'rising' && trendStrength > 0.3) {
+    return {
+      signal: 'EXTREME_SHORT',
+      explanation: `P${Math.round(currentPercentile)} with strong rising trend. Price exceeded historical predictions.`
+    };
+  }
+  
+  // Strong signals based on position relative to range
+  if (currentPercentile <= 15 && Math.abs(currentPercentile - min) < 5) {
+    return {
+      signal: 'STRONG_LONG',
+      explanation: `P${Math.round(currentPercentile)} near 24h low (P${Math.round(min)}). At bottom of historical range.`
+    };
+  }
+  
+  if (currentPercentile >= 85 && Math.abs(currentPercentile - max) < 5) {
+    return {
+      signal: 'STRONG_SHORT',
+      explanation: `P${Math.round(currentPercentile)} near 24h high (P${Math.round(max)}). At top of historical range.`
+    };
+  }
+  
+  // Reversal signals
+  if (currentPercentile >= 80 && trend === 'falling' && trendStrength > 0.4) {
+    return {
+      signal: 'POSSIBLE_SHORT',
+      explanation: `P${Math.round(currentPercentile)} but falling trend developing. Momentum may be reversing from highs.`
+    };
+  }
+  
+  if (currentPercentile <= 20 && trend === 'rising' && trendStrength > 0.4) {
+    return {
+      signal: 'POSSIBLE_LONG',
+      explanation: `P${Math.round(currentPercentile)} but rising trend developing. Momentum may be reversing from lows.`
+    };
+  }
+  
+  // Range-based signals
+  if (range < 15) {
+    return {
+      signal: 'WAIT',
+      explanation: `P${Math.round(currentPercentile)} in narrow ${Math.round(range)}-point range. Low volatility, waiting for breakout.`
+    };
+  }
+  
+  // Default to neutral
+  return {
+    signal: 'NEUTRAL',
+    explanation: `P${Math.round(currentPercentile)} in ${Math.round(range)}-point range. No clear directional bias.`
+  };
 }
 
 // Generate trading signal based on percentile rank

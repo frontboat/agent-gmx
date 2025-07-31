@@ -512,7 +512,6 @@ const gmxContext = context({
                             
                             // Don't trigger scheduled cycles if we don't have percentile data
                             if (btcPercentile === null || ethPercentile === null) {
-                                const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
                                 console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC:${btcVolatility.toFixed(1)}% ETH:${ethVolatility.toFixed(1)}% | Waiting for sufficient data before scheduled cycles`);
                             } else if (timeSinceLastCycle >= cycleInterval) {
                                 triggerReason = "Regular 20-minute scheduled check";

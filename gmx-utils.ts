@@ -6,24 +6,6 @@
  * Utility functions for GMX trading calculations and formatting
  */
 
-// Percentile analysis result
-export interface PercentileAnalysis {
-    asset: 'BTC' | 'ETH';
-    currentPrice: number;
-    dataPoints: Array<{
-        timestamp: number;
-        percentile: number;
-        hoursAgo: number;
-    }>;
-    min: number;
-    max: number;
-    average: number;
-    median: number;
-    trend: 'rising' | 'falling' | 'stable';
-    trendStrength: number; // 0-1, higher = stronger trend
-    currentPercentile: number; // from most recent valid snapshot (3h)
-    range: number; // max - min
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 📋 CONSTANTS

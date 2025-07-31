@@ -5,10 +5,7 @@ import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, A
 import type { EnhancedDataCache } from './gmx-cache';
 import { 
     fetchLPBoundsData,
-    convertProbabilitiesToPercentiles,
-    calculatePricePercentile,
-    formatSynthAnalysisSimplified,
-    formatSynthAnalysisWithPercentileAnalysis
+    formatSynthAnalysisSimplified
 } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
@@ -965,14 +962,24 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
         // Fetch LP bounds data from new API (this will add to snapshots)
         const lpBoundsData = await fetchLPBoundsData(asset, gmxDataCache);
         
-        // Get historical percentile analysis (3h-24h window)
-        const percentileAnalysis = await gmxDataCache.getPercentileTimeSeries(asset, currentPrice);
+        // Get merged percentile analysis from 24h-23h ago window
+        const percentileResult = await gmxDataCache.getMergedPercentileBounds(asset, currentPrice);
+        
+        // Return null if no historical data available - this will cause percentile extraction to return null
+        if (percentileResult === null) {
+            return `SYNTH_${asset}_ANALYSIS:\n\nSTATUS: INSUFFICIENT_DATA\nREASON: No snapshots available in 24h-23h window for percentile analysis\nCURRENT_PRICE: $${currentPrice.toFixed(0)}\nCURRENT_PRICE_PERCENTILE: N/A`;
+        }
         
         // Get 24-hour volatility
         const volatility24h = await get24HourVolatility(asset, gmxDataCache);
         
-        // Format and return analysis with historical percentile data
-        let result = formatSynthAnalysisWithPercentileAnalysis(asset, percentileAnalysis);
+        // Use formatSynthAnalysisSimplified with merged bounds data
+        let result = formatSynthAnalysisSimplified(
+            asset,
+            currentPrice,
+            percentileResult.percentile,
+            percentileResult.mergedBounds
+        );
         
         // Add volatility information
         if (volatility24h > 0) {

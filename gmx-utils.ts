@@ -300,18 +300,18 @@ export function isInCooldown(
 
 // Get volatility-based activation thresholds
 export function getVolatilityThresholds(volatilityPercent: number): { lowThreshold: number, highThreshold: number } {
-    if (volatilityPercent < 25) {
-        // Low volatility: P20/P80 (wider thresholds, filter noise)
-        return { lowThreshold: 20, highThreshold: 80 };
+    if (volatilityPercent < 20) {
+        // Low volatility: P25/P75 (wider thresholds, filter noise)
+        return { lowThreshold: 25, highThreshold: 75 };
     } else if (volatilityPercent < 40) {
-        // Standard volatility: P10/P90
-        return { lowThreshold: 10, highThreshold: 90 };
+        // Standard volatility: P15/P85
+        return { lowThreshold: 15, highThreshold: 85 };
     } else if (volatilityPercent < 60) {
-        // High volatility: P5/P95
-        return { lowThreshold: 5, highThreshold: 95 };
+        // High volatility: P10/P90
+        return { lowThreshold: 10, highThreshold: 90 };
     } else {
-        // Very high volatility: P0.5/P99.5 (tighter thresholds, catch real moves)
-        return { lowThreshold: 0.5, highThreshold: 99.5 };
+        // Very high volatility: P5/P95 (tighter thresholds, catch real moves)
+        return { lowThreshold: 5, highThreshold: 95 };
     }
 }
 
@@ -383,3 +383,40 @@ export const calculatePerformanceMetrics = (trades: any[]) => {
         profitFactor,
     };
 };
+
+// Calculate 24-hour rolling volatility from candlestick data
+export function calculate24HourVolatility(candles: number[][]): number {
+    if (!candles || candles.length < 2) {
+        return 0;
+    }
+    
+    // Extract closing prices
+    const closePrices = candles.map(candle => candle[4]); // close is at index 4
+    
+    // Calculate log returns for each 15-minute period
+    const returns: number[] = [];
+    for (let i = 1; i < closePrices.length; i++) {
+        const logReturn = Math.log(closePrices[i] / closePrices[i - 1]);
+        returns.push(logReturn);
+    }
+    
+    if (returns.length === 0) {
+        return 0;
+    }
+    
+    // Calculate mean return
+    const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    
+    // Calculate variance (sample variance with N-1 denominator)
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / (returns.length - 1);
+    
+    // Calculate standard deviation (volatility per 15-minute period)
+    const stdDev = Math.sqrt(variance);
+    
+    // Annualize the volatility correctly for 15-minute intervals
+    // 15-minute intervals: 4 per hour * 24 hours * 365 days = 35,040 intervals per year
+    const periodsPerYear = 4 * 24 * 365; // 35,040
+    const annualizedVolatility = stdDev * Math.sqrt(periodsPerYear) * 100; // Convert to percentage
+    
+    return annualizedVolatility;
+}

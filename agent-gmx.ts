@@ -27,7 +27,6 @@ import {
     get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str 
 } from "./gmx-queries";
 import { EnhancedDataCache } from './gmx-cache';
-import { fetchVolatilityDialRaw, extractVolatilityData } from "./synth-utils";
 import { extractPercentileFromSynthAnalysis, isInCooldown, getVolatilityThresholds } from "./gmx-utils";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -209,11 +208,11 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 ### Signal Classification & Position Sizing
 | Signal Strength | Percentile Range | Portfolio Allocation | Notes |
 |----------------|------------------|---------------------|-------|
-| **OUT-OF-RANGE** | P0, P100 | 50-60% | Price outside ALL predictions |
-| **EXTREME** | P≤0.5, P≥99.5 | 40-50% | Floor/ceiling levels |
-| **STRONG** | P≤10, P≥90 | 20-30% | Top/bottom deciles |
-| **POSSIBLE** | P≤20, P≥80 | 10-20% | Standard opportunities |
-| **NEUTRAL** | P20-P80 | No new position | No edge |
+| **OUT-OF-RANGE** | P≤0.5, P≥99.5 | 60% | Price outside ALL predictions |
+| **EXTREME** | P≤5, P≥95 | 45% | Floor/ceiling levels |
+| **STRONG** | P≤15, P≥85 | 30% | Top/bottom deciles |
+| **POSSIBLE** | P≤25, P≥75 | 15% | Standard opportunities |
+| **NEUTRAL** | P25-P75 | No new position |
 
 ### Risk Management Rules
 
@@ -222,8 +221,8 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 - **SHORT:** Above current percentile level (Stop at either P95 or P99.5, allow for scaling in)
 
 **Take Profit Strategy:**
-- **LONG:** Target 2-3 levels above current (P20 → P35, P50 max)
-- **SHORT:** Target 2-3 levels below current (P85 → P80, P65, P50 min)
+- **LONG:** Target around P50 with 1-2 take profits along the way (P20 → P35, P50)
+- **SHORT:** Target around P50 with 1-2 take profits along the way (P85 → P80, P65, P50)
 - **Distribution:** 40% first target, 40% second target, 20% final target
 
 **Portfolio Management:**
@@ -449,19 +448,19 @@ const gmxContext = context({
                 const unifiedMonitor = async () => {
                     const now = Date.now();
                         // Fetch all monitoring data
-                        const [btc_predictions, eth_predictions, btcVolatilityRaw, ethVolatilityRaw] = await Promise.all([
+                        const [btc_predictions, eth_predictions] = await Promise.all([
                             get_synth_analysis_str('BTC', gmxDataCache),
-                            get_synth_analysis_str('ETH', gmxDataCache),
-                            fetchVolatilityDialRaw('BTC'),
-                            fetchVolatilityDialRaw('ETH')
+                            get_synth_analysis_str('ETH', gmxDataCache)
                         ]);
                         
-                        // Extract volatility values (required for dynamic thresholds)
-                        const btcVolData = extractVolatilityData(btcVolatilityRaw, 'BTC');
-                        const ethVolData = extractVolatilityData(ethVolatilityRaw, 'ETH');
+                        // Extract volatility from analysis output
+                        const extractVolatility = (analysis: string): number => {
+                            const match = analysis.match(/VOLATILITY_24H: ([\d.]+)%/);
+                            return match ? parseFloat(match[1]) : 30; // Default to 30% if not found
+                        };
                         
-                        const btcVolatility = btcVolData.value;
-                        const ethVolatility = ethVolData.value;
+                        const btcVolatility = extractVolatility(btc_predictions);
+                        const ethVolatility = extractVolatility(eth_predictions);
                         
                         // Get volatility-based thresholds
                         const btcThresholds = getVolatilityThresholds(btcVolatility);

@@ -1,16 +1,13 @@
 import { GmxSdk } from "@gmx-io/sdk";
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics } from "./gmx-utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility } from "./gmx-utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 import type { EnhancedDataCache } from './gmx-cache';
 import { 
-    fetchVolatilityDialRaw,
-    extractVolatilityData,
-    fetchSynthPastPercentileData,
-    parseSynthPastPercentileData,
+    fetchLPBoundsData,
+    convertProbabilitiesToPercentiles,
     calculatePricePercentile,
-    formatSynthAnalysisSimplified,
-    type VolatilityData
+    formatSynthAnalysisSimplified
 } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
@@ -950,42 +947,69 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache: Enhanced
     }
 };
 
+// Get 24-hour volatility for an asset
+export const get24HourVolatility = async (asset: 'BTC' | 'ETH'): Promise<number> => {
+    try {
+        // Fetch 24 hours of 15-minute candles (96 candles)
+        const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${asset}&period=15m&limit=96`;
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch candlestick data: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data || !data.candles || !Array.isArray(data.candles) || data.candles.length < 2) {
+            console.warn(`Insufficient data for volatility calculation. Got ${data?.candles?.length || 0} candles`);
+            return 0;
+        }
+        
+        return calculate24HourVolatility(data.candles);
+    } catch (error) {
+        console.error(`Error calculating 24h volatility for ${asset}:`, error);
+        return 0;
+    }
+};
+
 export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache) => {
     try {
-        // Get current price from GMX SDK instead of outdated Synth price
+        // Get current price from GMX SDK
         const currentPrice = await getCurrentAssetPrice(asset, gmxDataCache);
         
         if (currentPrice === 0) {
             throw new Error(`Failed to get current ${asset} price from GMX SDK`);
         }
         
-        // Get percentile values from past data (only for percentile calculation, not price)
-        const pastDashboardResponse = await fetchSynthPastPercentileData(asset);
-        const pastData = parseSynthPastPercentileData(pastDashboardResponse);
+        // Fetch LP bounds data from new API
+        const lpBoundsData = await fetchLPBoundsData(asset);
         
-        const { currentPercentiles } = pastData;
+        // Convert probability data to percentiles
+        const currentPercentiles = convertProbabilitiesToPercentiles(lpBoundsData);
         
-        // Calculate where the current GMX price sits in the Synth percentile distribution
+        // Calculate where the current GMX price sits in the percentile distribution
         const currentPricePercentile = calculatePricePercentile(currentPrice, currentPercentiles);
         
-        // We no longer need future predictions - just use current percentiles
+        // Get 24-hour volatility
+        const volatility24h = await get24HourVolatility(asset);
         
-        // Fetch volatility dial data (keeping this API call)
-        let volatilityData: VolatilityData | undefined;
-        try {
-            const dialResponseData = await fetchVolatilityDialRaw(asset);
-            volatilityData = extractVolatilityData(dialResponseData, asset);
-        } catch (error) {
-            console.error(`Failed to fetch volatility dial for ${asset}:`, error);
+        // Format and return analysis with volatility
+        let result = formatSynthAnalysisSimplified(asset, currentPrice, currentPricePercentile, currentPercentiles);
+        
+        // Add volatility information
+        if (volatility24h > 0) {
+            const lines = result.split('\n');
+            const insertIndex = lines.findIndex(line => line.startsWith('CURRENT_PRICE_PERCENTILE:')) + 1;
+            lines.splice(insertIndex, 0, `VOLATILITY_24H: ${volatility24h.toFixed(2)}%`);
+            result = lines.join('\n');
         }
         
-        // Format and return analysis with only current percentile data
-        return formatSynthAnalysisSimplified(asset, currentPrice, volatilityData, currentPricePercentile, currentPercentiles);
+        return result;
         
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`[SYNTH_ANALYSIS] Failed to get ${asset} analysis:`, errorMsg);
-        return `=== SYNTH INTELLIGENCE RECAP [${new Date().toISOString()}] ===\n\n⚠️ Error: ${errorMsg}\n\n=== END SYNTH RECAP ===`;
+        return `SYNTH_${asset}_ANALYSIS:\n\n⚠️ Error: ${errorMsg}\n`;
     }
 };
 

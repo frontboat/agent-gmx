@@ -246,10 +246,10 @@ export function generateTradingSignalFromPercentile(
       explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. Reaching possible lows.`
     };
   }
-  if (currentPricePercentile <= 20) {
+  if (currentPricePercentile <= 25) {
     return {
       signal: 'POSSIBLE_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUINTILE.`
+      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUARTILE.`
     };
   }
   if (currentPricePercentile >= 85) {
@@ -258,10 +258,10 @@ export function generateTradingSignalFromPercentile(
       explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. Reaching possible highs.`
     };
   }
-  if (currentPricePercentile >= 80) {
+  if (currentPricePercentile >= 75) {
     return {
       signal: 'POSSIBLE_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUINTILE.`
+      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUARTILE.`
     };
   }
 

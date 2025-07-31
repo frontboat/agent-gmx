@@ -947,29 +947,9 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache: Enhanced
     }
 };
 
-// Get 24-hour volatility for an asset
-export const get24HourVolatility = async (asset: 'BTC' | 'ETH'): Promise<number> => {
-    try {
-        // Fetch 24 hours of 15-minute candles (96 candles)
-        const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${asset}&period=15m&limit=96`;
-        
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch candlestick data: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        if (!data || !data.candles || !Array.isArray(data.candles) || data.candles.length < 2) {
-            console.warn(`Insufficient data for volatility calculation. Got ${data?.candles?.length || 0} candles`);
-            return 0;
-        }
-        
-        return calculate24HourVolatility(data.candles);
-    } catch (error) {
-        console.error(`Error calculating 24h volatility for ${asset}:`, error);
-        return 0;
-    }
+// Get 24-hour volatility for an asset - now uses cache
+export const get24HourVolatility = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache): Promise<number> => {
+    return await gmxDataCache.getVolatility(asset);
 };
 
 export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache) => {
@@ -991,7 +971,7 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
         const currentPricePercentile = calculatePricePercentile(currentPrice, currentPercentiles);
         
         // Get 24-hour volatility
-        const volatility24h = await get24HourVolatility(asset);
+        const volatility24h = await get24HourVolatility(asset, gmxDataCache);
         
         // Format and return analysis with volatility
         let result = formatSynthAnalysisSimplified(asset, currentPrice, currentPricePercentile, currentPercentiles);

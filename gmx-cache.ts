@@ -25,6 +25,12 @@ export class EnhancedDataCache {
     private lastPositionInfoFetch: number = 0;
     private readonly POSITION_INFO_TTL_MS = 300_000; // 5 minutes
     private positionInfoFetchPromise: Promise<any> | null = null;
+
+    // Volatility cache
+    private volatilityCache: Map<string, number> = new Map();
+    private lastVolatilityFetch: Map<string, number> = new Map();
+    private readonly VOLATILITY_TTL_MS = 900_000; // 15 minutes
+    private volatilityFetchPromises: Map<string, Promise<number>> = new Map();
     
     constructor(private sdk: GmxSdk) {}
 
@@ -218,6 +224,76 @@ export class EnhancedDataCache {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 📈 VOLATILITY CACHE METHODS
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    async getVolatility(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<number> {
+        const now = Date.now();
+        const cacheKey = `volatility_${asset}`;
+
+        // Return cached data if still valid
+        if (!forceRefresh && this.volatilityCache.has(cacheKey)) {
+            const lastFetch = this.lastVolatilityFetch.get(cacheKey) || 0;
+            if ((now - lastFetch) < this.VOLATILITY_TTL_MS) {
+                const cachedValue = this.volatilityCache.get(cacheKey)!;
+                console.warn(`[VolatilityCache] Returning cached ${asset} volatility: ${cachedValue.toFixed(1)}% (age: ${now - lastFetch}ms)`);
+                return cachedValue;
+            }
+        }
+
+        // If a fetch is already in progress, return that promise
+        if (this.volatilityFetchPromises.has(cacheKey)) {
+            console.warn(`[VolatilityCache] Returning in-progress ${asset} volatility fetch`);
+            return this.volatilityFetchPromises.get(cacheKey)!;
+        }
+
+        // Start new fetch
+        const fetchPromise = this.fetchVolatility(asset);
+        this.volatilityFetchPromises.set(cacheKey, fetchPromise);
+
+        try {
+            const result = await fetchPromise;
+            
+            // Cache the result
+            this.volatilityCache.set(cacheKey, result);
+            this.lastVolatilityFetch.set(cacheKey, now);
+            
+            console.warn(`[VolatilityCache] Cached fresh ${asset} volatility: ${result.toFixed(1)}%`);
+            return result;
+        } finally {
+            // Clean up the promise
+            this.volatilityFetchPromises.delete(cacheKey);
+        }
+    }
+
+    private async fetchVolatility(asset: 'BTC' | 'ETH'): Promise<number> {
+        try {
+            // Import here to avoid circular dependencies
+            const { calculate24HourVolatility } = await import('./gmx-utils');
+            
+            // Fetch 24 hours of 15-minute candles (96 candles)
+            const url = `https://arbitrum-api.gmxinfra.io/prices/candles?tokenSymbol=${asset}&period=15m&limit=96`;
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch candlestick data: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (!data || !data.candles || !Array.isArray(data.candles) || data.candles.length < 2) {
+                console.warn(`[VolatilityCache] Insufficient data for volatility calculation. Got ${data?.candles?.length || 0} candles`);
+                return 0;
+            }
+            
+            return calculate24HourVolatility(data.candles);
+        } catch (error) {
+            console.error(`[VolatilityCache] Error calculating 24h volatility for ${asset}:`, error);
+            return 0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // 🖺 CACHE MANAGEMENT METHODS
     // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -226,6 +302,7 @@ export class EnhancedDataCache {
         this.invalidateMarkets();
         this.invalidateTokens();
         this.invalidatePositions();
+        this.invalidateVolatility();
     }
 
     invalidateMarkets(): void {
@@ -250,6 +327,13 @@ export class EnhancedDataCache {
         this.lastPositionInfoFetch = 0;
         this.positionFetchPromise = null;
         this.positionInfoFetchPromise = null;
+    }
+
+    invalidateVolatility(): void {
+        console.warn('[EnhancedCache] Invalidating volatility cache');
+        this.volatilityCache.clear();
+        this.lastVolatilityFetch.clear();
+        this.volatilityFetchPromises.clear();
     }
 
     getCacheAges(): { markets: number, tokens: number, positions: number, positionsInfo: number} {

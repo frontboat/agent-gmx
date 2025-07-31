@@ -4,14 +4,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-// Rate limiting cache to prevent 429 errors
-interface ApiRequestCache {
-  lastRequestTime: number;
-  data?: LPBoundsResponse;
-}
+import type { EnhancedDataCache } from './gmx-cache';
 
-const synthApiCache: Map<string, ApiRequestCache> = new Map();
-const RATE_LIMIT_COOLDOWN_MS = 3000; // 3 seconds
 
 // Types for the new LP bounds API
 export interface LPBoundsResponse {
@@ -32,52 +26,9 @@ export interface PercentileDataPoint {
   }>;
 }
 
-// Fetch LP bounds data from new Synth API endpoint with rate limiting
-export async function fetchLPBoundsData(asset: 'BTC' | 'ETH'): Promise<LPBoundsResponse> {
-  const now = Date.now();
-  const cacheKey = asset;
-  const cached = synthApiCache.get(cacheKey);
-  
-  // Check if we need to wait due to rate limiting
-  if (cached && (now - cached.lastRequestTime) < RATE_LIMIT_COOLDOWN_MS) {
-    const waitTime = RATE_LIMIT_COOLDOWN_MS - (now - cached.lastRequestTime);
-    console.warn(`[LP_BOUNDS] Rate limit cooldown: waiting ${waitTime}ms for ${asset}`);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
-  }
-  
-  const url = `https://api.synthdata.co/insights/lp-bounds-chart?asset=${asset}`;
-  
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[LP_BOUNDS] API Error: ${response.status} - ${errorText}`);
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Update cache with successful request
-    synthApiCache.set(cacheKey, {
-      lastRequestTime: Date.now(),
-      data
-    });
-    
-    return data;
-  } catch (error) {
-    // Update cache even on error to maintain rate limiting
-    synthApiCache.set(cacheKey, {
-      lastRequestTime: Date.now()
-    });
-    throw error;
-  }
+// Fetch LP bounds data using cache
+export async function fetchLPBoundsData(asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache): Promise<LPBoundsResponse> {
+  return await gmxDataCache.getLPBoundsData(asset);
 }
 
 // Convert probability data to percentile format - use the actual 11 data points from API

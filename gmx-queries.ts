@@ -962,7 +962,7 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
         }
         
         // Fetch LP bounds data from new API
-        const lpBoundsData = await fetchLPBoundsData(asset);
+        const lpBoundsData = await fetchLPBoundsData(asset, gmxDataCache);
         
         // Convert probability data to percentiles
         const currentPercentiles = convertProbabilitiesToPercentiles(lpBoundsData);

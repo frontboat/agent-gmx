@@ -31,6 +31,14 @@ export class EnhancedDataCache {
     private lastVolatilityFetch: Map<string, number> = new Map();
     private readonly VOLATILITY_TTL_MS = 900_000; // 15 minutes
     private volatilityFetchPromises: Map<string, Promise<number>> = new Map();
+
+    // LP Bounds data cache
+    private lpBoundsCache: Map<string, any> = new Map();
+    private lastLPBoundsFetch: Map<string, number> = new Map();
+    private readonly LP_BOUNDS_TTL_MS = 300_000; // 5 minutes
+    private lpBoundsFetchPromises: Map<string, Promise<any>> = new Map();
+    private lastLPBoundsApiCall: number = 0;
+    private readonly LP_BOUNDS_COOLDOWN_MS = 3000; // 3 seconds between API calls
     
     constructor(private sdk: GmxSdk) {}
 
@@ -294,6 +302,89 @@ export class EnhancedDataCache {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // 🔮 LP BOUNDS DATA CACHE METHODS
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    async getLPBoundsData(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<any> {
+        const now = Date.now();
+        const cacheKey = `lp_bounds_${asset}`;
+
+        // Return cached data if still valid
+        if (!forceRefresh && this.lpBoundsCache.has(cacheKey)) {
+            const lastFetch = this.lastLPBoundsFetch.get(cacheKey) || 0;
+            if ((now - lastFetch) < this.LP_BOUNDS_TTL_MS) {
+                const cachedValue = this.lpBoundsCache.get(cacheKey)!;
+                console.warn(`[LPBoundsCache] Returning cached ${asset} LP bounds data (age: ${now - lastFetch}ms)`);
+                return cachedValue;
+            }
+        }
+
+        // If a fetch is already in progress, return that promise
+        if (this.lpBoundsFetchPromises.has(cacheKey)) {
+            console.warn(`[LPBoundsCache] Returning in-progress ${asset} LP bounds fetch`);
+            return this.lpBoundsFetchPromises.get(cacheKey)!;
+        }
+
+        // Start new fetch
+        const fetchPromise = this.fetchLPBounds(asset);
+        this.lpBoundsFetchPromises.set(cacheKey, fetchPromise);
+
+        try {
+            const result = await fetchPromise;
+            
+            // Cache the result
+            this.lpBoundsCache.set(cacheKey, result);
+            this.lastLPBoundsFetch.set(cacheKey, now);
+            
+            console.warn(`[LPBoundsCache] Cached fresh ${asset} LP bounds data`);
+            return result;
+        } finally {
+            // Clean up the promise
+            this.lpBoundsFetchPromises.delete(cacheKey);
+        }
+    }
+
+    private async fetchLPBounds(asset: 'BTC' | 'ETH'): Promise<any> {
+        try {
+            const now = Date.now();
+            
+            // Check if we need to wait due to rate limiting
+            if (this.lastLPBoundsApiCall > 0 && (now - this.lastLPBoundsApiCall) < this.LP_BOUNDS_COOLDOWN_MS) {
+                const waitTime = this.LP_BOUNDS_COOLDOWN_MS - (now - this.lastLPBoundsApiCall);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+            
+            const url = `https://api.synthdata.co/insights/lp-bounds-chart?asset=${asset}`;
+            
+            // Update last API call timestamp BEFORE making the request
+            this.lastLPBoundsApiCall = Date.now();
+            
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `Apikey ${process.env.SYNTH_API_KEY}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[LPBoundsCache] API Error: ${response.status} - ${errorText}`);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            // Ensure timestamp is still updated even on error to maintain rate limiting
+            if (this.lastLPBoundsApiCall === 0) {
+                this.lastLPBoundsApiCall = Date.now();
+            }
+            console.error(`[LPBoundsCache] Error fetching LP bounds for ${asset}:`, error);
+            throw error;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // 🖺 CACHE MANAGEMENT METHODS
     // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -303,6 +394,7 @@ export class EnhancedDataCache {
         this.invalidateTokens();
         this.invalidatePositions();
         this.invalidateVolatility();
+        this.invalidateLPBounds();
     }
 
     invalidateMarkets(): void {
@@ -334,6 +426,13 @@ export class EnhancedDataCache {
         this.volatilityCache.clear();
         this.lastVolatilityFetch.clear();
         this.volatilityFetchPromises.clear();
+    }
+
+    invalidateLPBounds(): void {
+        console.warn('[EnhancedCache] Invalidating LP bounds cache');
+        this.lpBoundsCache.clear();
+        this.lastLPBoundsFetch.clear();
+        this.lpBoundsFetchPromises.clear();
     }
 
     getCacheAges(): { markets: number, tokens: number, positions: number, positionsInfo: number} {

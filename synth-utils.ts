@@ -51,23 +51,37 @@ export interface PercentileDataPoint {
   }>;
 }
 
-// Load synth data from file
+// Load synth data from file with retry logic
 export function loadSynthDataStore(): SnapshotStorage | null {
-  try {
-    if (fs.existsSync(SYNTH_DATA_PATH)) {
-      const data = fs.readFileSync(SYNTH_DATA_PATH, 'utf-8');
-      const parsed = JSON.parse(data) as SnapshotStorage;
-      // Validate structure
-      if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH) {
-        return parsed;
+  // Try up to 3 times with a small delay
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (fs.existsSync(SYNTH_DATA_PATH)) {
+        const data = fs.readFileSync(SYNTH_DATA_PATH, 'utf-8');
+        const parsed = JSON.parse(data) as SnapshotStorage;
+        // Validate structure
+        if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH) {
+          return parsed;
+        }
+      }
+      console.warn('[SynthUtils] No synth data file found at:', SYNTH_DATA_PATH);
+      return null;
+    } catch (error) {
+      if (attempt < 3) {
+        console.warn(`[SynthUtils] Error loading synth data (attempt ${attempt}/3), retrying...`);
+        // Wait 100ms before retry
+        const waitTime = 100;
+        const start = Date.now();
+        while (Date.now() - start < waitTime) {
+          // Busy wait
+        }
+      } else {
+        console.error('[SynthUtils] Error loading synth data after 3 attempts:', error);
+        return null;
       }
     }
-    console.warn('[SynthUtils] No synth data file found at:', SYNTH_DATA_PATH);
-    return null;
-  } catch (error) {
-    console.error('[SynthUtils] Error loading synth data:', error);
-    return null;
   }
+  return null;
 }
 
 // Get synth data snapshots for analysis (24h-23h window)

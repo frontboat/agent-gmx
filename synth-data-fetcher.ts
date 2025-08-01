@@ -112,7 +112,7 @@ function loadDataStore(): SnapshotStorage {
     };
 }
 
-// Save data store to file
+// Save data store to file atomically
 function saveDataStore(store: SnapshotStorage): void {
     try {
         // Ensure directory exists
@@ -121,10 +121,22 @@ function saveDataStore(store: SnapshotStorage): void {
             fs.mkdirSync(dir, { recursive: true });
         }
         
-        fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(store, null, 2));
+        // Write to a temporary file first
+        const tempPath = `${DATA_FILE_PATH}.tmp`;
+        fs.writeFileSync(tempPath, JSON.stringify(store, null, 2));
+        
+        // Atomically rename temp file to actual file
+        // This is atomic on POSIX systems and prevents partial reads
+        fs.renameSync(tempPath, DATA_FILE_PATH);
+        
         console.log(`[SynthDataFetcher] Saved ${store.snapshots.BTC.length} BTC and ${store.snapshots.ETH.length} ETH snapshots`);
     } catch (error) {
         console.error('[SynthDataFetcher] Error saving data:', error);
+        // Clean up temp file if it exists
+        const tempPath = `${DATA_FILE_PATH}.tmp`;
+        if (fs.existsSync(tempPath)) {
+            fs.unlinkSync(tempPath);
+        }
         throw error;
     }
 }

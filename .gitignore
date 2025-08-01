@@ -191,3 +191,6 @@ trading-logs/
 *.tar.gz
 *.rar
 *.7z
+
+# LP bounds snapshot file is tracked (contains trading data)
+# data/lp-bounds-snapshots.json

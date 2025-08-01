@@ -4,7 +4,7 @@ import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, cal
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 import type { EnhancedDataCache } from './gmx-cache';
 import { 
-    fetchLPBoundsData,
+    getMergedPercentileBounds,
     formatSynthAnalysisSimplified
 } from './synth-utils';
 
@@ -959,11 +959,8 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
             throw new Error(`Failed to get current ${asset} price from GMX SDK`);
         }
         
-        // Fetch LP bounds data from new API (this will add to snapshots)
-        const lpBoundsData = await fetchLPBoundsData(asset, gmxDataCache);
-        
-        // Get merged percentile analysis from 24h-23h ago window
-        const percentileResult = await gmxDataCache.getMergedPercentileBounds(asset, currentPrice);
+        // Get merged percentile analysis from 24h-23h ago window using synth-utils
+        const percentileResult = getMergedPercentileBounds(asset, currentPrice);
         
         // Return null if no historical data available - this will cause percentile extraction to return null
         if (percentileResult === null) {

@@ -447,20 +447,13 @@ const gmxContext = context({
                 
                 const unifiedMonitor = async () => {
                     const now = Date.now();
-                        // Fetch all monitoring data
-                        const [btc_predictions, eth_predictions] = await Promise.all([
+                        // Fetch all monitoring data (synth and volatility independently)
+                        const [btc_predictions, eth_predictions, btcVolatility, ethVolatility] = await Promise.all([
                             get_synth_analysis_str('BTC', gmxDataCache),
-                            get_synth_analysis_str('ETH', gmxDataCache)
+                            get_synth_analysis_str('ETH', gmxDataCache),
+                            gmxDataCache.getVolatility('BTC'),
+                            gmxDataCache.getVolatility('ETH')
                         ]);
-                        
-                        // Extract volatility from analysis output
-                        const extractVolatility = (analysis: string): number => {
-                            const match = analysis.match(/VOLATILITY_24H: ([\d.]+)%/);
-                            return match ? parseFloat(match[1]) : 30; // Default to 30% if not found
-                        };
-                        
-                        const btcVolatility = extractVolatility(btc_predictions);
-                        const ethVolatility = extractVolatility(eth_predictions);
                         
                         // Get volatility-based thresholds
                         const btcThresholds = getVolatilityThresholds(btcVolatility);

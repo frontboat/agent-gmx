@@ -8,7 +8,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import type { EnhancedDataCache } from './gmx-cache';
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -51,6 +50,76 @@ export interface PercentileDataPoint {
   }>;
 }
 
+// Get synth data snapshots for analysis (all available snapshots for 24h+ analysis)
+export async function getSynthSnapshots(asset: 'BTC' | 'ETH'): Promise<LPBoundsSnapshot[]> {
+  const store = await loadSynthDataStore();
+  if (!store || !store.snapshots || !store.snapshots[asset]) {
+    return [];
+  }
+  
+  // Return all snapshots, sorted by timestamp (oldest first)
+  // Use all available data for proper 24h analysis (need ~288 for 24h of 5-min data)
+  return store.snapshots[asset]
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+// Get merged percentile bounds from all available snapshots
+export async function getMergedPercentileBounds(asset: 'BTC' | 'ETH', currentPrice: number): Promise<{ percentile: number; mergedBounds: { timestamp: string; percentiles: Array<{ price: number; percentile: number }> } } | null> {
+  const snapshots = await getSynthSnapshots(asset);
+  
+  if (snapshots.length === 0) {
+    console.warn(`[SynthUtils] No snapshots available for ${asset}`);
+    return null;
+  }
+  
+  // Collect all price predictions from all snapshots
+  const allPredictions: number[] = [];
+  
+  snapshots.forEach(snapshot => {
+    const probabilityBelow = snapshot.bounds.data['24h'].probability_below;
+    Object.entries(probabilityBelow).forEach(([priceStr, probBelow]) => {
+      const price = parseFloat(priceStr);
+      allPredictions.push(price);
+    });
+  });
+  
+  // Sort all predictions
+  allPredictions.sort((a, b) => a - b);
+  
+  // Create clean percentile distribution
+  const targetPercentiles = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100];
+  const cleanPercentiles: Array<{ price: number; percentile: number }> = [];
+  
+  for (const targetPerc of targetPercentiles) {
+    const index = Math.floor((targetPerc / 100) * (allPredictions.length - 1));
+    const price = allPredictions[Math.min(index, allPredictions.length - 1)];
+    cleanPercentiles.push({ price, percentile: targetPerc });
+  }
+  
+  // Calculate current price percentile within all predictions
+  let currentPercentile = 50; // default
+  
+  if (allPredictions.length > 0) {
+    // Count how many predictions are below current price
+    const belowCount = allPredictions.filter(p => p < currentPrice).length;
+    currentPercentile = Math.round((belowCount / allPredictions.length) * 100);
+  }
+  
+  console.warn(`[SynthUtils] ${asset} at $${currentPrice.toFixed(0)}: P${currentPercentile} from ${allPredictions.length} total predictions across ${snapshots.length} snapshots`);
+  
+  // Create merged percentile data structure
+  const mergedPercentileData = {
+    timestamp: new Date().toISOString(),
+    percentiles: cleanPercentiles
+  };
+  
+  return {
+    percentile: currentPercentile,
+    mergedBounds: mergedPercentileData
+  };
+}
+
+
 // Load synth data from file with retry logic
 export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
   // Try up to 3 times with a small delay
@@ -82,294 +151,6 @@ export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
   return null;
 }
 
-// Get synth data snapshots for analysis (24h-23h window)
-export async function getSynthSnapshots(asset: 'BTC' | 'ETH'): Promise<LPBoundsSnapshot[]> {
-  const store = await loadSynthDataStore();
-  if (!store || !store.snapshots || !store.snapshots[asset]) {
-    return [];
-  }
-  
-  const now = Date.now();
-  const twentyThreeHoursAgo = now - (23 * 60 * 60 * 1000);
-  const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
-  
-  // Filter snapshots in 24h-23h window
-  return store.snapshots[asset].filter(
-    snapshot => snapshot.timestamp >= twentyFourHoursAgo && snapshot.timestamp <= twentyThreeHoursAgo
-  );
-}
-
-// Fetch LP bounds data - now reads from file instead of cache
-export async function fetchLPBoundsData(asset: 'BTC' | 'ETH', gmxDataCache?: EnhancedDataCache): Promise<LPBoundsResponse> {
-  // If cache is provided (old usage), use it for backwards compatibility
-  if (gmxDataCache) {
-    return await gmxDataCache.getLPBoundsData(asset);
-  }
-  
-  // Otherwise, get the most recent snapshot from file
-  const store = await loadSynthDataStore();
-  if (!store || !store.snapshots || !store.snapshots[asset] || store.snapshots[asset].length === 0) {
-    throw new Error(`No synth data available for ${asset}`);
-  }
-  
-  // Return the most recent snapshot
-  const snapshots = store.snapshots[asset];
-  const latestSnapshot = snapshots[snapshots.length - 1];
-  return latestSnapshot.bounds;
-}
-
-// Convert probability data to percentile format - use the actual 11 data points from API
-export function convertProbabilitiesToPercentiles(lpBoundsData: LPBoundsResponse): PercentileDataPoint {
-  const { probability_below } = lpBoundsData.data['24h'];
-  
-  // Convert the probability_below map to our percentile array format
-  const percentiles = Object.entries(probability_below).map(([priceStr, probBelow]) => ({
-    price: parseFloat(priceStr),
-    percentile: probBelow * 100 // Convert 0.205 to 20.5
-  }));
-  
-  // Sort by price (ascending)
-  percentiles.sort((a, b) => a.price - b.price);
-  
-  const percentileData: PercentileDataPoint = {
-    timestamp: new Date().toISOString(),
-    percentiles
-  };
-  
-  return percentileData;
-}
-
-// Get merged percentile bounds from file data (24h-23h window)
-export async function getMergedPercentileBounds(asset: 'BTC' | 'ETH', currentPrice: number): Promise<{ percentile: number; mergedBounds: { timestamp: string; percentiles: Array<{ price: number; percentile: number }> } } | null> {
-  const snapshots = await getSynthSnapshots(asset);
-  
-  if (snapshots.length === 0) {
-    console.warn(`[SynthUtils] No snapshots available in 24h-23h window for ${asset}`);
-    return null;
-  }
-  
-  // Collect all price predictions from all miners across all snapshots
-  const allPredictions: number[] = [];
-  
-  snapshots.forEach(snapshot => {
-    const probabilityBelow = snapshot.bounds.data['24h'].probability_below;
-    Object.entries(probabilityBelow).forEach(([priceStr, probBelow]) => {
-      const price = parseFloat(priceStr);
-      // Each price level represents a prediction from a miner
-      // We'll treat each one as an individual prediction point
-      allPredictions.push(price);
-    });
-  });
-  
-  // Sort all predictions
-  allPredictions.sort((a, b) => a - b);
-  
-  // Create clean percentile distribution
-  // We want to show key percentiles: 0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100
-  const targetPercentiles = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100];
-  const cleanPercentiles: Array<{ price: number; percentile: number }> = [];
-  
-  for (const targetPerc of targetPercentiles) {
-    const index = Math.floor((targetPerc / 100) * (allPredictions.length - 1));
-    const price = allPredictions[Math.min(index, allPredictions.length - 1)];
-    cleanPercentiles.push({ price, percentile: targetPerc });
-  }
-  
-  // Calculate current price percentile within all predictions
-  let currentPercentile = 50; // default
-  
-  if (allPredictions.length > 0) {
-    // Count how many predictions are below current price
-    const belowCount = allPredictions.filter(p => p < currentPrice).length;
-    currentPercentile = Math.round((belowCount / allPredictions.length) * 100);
-  }
-  
-  console.warn(`[SynthUtils] ${asset} at $${currentPrice.toFixed(0)}: P${currentPercentile} from ${allPredictions.length} total predictions across ${snapshots.length} snapshots`);
-  
-  // Create merged percentile data structure for formatSynthAnalysisSimplified
-  const mergedPercentileData = {
-    timestamp: new Date().toISOString(),
-    percentiles: cleanPercentiles
-  };
-  
-  return {
-    percentile: currentPercentile,
-    mergedBounds: mergedPercentileData
-  };
-}
-
-// Calculate where current price sits in percentile distribution
-export function calculatePricePercentile(currentPrice: number, percentileData: PercentileDataPoint): number {
-  const percentileValues = percentileData.percentiles.map(p => ({
-    level: p.percentile,
-    price: p.price
-  }));
-  
-  // Data is already sorted by price, but let's sort by percentile level for consistency
-  percentileValues.sort((a, b) => a.level - b.level);
-  
-  // Calculate where current price sits in the percentile distribution
-  let currentPricePercentile = 50; // default
-  
-  if (percentileValues.length > 0) {
-    // Find which percentile band the current price falls into
-    if (currentPrice <= percentileValues[0].price) {
-      // Below all predictions
-      currentPricePercentile = 0;
-    } else if (currentPrice >= percentileValues[percentileValues.length - 1].price) {
-      // Above all predictions
-      currentPricePercentile = 100;
-    } else {
-      // Interpolate between percentile bands
-      for (let i = 0; i < percentileValues.length - 1; i++) {
-        const lowerBand = percentileValues[i];
-        const upperBand = percentileValues[i + 1];
-        
-        if (currentPrice >= lowerBand.price && currentPrice <= upperBand.price) {
-          const priceDiff = upperBand.price - lowerBand.price;
-          const levelDiff = upperBand.level - lowerBand.level;
-          
-          if (priceDiff > 0) {
-            const fraction = (currentPrice - lowerBand.price) / priceDiff;
-            currentPricePercentile = Math.round(lowerBand.level + (fraction * levelDiff));
-          } else {
-            currentPricePercentile = Math.round(lowerBand.level);
-          }
-          break;
-        }
-      }
-    }
-  }
-  
-  return currentPricePercentile;
-}
-
-// Format Synth analysis output
-export function formatSynthAnalysisSimplified(
-  asset: 'BTC' | 'ETH', 
-  currentPrice: number,
-  currentPricePercentile: number,
-  currentPercentiles: PercentileDataPoint
-): string {
-  // Generate trading signal based on percentile rank
-  const { signal, explanation } = generateTradingSignalFromPercentile(currentPricePercentile);
-  
-  // Build structured output for AI consumption
-  let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
-
-  // PRIORITY SECTION - Most important info first
-  result += `TRADING_SIGNAL: ${signal}\n`;
-  result += `SIGNAL_EXPLANATION: ${explanation}\n`;
-  result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
-  result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
-  
-  // KEY PERCENTILE LEVELS - Show clean percentile distribution
-  result += `\nKEY_PERCENTILE_LEVELS:\n`;
-  currentPercentiles.percentiles
-    .sort((a, b) => a.percentile - b.percentile) // Sort by percentile
-    .forEach(p => {
-      result += `P${p.percentile}: $${p.price.toFixed(0)}\n`;
-    });
-  
-  return result;
-}
-
-
-// Generate trading signal based on percentile rank
-export function generateTradingSignalFromPercentile(
-  currentPricePercentile: number, 
-): { signal: string; explanation: string } {
-  // Precise calculation of prediction distribution
-  const predictionsAbove = Math.round(100 - currentPricePercentile);
-  const predictionsBelow = Math.round(currentPricePercentile);
-  
-  // OUT-OF-RANGE SIGNALS
-  if (currentPricePercentile === 0) {
-    return {
-      signal: 'OUT_OF_RANGE_LONG',
-      explanation: `P0: PRICE BELOW ALL PREDICTIONS! 100% predictions above. ABSOLUTE FLOOR.`
-    };
-  }
-  if (currentPricePercentile === 100) {
-    return {
-      signal: 'OUT_OF_RANGE_SHORT',
-      explanation: `P100: PRICE ABOVE ALL PREDICTIONS! 100% predictions below. ABSOLUTE CEILING.`
-    };
-  }
-  
-  // Extreme zones - maximum conviction signals
-  if (currentPricePercentile <= 0.5) {
-    return {
-      signal: 'EXTREME_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. FLOOR LEVEL.`
-    };
-  }
-  if (currentPricePercentile >= 99.5) {
-    return {
-      signal: 'EXTREME_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. CEILING LEVEL.`
-    };
-  }
-  
-  // Strong conviction zones
-  if (currentPricePercentile <= 5) {
-    return {
-      signal: 'STRONG_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. Reaching extreme lows.`
-    };
-  }
-  if (currentPricePercentile <= 10) {
-    return {
-      signal: 'STRONG_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM DECILE.`
-    };
-  }
-  if (currentPricePercentile >= 95) {
-    return {
-      signal: 'STRONG_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. Reaching extreme highs.`
-    };
-  }
-  if (currentPricePercentile >= 90) {
-    return {
-      signal: 'STRONG_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP DECILE.`
-    };
-  }
-  
-  // Standard opportunity zones
-  if (currentPricePercentile <= 15) {
-    return {
-      signal: 'POSSIBLE_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. Reaching possible lows.`
-    };
-  }
-  if (currentPricePercentile <= 25) {
-    return {
-      signal: 'POSSIBLE_LONG',
-      explanation: `P${currentPricePercentile}: ${predictionsAbove}% predictions above. BOTTOM QUARTILE.`
-    };
-  }
-  if (currentPricePercentile >= 85) {
-    return {
-      signal: 'POSSIBLE_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. Reaching possible highs.`
-    };
-  }
-  if (currentPricePercentile >= 75) {
-    return {
-      signal: 'POSSIBLE_SHORT',
-      explanation: `P${currentPricePercentile}: ${predictionsBelow}% predictions below. TOP QUARTILE.`
-    };
-  }
-
-  // Neutral zone - no edge
-  return {
-    signal: 'NEUTRAL',
-    explanation: `P${currentPricePercentile}: ${predictionsAbove}% above, ${predictionsBelow}% below. NO EDGE - Wait for clearer levels.`
-  };
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // REGIME DETECTION AND ADVANCED SIGNAL GENERATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -384,10 +165,10 @@ export interface FlatSnap {
   q90: number;          // 90th percentile price
 }
 
-// Ring buffer for storing historical snapshots (keep last 48)
+// Ring buffer for storing historical snapshots (keep last 355+ for full dataset)
 export class SnapRingBuffer {
   private buffer: FlatSnap[] = [];
-  private maxSize = 48;
+  public readonly maxSize = 500; // Increased to handle full dataset
   
   push(snap: FlatSnap): void {
     this.buffer.push(snap);
@@ -411,6 +192,93 @@ const ethBuffer = new SnapRingBuffer();
 
 // Regime tracking for change detection
 let lastRegimeTracking: { [key: string]: { regime: MarketRegime; timestamp: number } } = {};
+
+// Signal tracking for 24h performance analysis
+interface SignalTrackingEntry {
+  timestamp: number;
+  symbol: 'BTC' | 'ETH';
+  signalType: 'CONTRARIAN' | 'RANGE_BAND';
+  direction: 'LONG' | 'SHORT';
+  entryPrice: number;
+  predictedPrice: number; // q50 at time of signal
+  exitTimestamp?: number;
+  exitPrice?: number;
+  realizedReturn?: number;
+  predictedReturn?: number;
+  biasError?: number;
+  completed: boolean;
+}
+
+// In-memory signal tracking (should be persisted in production)
+let signalTrackingLog: SignalTrackingEntry[] = [];
+
+// Track a new signal for 24h analysis
+function trackSignal(
+  symbol: 'BTC' | 'ETH',
+  signalType: 'CONTRARIAN' | 'RANGE_BAND',
+  direction: 'LONG' | 'SHORT',
+  entryPrice: number,
+  predictedPrice: number
+): void {
+  const entry: SignalTrackingEntry = {
+    timestamp: Date.now(),
+    symbol,
+    signalType,
+    direction,
+    entryPrice,
+    predictedPrice,
+    completed: false
+  };
+  
+  signalTrackingLog.push(entry);
+  
+  // Clean up old entries (keep last 100)
+  if (signalTrackingLog.length > 100) {
+    signalTrackingLog = signalTrackingLog.slice(-100);
+  }
+  
+  console.log(`[SIGNAL_TRACK] ${symbol} ${signalType} ${direction} tracked at $${entryPrice.toFixed(2)}`);
+}
+
+// Process signal exits and calculate performance
+function processSignalExits(currentSnaps: FlatSnap[]): void {
+  const now = Date.now();
+  const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+  
+  signalTrackingLog.forEach(entry => {
+    if (entry.completed) return;
+    
+    // Check if 24h has passed
+    if (now - entry.timestamp >= twentyFourHoursMs) {
+      // Find the closest current snap for this symbol
+      const symbolSnaps = currentSnaps.filter(snap => snap.symbol === entry.symbol);
+      if (symbolSnaps.length === 0) return;
+      
+      // Use the most recent price for exit
+      const latestSnap = symbolSnaps[symbolSnaps.length - 1];
+      const exitPrice = latestSnap.price;
+      
+      // Calculate realized return
+      const realizedReturn = (exitPrice / entry.entryPrice) - 1;
+      
+      // Calculate predicted return (what the q50 prediction was)
+      const predictedReturn = (entry.predictedPrice / entry.entryPrice) - 1;
+      
+      // Calculate bias error
+      const biasError = realizedReturn - predictedReturn;
+      
+      // Update entry
+      entry.exitTimestamp = now;
+      entry.exitPrice = exitPrice;
+      entry.realizedReturn = realizedReturn;
+      entry.predictedReturn = predictedReturn;
+      entry.biasError = biasError;
+      entry.completed = true;
+      
+      console.log(`[SIGNAL_EXIT] ${entry.symbol} ${entry.signalType} ${entry.direction}: Real ${(realizedReturn * 100).toFixed(2)}% vs Pred ${(predictedReturn * 100).toFixed(2)}% | Bias: ${(biasError * 100).toFixed(2)}%`);
+    }
+  });
+}
 
 // Extract quantiles from probability_below data with proper interpolation
 function extractQuantiles(bounds: LPBoundsResponse): { q10: number; q50: number; q90: number } {
@@ -472,51 +340,78 @@ export interface RollingStats {
   biasErrors: number[];
 }
 
-// Calculate rolling statistics
+// Calculate rolling statistics using both snapshot data and signal tracking
 export function calculateRollingStats(symbol: 'BTC' | 'ETH'): RollingStats | null {
   const buffer = symbol === 'BTC' ? btcBuffer : ethBuffer;
-  const snaps = buffer.getAll(); // No need to filter by symbol since buffers are already per-symbol
+  const snaps = buffer.getAll();
   
-  if (snaps.length < 2) return null;
+  console.log(`[ROLLING_STATS] ${symbol}: Buffer has ${snaps.length} snaps`);
+  if (snaps.length < 2) {
+    console.log(`[ROLLING_STATS] ${symbol}: Insufficient snaps (${snaps.length} < 2) - returning null`);
+    return null;
+  }
   
   const realised24h: number[] = [];
   const biasErrors: number[] = [];
   
-  // Calculate realised returns and bias errors with proper 24h alignment
-  for (let i = 0; i < snaps.length; i++) {
-    const current = snaps[i];
-    const target24h = current.t - (24 * 60 * 60 * 1000);
-    
-    // Find the snapshot closest to exactly 24h ago
-    let closest: FlatSnap | null = null;
-    let minTimeDiff = Infinity;
-    
-    for (let j = 0; j < i; j++) {
-      const candidate = snaps[j];
-      const timeDiff = Math.abs(candidate.t - target24h);
-      
-      // Only consider snapshots within 2 minutes of the 24h target
-      if (timeDiff < 2 * 60 * 1000 && timeDiff < minTimeDiff) {
-        minTimeDiff = timeDiff;
-        closest = candidate;
+  // First, use completed signal tracking entries for more accurate bias calculation
+  const completedSignals = signalTrackingLog.filter(entry => 
+    entry.completed && entry.symbol === symbol
+  );
+  
+  if (completedSignals.length >= 3) {
+    // Use signal-based bias calculation (more accurate)
+    console.log(`[ROLLING_STATS] ${symbol}: Using ${completedSignals.length} completed signals for bias calculation`);
+    completedSignals.slice(-8).forEach(signal => {
+      if (signal.realizedReturn !== undefined && signal.biasError !== undefined) {
+        realised24h.push(signal.realizedReturn);
+        biasErrors.push(signal.biasError);
       }
-    }
-    
-    if (closest) {
-      const realised = (current.price / closest.price) - 1;
-      const predicted = (closest.q50 / closest.price) - 1;
-      const biasError = realised - predicted;
+    });
+  } else {
+    console.log(`[ROLLING_STATS] ${symbol}: Only ${completedSignals.length} completed signals, falling back to snapshot-based calculation`);
+    // Fallback to snapshot-based calculation
+    for (let i = 0; i < snaps.length; i++) {
+      const current = snaps[i];
+      const target24h = current.t - (24 * 60 * 60 * 1000);
       
-      realised24h.push(realised);
-      biasErrors.push(biasError);
+      // Find the snapshot closest to exactly 24h ago
+      let closest: FlatSnap | null = null;
+      let minTimeDiff = Infinity;
+      
+      for (let j = 0; j < i; j++) {
+        const candidate = snaps[j];
+        const timeDiff = Math.abs(candidate.t - target24h);
+        
+        // Only consider snapshots within 2 minutes of the 24h target
+        if (timeDiff < 2 * 60 * 1000 && timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          closest = candidate;
+        }
+      }
+      
+      if (closest) {
+        const realised = (current.price / closest.price) - 1;
+        const predicted = (closest.q50 / closest.price) - 1;
+        const biasError = realised - predicted;
+        
+        realised24h.push(realised);
+        biasErrors.push(biasError);
+      }
     }
   }
   
-  if (realised24h.length < 3) return null;
+  console.log(`[ROLLING_STATS] ${symbol}: Collected ${realised24h.length} realized returns and ${biasErrors.length} bias errors`);
+  if (realised24h.length < 3) {
+    console.log(`[ROLLING_STATS] ${symbol}: Insufficient data points (${realised24h.length} < 3) - returning null`);
+    return null;
+  }
   
   // Take last 8 observations
   const recentRealised = realised24h.slice(-8);
   const recentBias = biasErrors.slice(-8);
+  console.log(`[ROLLING_STATS] ${symbol}: Using last ${recentRealised.length} observations for stats`);
+  console.log(`[ROLLING_STATS] ${symbol}: Recent realized returns:`, recentRealised.map(r => `${(r * 100).toFixed(2)}%`).join(', '));
   
   // Calculate mean and std
   const mean = recentRealised.reduce((a, b) => a + b, 0) / recentRealised.length;
@@ -540,7 +435,6 @@ export function classifyRegime(symbol: 'BTC' | 'ETH'): { regime: MarketRegime; c
   if (!stats) return null;
   
   const { mean, std } = stats.drift;
-  const bias = stats.bias;
   
   // Normalize volatility
   const volNormalized = std / (Math.abs(mean) + 0.001);
@@ -591,13 +485,13 @@ function trackRegimeChange(symbol: 'BTC' | 'ETH', newRegime: MarketRegime): void
 }
 
 // Signal generation parameters
-const TAU = 0.006;   // 0.6% tilt threshold
+const TAU = 0.015;   // 1.5% tilt threshold (increased from 0.6% to make 100% strength harder)
 const EPS = 0.0005;  // 0.05% band filter
 
 // Signal strength scaling documentation:
 // - Contrarian signals: strength = min(tilt / (2*TAU), 1)
-//   When tilt = TAU (0.6%), strength = 0.5
-//   When tilt = 2*TAU (1.2%), strength = 1.0 (max)
+//   When tilt = TAU (1.5%), strength = 0.5
+//   When tilt = 2*TAU (3.0%), strength = 1.0 (max)
 // - Range-band signals: strength = min(deviation / 2, 1) 
 //   Linear scaling where 2% deviation = 100% strength
 // Both scales map 0-1 → position size fraction for execution layer
@@ -675,30 +569,71 @@ export async function getEnhancedSynthAnalysis(
   currentPercentiles: PercentileDataPoint,
   volatility24h: number
 ): Promise<string> {
-  // Get base analysis
-  let result = formatSynthAnalysisSimplified(asset, currentPrice, currentPricePercentile, currentPercentiles);
+  console.log(`[ENHANCED_ANALYSIS] Starting enhanced analysis for ${asset} at $${currentPrice}`);
+  
+  // Build base analysis output
+  let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
+  
+  // Start with regime-based analysis (populated later)
+  result += `REGIME_SIGNAL: PENDING\n`;
+  result += `SIGNAL_EXPLANATION: Analyzing market regime...\n`;
+  result += `CURRENT_PRICE: $${currentPrice.toFixed(0)}\n`;
+  result += `CURRENT_PRICE_PERCENTILE: P${currentPricePercentile}\n`;
   
   // Process latest snapshots if available
   const snapshots = await getSynthSnapshots(asset);
+  console.log(`[ENHANCED_ANALYSIS] ${asset}: Found ${snapshots.length} snapshots`);
+  
   if (snapshots.length > 0) {
-    // Process all snapshots to update buffers
-    snapshots.forEach(snap => processSnapshot(snap, asset));
-    
-    // Get latest snap
+    // Process all snapshots to update buffers (avoid reprocessing same data)
     const buffer = asset === 'BTC' ? btcBuffer : ethBuffer;
+    const currentBufferSize = buffer.getAll().length;
+    
+    snapshots.forEach(snap => processSnapshot(snap, asset));
+    const newBufferSize = buffer.getAll().length;
+    console.log(`[ENHANCED_ANALYSIS] ${asset}: Processed ${snapshots.length} snapshots, buffer: ${currentBufferSize} → ${newBufferSize}`);
+    
+    // Process any signal exits that are ready
     const recentSnaps = buffer.getAll();
+    console.log(`[ENHANCED_ANALYSIS] ${asset}: Buffer contains ${recentSnaps.length} snaps (max ${buffer.maxSize})`);
+    
+    if (recentSnaps.length > 0) {
+      processSignalExits(recentSnaps);
+    }
     
     if (recentSnaps.length > 0) {
       const latestSnap = recentSnaps[recentSnaps.length - 1];
+      console.log(`[ENHANCED_ANALYSIS] ${asset}: Latest snap - price: $${latestSnap.price}, q10: $${latestSnap.q10}, q50: $${latestSnap.q50}, q90: $${latestSnap.q90}`);
       
       // Calculate regime
       const regimeResult = classifyRegime(asset);
       const stats = calculateRollingStats(asset);
       
+      console.log(`[ENHANCED_ANALYSIS] ${asset}: Regime result:`, regimeResult);
+      console.log(`[ENHANCED_ANALYSIS] ${asset}: Stats result:`, stats ? `drift: ${(stats.drift.mean * 100).toFixed(2)}%±${(stats.drift.std * 100).toFixed(2)}%, bias: ${(stats.bias * 100).toFixed(2)}%` : 'null');
+      
       if (regimeResult && stats) {
-        // Add regime information
+        // Generate appropriate signal based on regime
+        let advancedSignal;
+        if (regimeResult.regime === 'RANGE') {
+          advancedSignal = generateRangeBandSignal(latestSnap);
+          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated RANGE signal:`, advancedSignal);
+        } else if (regimeResult.regime === 'TREND_UP' || regimeResult.regime === 'TREND_DOWN') {
+          advancedSignal = generateContrarianSignal(latestSnap, stats, regimeResult.regime);
+          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated CONTRARIAN signal:`, advancedSignal);
+        } else {
+          advancedSignal = { signal: 'NEUTRAL', strength: 0, reason: 'Market too choppy for signals' };
+          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated CHOPPY signal:`, advancedSignal);
+        }
+        
+        // Replace the placeholder regime signal at the top
+        result = result.replace('REGIME_SIGNAL: PENDING', `REGIME_SIGNAL: ${advancedSignal.signal || 'NEUTRAL'}`);
+        result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', `SIGNAL_EXPLANATION: ${advancedSignal.reason || 'No actionable signal'}`);
+        
+        // Add detailed regime information after volatility
         const regimeLines = result.split('\n');
-        const insertIdx = regimeLines.findIndex(line => line.includes('KEY_PERCENTILE_LEVELS:'));
+        const insertIdx = regimeLines.findIndex(line => line.includes('VOLATILITY_24H:')) + 1 || 
+                         regimeLines.findIndex(line => line.includes('CURRENT_PRICE_PERCENTILE:')) + 1;
         
         const regimeInfo = [
           '',
@@ -708,26 +643,45 @@ export async function getEnhancedSynthAnalysis(
           `PREDICTION_BIAS: ${(stats.bias * 100).toFixed(2)}%`,
         ];
         
-        // Generate appropriate signal based on regime
-        let advancedSignal;
-        if (regimeResult.regime === 'RANGE') {
-          advancedSignal = generateRangeBandSignal(latestSnap);
-        } else if (regimeResult.regime === 'TREND_UP' || regimeResult.regime === 'TREND_DOWN') {
-          advancedSignal = generateContrarianSignal(latestSnap, stats, regimeResult.regime);
-        } else {
-          advancedSignal = { signal: 'NEUTRAL', strength: 0, reason: 'Market too choppy for signals' };
-        }
-        
         if (advancedSignal.signal !== 'NEUTRAL') {
-          regimeInfo.push(`REGIME_SIGNAL: ${advancedSignal.signal}`);
           regimeInfo.push(`SIGNAL_STRENGTH: ${(advancedSignal.strength * 100).toFixed(0)}%`);
-          regimeInfo.push(`SIGNAL_REASON: ${advancedSignal.reason}`);
+          
+          // Track the signal for 24h performance analysis (avoid duplicates)
+          const signalType = regimeResult.regime === 'RANGE' ? 'RANGE_BAND' : 'CONTRARIAN';
+          const hasOpenSignal = signalTrackingLog.some(entry => 
+            !entry.completed && 
+            entry.symbol === asset && 
+            entry.signalType === signalType &&
+            entry.direction === advancedSignal.signal
+          );
+          
+          if (!hasOpenSignal) {
+            trackSignal(asset, signalType, advancedSignal.signal, latestSnap.price, latestSnap.q50);
+          } else {
+            console.log(`[SIGNAL_TRACK] ${asset} ${signalType} ${advancedSignal.signal} already tracked - skipping duplicate`);
+          }
         }
         
         regimeLines.splice(insertIdx, 0, ...regimeInfo);
         result = regimeLines.join('\n');
+        console.log(`[ENHANCED_ANALYSIS] ${asset}: Successfully added regime information to output`);
+      } else {
+        console.log(`[ENHANCED_ANALYSIS] ${asset}: Missing regime result or stats - cannot add enhanced features`);
+        // Update placeholder with no signal
+        result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
+        result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: Insufficient data for regime analysis');
       }
+    } else {
+      console.log(`[ENHANCED_ANALYSIS] ${asset}: No processed snaps in buffer - cannot perform regime analysis`);
+      // Update placeholder with no signal
+      result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
+      result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: No snapshots in buffer for analysis');
     }
+  } else {
+    console.log(`[ENHANCED_ANALYSIS] ${asset}: No snapshots found - using basic analysis only`);
+    // Update placeholder with no signal
+    result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
+    result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: No historical data available');
   }
   
   // Add volatility if provided
@@ -738,5 +692,14 @@ export async function getEnhancedSynthAnalysis(
     result = lines.join('\n');
   }
   
+  // Add key percentile levels at the end
+  result += `KEY_PERCENTILE_LEVELS:\n`;
+  currentPercentiles.percentiles
+    .sort((a, b) => a.percentile - b.percentile) // Sort by percentile
+    .forEach(p => {
+      result += `P${p.percentile}: $${p.price.toFixed(0)}\n`;
+    });
+  
+  console.log(`[ENHANCED_ANALYSIS] ${asset}: Completed analysis`);
   return result;
 }

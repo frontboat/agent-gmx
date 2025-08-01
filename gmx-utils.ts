@@ -421,3 +421,51 @@ export function calculate24HourVolatility(candles: number[][]): number {
     
     return annualizedVolatility;
 }
+
+// Extract regime signal information from enhanced synth analysis
+export function extractRegimeSignalFromSynthAnalysis(synthAnalysis: string): {
+    hasRegimeSignal: boolean;
+    regimeSignal: 'LONG' | 'SHORT' | null;
+    signalStrength: number;
+    signalReason: string;
+    marketRegime: string;
+    regimeConfidence: number;
+} {
+    const lines = synthAnalysis.split('\n');
+    
+    let hasRegimeSignal = false;
+    let regimeSignal: 'LONG' | 'SHORT' | null = null;
+    let signalStrength = 0;
+    let signalReason = '';
+    let marketRegime = '';
+    let regimeConfidence = 0;
+    
+    for (const line of lines) {
+        if (line.startsWith('MARKET_REGIME: ')) {
+            marketRegime = line.replace('MARKET_REGIME: ', '').trim();
+        } else if (line.startsWith('REGIME_CONFIDENCE: ')) {
+            const confStr = line.replace('REGIME_CONFIDENCE: ', '').replace('%', '').trim();
+            regimeConfidence = parseInt(confStr) || 0;
+        } else if (line.startsWith('REGIME_SIGNAL: ')) {
+            const signal = line.replace('REGIME_SIGNAL: ', '').trim();
+            if (signal === 'LONG' || signal === 'SHORT') {
+                regimeSignal = signal;
+                hasRegimeSignal = true;
+            }
+        } else if (line.startsWith('SIGNAL_STRENGTH: ')) {
+            const strengthStr = line.replace('SIGNAL_STRENGTH: ', '').replace('%', '').trim();
+            signalStrength = parseInt(strengthStr) || 0;
+        } else if (line.startsWith('SIGNAL_REASON: ')) {
+            signalReason = line.replace('SIGNAL_REASON: ', '').trim();
+        }
+    }
+    
+    return {
+        hasRegimeSignal,
+        regimeSignal,
+        signalStrength,
+        signalReason,
+        marketRegime,
+        regimeConfidence
+    };
+}

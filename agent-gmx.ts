@@ -27,7 +27,7 @@ import {
     get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str 
 } from "./gmx-queries";
 import { EnhancedDataCache } from './gmx-cache';
-import { extractPercentileFromSynthAnalysis, isInCooldown, getVolatilityThresholds } from "./gmx-utils";
+import { extractPercentileFromSynthAnalysis, extractRegimeSignalFromSynthAnalysis, isInCooldown, getVolatilityThresholds } from "./gmx-utils";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -201,35 +201,43 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 
 ---
 
-## 🧠 Synth AI Framework
+## 🧠 Synth AI Regime Framework
 
-**Core Logic:** Percentile P23 = 23% of AI miners predict price BELOW current level. Lower percentile = more upside potential.
+**Core Logic:** Advanced market regime detection combined with AI prediction clustering. Generates contrarian signals in trending markets and range-band signals in sideways markets.
 
-### Signal Classification & Position Sizing
-| Signal Strength | Percentile Range | Portfolio Allocation | Notes |
+### Market Regime Classification
+| Regime | Characteristics | Signal Type | Strategy |
+|--------|----------------|-------------|----------|
+| **TREND_UP** | Positive drift, sustained momentum | Contrarian | Fade rallies when tilt > TAU |
+| **TREND_DOWN** | Negative drift, sustained momentum | Contrarian | Fade dips when tilt > TAU |
+| **RANGE** | Low drift, mean-reverting | Range-band | Buy Q10 support, sell Q90 resistance |
+| **CHOPPY** | High volatility relative to drift | None | No trading |
+
+### Signal Strength & Position Sizing
+| Signal Strength | Trigger Threshold | Portfolio Allocation | Notes |
 |----------------|------------------|---------------------|-------|
-| **OUT-OF-RANGE** | P≤0.5, P≥99.5 | 60% | Price outside ALL predictions |
-| **EXTREME** | P≤5, P≥95 | 45% | Floor/ceiling levels |
-| **STRONG** | P≤15, P≥85 | 30% | Top/bottom deciles |
-| **POSSIBLE** | P≤25, P≥75 | 15% | Standard opportunities |
-| **NEUTRAL** | P25-P75 | No new position |
+| **100%** | Tilt ≥ 3.0% | 45-60% | Maximum conviction |
+| **80-99%** | Tilt ≥ 2.4% | 30-45% | High conviction (min for triggers) |
+| **50-79%** | Tilt ≥ 1.5% | 15-30% | Medium conviction |
+| **<50%** | Tilt < 1.5% | No position | Below threshold |
 
 ### Risk Management Rules
 
 **Stop Loss Placement:**
-- **LONG:** Below current percentile level (Stop at either P5 or P0.5, allow for scaling in)
-- **SHORT:** Above current percentile level (Stop at either P95 or P99.5, allow for scaling in)
+- **Contrarian Trades:** Use opposite regime extreme (LONG: below Q10, SHORT: above Q90)
+- **Range Trades:** Outside the range bounds with buffer
+- **Dynamic Adjustment:** Wider stops in higher volatility environments
 
 **Take Profit Strategy:**
-- **LONG:** Target around P50 with 1-2 take profits along the way (P20 → P35, P50)
-- **SHORT:** Target around P50 with 1-2 take profits along the way (P85 → P80, P65, P50)
-- **Distribution:** 40% first target, 40% second target, 20% final target
+- **Contrarian:** Target mean reversion to Q50 (median prediction)
+- **Range:** Target opposite band (Q10→Q90, Q90→Q10)
+- **Scaling:** 40% at first target, 40% at second, 20% runner
 
 **Portfolio Management:**
 - **Base Holdings:** 90% USDC when not trading
 - **Gas Reserve:** 2% ETH minimum
-- **Max Single Position:** 60% (extreme signals only)
-- **Leverage:** 1-5x (3x recommended)
+- **Max Single Position:** 60% (100% signal strength only)
+- **Leverage:** Dynamic based on volatility (lower vol = higher leverage)
 
 ---
 
@@ -246,23 +254,23 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 5. **Cancel invalid orders:** Orders with invalidated thesis
 
 ### Step 3: Market Analysis
-1. **Market structure:** Trend, range, or transition?
-2. **Key levels:** Support/resistance distances
-3. **Momentum:** Timeframe alignment, RSI, moving averages
-4. **Synth signals:** Current percentile and predictions
-5. **Best opportunity:** BTC vs ETH setup quality
+1. **Regime Detection:** Check MARKET_REGIME (TREND_UP/DOWN/RANGE/CHOPPY)
+2. **Signal Strength:** Verify SIGNAL_STRENGTH ≥ 80% for triggers
+3. **Drift Analysis:** Review 24h drift and volatility metrics
+4. **Prediction Bias:** Monitor model accuracy for bias adjustments
+5. **Best Opportunity:** Compare BTC vs ETH signal quality
 
 ### Step 4: Trade Execution
 **Entry Decision Matrix:**
-- **Market Order:** Strong momentum + EXTREME signals
-- **Limit Order:** Ranging markets + STANDARD signals
+- **Market Order:** Strong momentum + high conviction signals
+- **Limit Order:** Ranging markets + standard signals
 - **Scale In:** Multiple confluence levels available
 
 **Confluence Requirements (minimum 4/6):**
-- [ ] Near key support (LONG) or resistance (SHORT)
-- [ ] Synth analysis confirms direction
+- [ ] Strong regime signal (≥80% strength)
+- [ ] Technical indicators confirm (RSI, MACD, etc.)
 - [ ] Multiple timeframes aligned
-- [ ] 2+ technical indicators confirm
+- [ ] Near key support (LONG) or resistance (SHORT)
 - [ ] Risk:reward ≥ 2:1
 - [ ] Momentum supports direction
 
@@ -271,6 +279,11 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 - **5+ boxes:** Scale with market orders NOW
 - **4+ boxes:** Scale with limit orders NOW
 - **<4 boxes:** WAIT - "NO QUALIFYING SETUP"
+
+**Position Sizing:**
+- Base size from signal strength (15-60%)
+- Adjust for overall confluence score
+- Scale based on volatility environment
 
 ---
 
@@ -459,46 +472,56 @@ const gmxContext = context({
                         const btcThresholds = getVolatilityThresholds(btcVolatility);
                         const ethThresholds = getVolatilityThresholds(ethVolatility);
                         
+                        // Get legacy percentile signals (for fallback/info)
                         const btcPercentile = extractPercentileFromSynthAnalysis(btc_predictions);
                         const ethPercentile = extractPercentileFromSynthAnalysis(eth_predictions);
-                                                
-                        // Check for triggers (priority order: synth signals > scheduled)
+                        
+                        // Get enhanced regime signals (primary trigger source)
+                        const btcRegimeSignal = extractRegimeSignalFromSynthAnalysis(btc_predictions);
+                        const ethRegimeSignal = extractRegimeSignalFromSynthAnalysis(eth_predictions);
+                        
+                        // Minimum signal strength required for triggers (80% = high conviction only)  
+                        const MIN_SIGNAL_STRENGTH = 80;
+                        
+                        // Check for triggers (priority order: regime signals > scheduled)
                         let triggered = false;
                         let triggerReason = "";
                         let triggerType = "";
                         
-                        // 1. Check for Synth threshold breaches with cooldown protection
-                        if (btcPercentile !== null && (btcPercentile <= btcThresholds.lowThreshold || btcPercentile >= btcThresholds.highThreshold)) {
-                            const signalType: 'LONG' | 'SHORT' = btcPercentile <= btcThresholds.lowThreshold ? 'LONG' : 'SHORT';
+                        // 1. Check for high-strength regime signals (PRIORITY)
+                        if (btcRegimeSignal && btcRegimeSignal.hasRegimeSignal && btcRegimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && btcRegimeSignal.regimeSignal) {
+                            const signalType = btcRegimeSignal.regimeSignal;
                             const inCooldown = isInCooldown('BTC', signalType, lastBtcTriggerTime, lastBtcTriggerType);
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
-                                console.warn(`🧊 [SYNTH] BTC P${btcPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                console.warn(`🧊 [REGIME] BTC ${signalType} signal (${btcRegimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
                                 const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility < 40 ? 'STD' : btcVolatility < 60 ? 'HIGH' : 'VERY HIGH';
-                                triggerReason = `BTC reached P${btcPercentile} (${signalType} signal, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
-                                triggerType = "SYNTH";
+                                triggerReason = `BTC regime ${signalType} signal (${btcRegimeSignal.signalStrength}% strength, ${btcRegimeSignal.marketRegime}, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
+                                triggerType = "REGIME";
                                 triggered = true;
-                                console.warn(`🚨 [SYNTH] BTC trigger detected: P${btcPercentile} ${btcPercentile <= btcThresholds.lowThreshold ? `≤${btcThresholds.lowThreshold}` : `≥${btcThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
+                                console.warn(`🚨 [REGIME] BTC trigger detected: ${signalType} ${btcRegimeSignal.signalStrength}% strength in ${btcRegimeSignal.marketRegime} [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
+                                console.warn(`📊 [REGIME] BTC reason: ${btcRegimeSignal.signalReason}`);
                             }
                         }
-                        else if (ethPercentile !== null && (ethPercentile <= ethThresholds.lowThreshold || ethPercentile >= ethThresholds.highThreshold)) {
-                            const signalType: 'LONG' | 'SHORT' = ethPercentile <= ethThresholds.lowThreshold ? 'LONG' : 'SHORT';
+                        else if (ethRegimeSignal && ethRegimeSignal.hasRegimeSignal && ethRegimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && ethRegimeSignal.regimeSignal) {
+                            const signalType = ethRegimeSignal.regimeSignal;
                             const inCooldown = isInCooldown('ETH', signalType, lastEthTriggerTime, lastEthTriggerType);
                             
                             if (inCooldown) {
                                 const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
-                                console.warn(`🧊 [SYNTH] ETH P${ethPercentile} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                console.warn(`🧊 [REGIME] ETH ${signalType} signal (${ethRegimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                             } else {
                                 const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility < 40 ? 'STD' : ethVolatility < 60 ? 'HIGH' : 'VERY HIGH';
-                                triggerReason = `ETH reached P${ethPercentile} (${signalType} signal, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
-                                triggerType = "SYNTH";
+                                triggerReason = `ETH regime ${signalType} signal (${ethRegimeSignal.signalStrength}% strength, ${ethRegimeSignal.marketRegime}, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
+                                triggerType = "REGIME";
                                 triggered = true;
-                                console.warn(`🚨 [SYNTH] ETH trigger detected: P${ethPercentile} ${ethPercentile <= ethThresholds.lowThreshold ? `≤${ethThresholds.lowThreshold}` : `≥${ethThresholds.highThreshold}`} (${signalType}) [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
+                                console.warn(`🚨 [REGIME] ETH trigger detected: ${signalType} ${ethRegimeSignal.signalStrength}% strength in ${ethRegimeSignal.marketRegime} [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
+                                console.warn(`📊 [REGIME] ETH reason: ${ethRegimeSignal.signalReason}`);
                             }
                         }
-                        // 2. Check for scheduled cycle (lowest priority - only if no other triggers)
+                        // 2. Check for scheduled cycle (lowest priority - only if no regime triggers)
                         else {
                             const timeSinceLastCycle = now - lastTradingCycleTime;
                             const cycleInterval = 1200000; // 20 minutes in milliseconds
@@ -513,16 +536,32 @@ const gmxContext = context({
                                 console.warn(`⏰ [SCHEDULED] 20-minute timer triggered - fallback trading cycle`);
                             } else {
                                 const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
-                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC:${btcVolatility.toFixed(1)}% ETH:${ethVolatility.toFixed(1)}% | Next scheduled cycle in ${minutesRemaining}min`);
+                                const btcRegimeStr = btcRegimeSignal ? `${btcRegimeSignal.marketRegime}(${btcRegimeSignal.signalStrength}%)` : 'N/A';
+                                const ethRegimeStr = ethRegimeSignal ? `${ethRegimeSignal.marketRegime}(${ethRegimeSignal.signalStrength}%)` : 'N/A';
+                                console.warn(`🔍 [MONITOR] No triggers - BTC:${btcRegimeStr} ETH:${ethRegimeStr} Vol:${btcVolatility.toFixed(1)}%/${ethVolatility.toFixed(1)}% | Next cycle in ${minutesRemaining}min`);
                             }
                         }
                         
                         if (triggered) {
-                            // Determine which asset and signal type for Synth triggers
+                            // Determine which asset and signal type for regime/percentile triggers
                             let triggeredAsset: 'BTC' | 'ETH' | undefined = undefined;
                             let triggeredSignalType: 'LONG' | 'SHORT' | undefined = undefined;
                             
-                            if (triggerType === "SYNTH") {
+                            if (triggerType === "REGIME") {
+                                if (triggerReason.includes('BTC')) {
+                                    triggeredAsset = 'BTC';
+                                    triggeredSignalType = btcRegimeSignal!.regimeSignal!;
+                                    // Update local cooldown state
+                                    lastBtcTriggerTime = Date.now();
+                                    lastBtcTriggerType = triggeredSignalType;
+                                } else if (triggerReason.includes('ETH')) {
+                                    triggeredAsset = 'ETH';
+                                    triggeredSignalType = ethRegimeSignal!.regimeSignal!;
+                                    // Update local cooldown state
+                                    lastEthTriggerTime = Date.now();
+                                    lastEthTriggerType = triggeredSignalType;
+                                }
+                            } else if (triggerType === "PERCENTILE") {
                                 if (triggerReason.includes('BTC')) {
                                     triggeredAsset = 'BTC';
                                     triggeredSignalType = btcPercentile! <= btcThresholds.lowThreshold ? 'LONG' : 'SHORT';
@@ -587,8 +626,8 @@ console.warn("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory",
-     vectorTableName: "gmx_embeddings",
+     memoryTableName: "gmx_memory_debug",
+     vectorTableName: "gmx_embeddings_debug",
      vectorModel: openai("gpt-4o-mini"),
  });
 

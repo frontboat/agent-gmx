@@ -1,7 +1,5 @@
 import { type GmxSdk } from "@gmx-io/sdk";
 
-
-
 // Enhanced cache for all GMX data types and external APIs
 export class EnhancedDataCache {
     // Market data cache

@@ -5,7 +5,8 @@ import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, A
 import type { EnhancedDataCache } from './gmx-cache';
 import { 
     getMergedPercentileBounds,
-    formatSynthAnalysisSimplified
+    formatSynthAnalysisSimplified,
+    getEnhancedSynthAnalysis
 } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
@@ -960,7 +961,7 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
         }
         
         // Get merged percentile analysis from 24h-23h ago window using synth-utils
-        const percentileResult = getMergedPercentileBounds(asset, currentPrice);
+        const percentileResult = await getMergedPercentileBounds(asset, currentPrice);
         
         // Return null if no historical data available - this will cause percentile extraction to return null
         if (percentileResult === null) {
@@ -970,21 +971,14 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
         // Get 24-hour volatility
         const volatility24h = await get24HourVolatility(asset, gmxDataCache);
         
-        // Use formatSynthAnalysisSimplified with merged bounds data
-        let result = formatSynthAnalysisSimplified(
+        // Use enhanced analysis with regime detection
+        const result = await getEnhancedSynthAnalysis(
             asset,
             currentPrice,
             percentileResult.percentile,
-            percentileResult.mergedBounds
+            percentileResult.mergedBounds,
+            volatility24h
         );
-        
-        // Add volatility information
-        if (volatility24h > 0) {
-            const lines = result.split('\n');
-            const insertIndex = lines.findIndex(line => line.startsWith('CURRENT_PRICE_PERCENTILE:')) + 1;
-            lines.splice(insertIndex, 0, `VOLATILITY_24H: ${volatility24h.toFixed(2)}%`);
-            result = lines.join('\n');
-        }
         
         return result;
         

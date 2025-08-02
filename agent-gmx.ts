@@ -107,8 +107,10 @@ async function triggerTradingCycle(send: any, reason: string, eventType: string,
         tradingHistory: "",
         synthBtcPredictions: "",
         synthEthPredictions: "",
+        synthSolPredictions: "",
         btcTechnicalAnalysis: "",
         ethTechnicalAnalysis: "",
+        solTechnicalAnalysis: "",
     }, {text: `${eventType}: ${reason}`});
 }
 
@@ -158,11 +160,17 @@ All data is automatically refreshed and available:
 - **ETH AI Predictions:** 
 {{synthEthPredictions}}
 
+- **SOL AI Predictions:** 
+{{synthSolPredictions}}
+
 - **BTC Technical Analysis:** 
 {{btcTechnicalAnalysis}}
 
 - **ETH Technical Analysis:** 
 {{ethTechnicalAnalysis}}
+
+- **SOL Technical Analysis:** 
+{{solTechnicalAnalysis}}
 
 ---
 
@@ -344,6 +352,8 @@ const gmxContext = context({
         synthEthPredictions: z.string().describe("The agent's ETH predictions"),
         btcTechnicalAnalysis: z.string().describe("The agent's BTC technical analysis"),
         ethTechnicalAnalysis: z.string().describe("The agent's ETH technical analysis"),
+        synthSolPredictions: z.string().describe("The agent's SOL predictions"),
+        solTechnicalAnalysis: z.string().describe("The agent's SOL technical analysis"),
     }),
 
     key({ id }) {
@@ -366,6 +376,8 @@ const gmxContext = context({
             synthEthPredictions:state.args.synthEthPredictions,
             btcTechnicalAnalysis:state.args.btcTechnicalAnalysis,
             ethTechnicalAnalysis:state.args.ethTechnicalAnalysis,
+            synthSolPredictions: state.args.synthSolPredictions,
+            solTechnicalAnalysis: state.args.solTechnicalAnalysis,
           };
       },
 
@@ -376,7 +388,7 @@ const gmxContext = context({
             // Load all data in parallel for maximum speed
             const [
                 portfolio,
-                positions, 
+                positions,
                 markets,
                 tokens,
                 volumes,
@@ -384,8 +396,10 @@ const gmxContext = context({
                 tradingHistory,
                 btcPredictions,
                 ethPredictions,
+                solPredictions,
                 btcTechnicalAnalysis,
-                ethTechnicalAnalysis
+                ethTechnicalAnalysis,
+                solTechnicalAnalysis
             ] = await Promise.all([
                 get_portfolio_balance_str(gmxDataCache),
                 get_positions_str(gmxDataCache),
@@ -396,8 +410,10 @@ const gmxContext = context({
                 get_trading_history_str(sdk, gmxDataCache),
                 get_synth_analysis_str('BTC', gmxDataCache),
                 get_synth_analysis_str('ETH', gmxDataCache),
+                get_synth_analysis_str('SOL', gmxDataCache),
                 get_technical_analysis_str('BTC', gmxDataCache),
-                get_technical_analysis_str('ETH', gmxDataCache)
+                get_technical_analysis_str('ETH', gmxDataCache),
+                get_technical_analysis_str('SOL', gmxDataCache)
             ]);
 
             // Update memory with fresh data
@@ -412,6 +428,8 @@ const gmxContext = context({
             memory.synthEthPredictions = ethPredictions;
             memory.btcTechnicalAnalysis = btcTechnicalAnalysis;
             memory.ethTechnicalAnalysis = ethTechnicalAnalysis;
+            memory.synthSolPredictions = solPredictions;
+            memory.solTechnicalAnalysis = solTechnicalAnalysis;
             
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
@@ -440,6 +458,8 @@ const gmxContext = context({
             synthEthPredictions: memory.synthEthPredictions,
             btcTechnicalAnalysis: memory.btcTechnicalAnalysis,
             ethTechnicalAnalysis: memory.ethTechnicalAnalysis,
+            synthSolPredictions: memory.synthSolPredictions,
+            solTechnicalAnalysis: memory.solTechnicalAnalysis,
           });
     },
     }).setInputs({

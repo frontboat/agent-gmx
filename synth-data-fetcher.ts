@@ -4,31 +4,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { type Asset, ASSETS } from './gmx-utils';
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Types
+interface LPBoundsData {
+    data: {
+        '24h': {
+            probability_above: { [price: string]: number };
+            probability_below: { [price: string]: number };
+        };
+    };
+    current_price: number;
+}
+
 interface LPBoundsSnapshot {
     timestamp: number;
-    bounds: {
-        data: {
-            '24h': {
-                probability_above: { [price: string]: number };
-                probability_below: { [price: string]: number };
-            };
-        };
-        current_price: number;
-    };
+    bounds: LPBoundsData;
 }
 
 interface SnapshotStorage {
     version: string;
-    snapshots: {
-        BTC: LPBoundsSnapshot[];
-        ETH: LPBoundsSnapshot[];
-    };
+    snapshots: Record<Asset, LPBoundsSnapshot[]>;
 }
 
 // Constants
@@ -45,7 +45,7 @@ if (!SYNTH_API_KEY) {
 let lastLPBoundsApiCall = 0;
 
 // Direct API function for LP bounds (based on gmx-cache.ts implementation)
-async function fetchLPBoundsDataDirect(asset: 'BTC' | 'ETH'): Promise<LPBoundsData> {
+async function fetchLPBoundsDataDirect(asset: Asset): Promise<LPBoundsData> {
     const now = Date.now();
     
     // Rate limiting check
@@ -94,7 +94,7 @@ function loadDataStore(): SnapshotStorage {
             const data = fs.readFileSync(DATA_FILE_PATH, 'utf-8');
             const parsed = JSON.parse(data) as SnapshotStorage;
             // Validate structure
-            if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH) {
+            if (parsed.version && parsed.snapshots && ASSETS.every(asset => parsed.snapshots[asset])) {
                 return parsed;
             }
         }
@@ -105,10 +105,7 @@ function loadDataStore(): SnapshotStorage {
     // Return default structure
     return {
         version: '1.0',
-        snapshots: {
-            BTC: [],
-            ETH: []
-        }
+        snapshots: Object.fromEntries(ASSETS.map(asset => [asset, []])) as Record<Asset, LPBoundsSnapshot[]>
     };
 }
 
@@ -129,7 +126,8 @@ function saveDataStore(store: SnapshotStorage): void {
         // This is atomic on POSIX systems and prevents partial reads
         fs.renameSync(tempPath, DATA_FILE_PATH);
         
-        console.log(`[SynthDataFetcher] Saved ${store.snapshots.BTC.length} BTC and ${store.snapshots.ETH.length} ETH snapshots`);
+        const counts = ASSETS.map(asset => `${store.snapshots[asset].length} ${asset}`).join(', ');
+        console.log(`[SynthDataFetcher] Saved ${counts} snapshots`);
     } catch (error) {
         console.error('[SynthDataFetcher] Error saving data:', error);
         // Clean up temp file if it exists
@@ -149,35 +147,29 @@ async function fetchAndStoreSynthData(): Promise<void> {
     const now = Date.now();
     
     try {
-        // Fetch LP bounds for BTC first (respecting rate limit)
-        const btcLPBounds = await fetchLPBoundsDataDirect('BTC');
-        console.log('[SynthDataFetcher] BTC LP bounds fetched successfully');
+        // Fetch LP bounds for all assets (sequential with rate limiting)
+        const lpBoundsResults: { asset: Asset; data: LPBoundsData }[] = [];
         
-        // Then fetch ETH (rate limiting will be handled automatically)
-        const ethLPBounds = await fetchLPBoundsDataDirect('ETH');
-        console.log('[SynthDataFetcher] ETH LP bounds fetched successfully');
-        
-        // Create new snapshots in the existing format
-        const btcSnapshot: LPBoundsSnapshot = {
-            timestamp: now,
-            bounds: btcLPBounds
-        };
-        
-        const ethSnapshot: LPBoundsSnapshot = {
-            timestamp: now,
-            bounds: ethLPBounds
-        };
-        
-        // Add to respective arrays
-        store.snapshots.BTC.push(btcSnapshot);
-        store.snapshots.ETH.push(ethSnapshot);
-        
-        // Keep only the most recent snapshots (7 days worth) for each asset
-        if (store.snapshots.BTC.length > MAX_SNAPSHOTS) {
-            store.snapshots.BTC = store.snapshots.BTC.slice(-MAX_SNAPSHOTS);
+        for (const asset of ASSETS) {
+            const lpBounds = await fetchLPBoundsDataDirect(asset);
+            console.log(`[SynthDataFetcher] ${asset} LP bounds fetched successfully`);
+            lpBoundsResults.push({ asset, data: lpBounds });
         }
-        if (store.snapshots.ETH.length > MAX_SNAPSHOTS) {
-            store.snapshots.ETH = store.snapshots.ETH.slice(-MAX_SNAPSHOTS);
+        
+        // Create and store snapshots for each asset
+        for (const { asset, data } of lpBoundsResults) {
+            const snapshot: LPBoundsSnapshot = {
+                timestamp: now,
+                bounds: data
+            };
+            
+            // Add to respective array
+            store.snapshots[asset].push(snapshot);
+            
+            // Keep only the most recent snapshots (7 days worth) for this asset
+            if (store.snapshots[asset].length > MAX_SNAPSHOTS) {
+                store.snapshots[asset] = store.snapshots[asset].slice(-MAX_SNAPSHOTS);
+            }
         }
         
         // Save to file
@@ -204,4 +196,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         });
 }
 
-export { fetchAndStoreSynthData, loadDataStore, type SynthDataStore, type SynthDataSnapshot };
+export { fetchAndStoreSynthData, loadDataStore, type SnapshotStorage, type LPBoundsSnapshot };

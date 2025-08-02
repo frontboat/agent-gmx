@@ -5,9 +5,11 @@
  */
 
 import * as fs from 'fs/promises';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { type Asset, getAssetBuffer } from './gmx-utils';
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +38,7 @@ interface SnapshotStorage {
   snapshots: {
     BTC: LPBoundsSnapshot[];
     ETH: LPBoundsSnapshot[];
+    SOL: LPBoundsSnapshot[];
   };
 }
 
@@ -51,7 +54,7 @@ export interface PercentileDataPoint {
 }
 
 // Get synth data snapshots for analysis (all available snapshots for 24h+ analysis)
-export async function getSynthSnapshots(asset: 'BTC' | 'ETH'): Promise<LPBoundsSnapshot[]> {
+export async function getSynthSnapshots(asset: Asset): Promise<LPBoundsSnapshot[]> {
   const store = await loadSynthDataStore();
   if (!store || !store.snapshots || !store.snapshots[asset]) {
     return [];
@@ -64,7 +67,7 @@ export async function getSynthSnapshots(asset: 'BTC' | 'ETH'): Promise<LPBoundsS
 }
 
 // Get merged percentile bounds from all available snapshots
-export async function getMergedPercentileBounds(asset: 'BTC' | 'ETH', currentPrice: number): Promise<{ percentile: number; mergedBounds: { timestamp: string; percentiles: Array<{ price: number; percentile: number }> } } | null> {
+export async function getMergedPercentileBounds(asset: Asset, currentPrice: number): Promise<{ percentile: number; mergedBounds: { timestamp: string; percentiles: Array<{ price: number; percentile: number }> } } | null> {
   const snapshots = await getSynthSnapshots(asset);
   
   if (snapshots.length === 0) {
@@ -128,7 +131,7 @@ export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
       const data = await fs.readFile(SYNTH_DATA_PATH, 'utf-8');
       const parsed = JSON.parse(data) as SnapshotStorage;
       // Validate structure
-      if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH) {
+      if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH && parsed.snapshots.SOL) {
         return parsed;
       }
       console.warn('[SynthUtils] Invalid synth data structure');
@@ -158,7 +161,7 @@ export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
 // Types for flattened snapshot data
 export interface FlatSnap {
   t: number;            // timestamp ms
-  symbol: 'BTC' | 'ETH';
+  symbol: Asset;
   price: number;        // current_price
   q10: number;          // 10th percentile price
   q50: number;          // 50th percentile price (median)
@@ -189,6 +192,14 @@ export class SnapRingBuffer {
 // Global buffers for each asset
 const btcBuffer = new SnapRingBuffer();
 const ethBuffer = new SnapRingBuffer();
+const solBuffer = new SnapRingBuffer();
+
+// Buffer mapping for cleaner access (replaces ternary chains)
+const ASSET_BUFFER_MAP = {
+    BTC: btcBuffer,
+    ETH: ethBuffer,
+    SOL: solBuffer
+} as const;
 
 // Regime tracking for change detection
 let lastRegimeTracking: { [key: string]: { regime: MarketRegime; timestamp: number } } = {};
@@ -196,7 +207,7 @@ let lastRegimeTracking: { [key: string]: { regime: MarketRegime; timestamp: numb
 // Signal tracking for 24h performance analysis
 interface SignalTrackingEntry {
   timestamp: number;
-  symbol: 'BTC' | 'ETH';
+  symbol: Asset;
   signalType: 'CONTRARIAN' | 'RANGE_BAND';
   direction: 'LONG' | 'SHORT';
   entryPrice: number;
@@ -210,11 +221,47 @@ interface SignalTrackingEntry {
 }
 
 // In-memory signal tracking (should be persisted in production)
+const SIGNAL_TRACK_PATH = path.join(__dirname, 'data', 'signal-tracking.json');
+
+/**
+ * In-memory log of regime signals that have been fired. The log is hydrated
+ * from disk at module load and flushed back to disk every time it changes so
+ * that stats survive process restarts.
+ */
 let signalTrackingLog: SignalTrackingEntry[] = [];
+
+(function loadSignalTrackingLog() {
+  try {
+    if (existsSync(SIGNAL_TRACK_PATH)) {
+      const raw = readFileSync(SIGNAL_TRACK_PATH, 'utf-8');
+      const parsed = JSON.parse(raw) as SignalTrackingEntry[];
+      if (Array.isArray(parsed)) {
+        signalTrackingLog = parsed;
+        console.log(`[SIGNAL_TRACK] Loaded ${signalTrackingLog.length} entries from disk`);
+      }
+    }
+  } catch (error) {
+    console.error('[SIGNAL_TRACK] Failed to load log:', error);
+  }
+})();
+
+function saveSignalTrackingLog(): void {
+  try {
+    const dir = path.dirname(SIGNAL_TRACK_PATH);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const tmp = `${SIGNAL_TRACK_PATH}.tmp`;
+    writeFileSync(tmp, JSON.stringify(signalTrackingLog, null, 2));
+    renameSync(tmp, SIGNAL_TRACK_PATH);
+  } catch (error) {
+    console.error('[SIGNAL_TRACK] Failed to save log:', error);
+  }
+}
 
 // Track a new signal for 24h analysis
 function trackSignal(
-  symbol: 'BTC' | 'ETH',
+  symbol: Asset,
   signalType: 'CONTRARIAN' | 'RANGE_BAND',
   direction: 'LONG' | 'SHORT',
   entryPrice: number,
@@ -231,6 +278,8 @@ function trackSignal(
   };
   
   signalTrackingLog.push(entry);
+  // Persist to disk
+  saveSignalTrackingLog();
   
   // Clean up old entries (keep last 100)
   if (signalTrackingLog.length > 100) {
@@ -242,6 +291,7 @@ function trackSignal(
 
 // Process signal exits and calculate performance
 function processSignalExits(currentSnaps: FlatSnap[]): void {
+  let updated = false;
   const now = Date.now();
   const twentyFourHoursMs = 24 * 60 * 60 * 1000;
   
@@ -274,10 +324,14 @@ function processSignalExits(currentSnaps: FlatSnap[]): void {
       entry.predictedReturn = predictedReturn;
       entry.biasError = biasError;
       entry.completed = true;
+      updated = true;
       
       console.log(`[SIGNAL_EXIT] ${entry.symbol} ${entry.signalType} ${entry.direction}: Real ${(realizedReturn * 100).toFixed(2)}% vs Pred ${(predictedReturn * 100).toFixed(2)}% | Bias: ${(biasError * 100).toFixed(2)}%`);
     }
   });
+  if (updated) {
+    saveSignalTrackingLog();
+  }
 }
 
 // Extract quantiles from probability_below data with proper interpolation
@@ -319,7 +373,7 @@ function extractQuantiles(bounds: LPBoundsResponse): { q10: number; q50: number;
 }
 
 // Process new snapshot and update buffers
-export function processSnapshot(snapshot: LPBoundsSnapshot, symbol: 'BTC' | 'ETH'): void {
+export function processSnapshot(snapshot: LPBoundsSnapshot, symbol: Asset): void {
   const quantiles = extractQuantiles(snapshot.bounds);
   const flatSnap: FlatSnap = {
     t: snapshot.timestamp,
@@ -328,7 +382,7 @@ export function processSnapshot(snapshot: LPBoundsSnapshot, symbol: 'BTC' | 'ETH
     ...quantiles
   };
   
-  const buffer = symbol === 'BTC' ? btcBuffer : ethBuffer;
+  const buffer = ASSET_BUFFER_MAP[symbol];
   buffer.push(flatSnap);
 }
 
@@ -341,8 +395,8 @@ export interface RollingStats {
 }
 
 // Calculate rolling statistics using both snapshot data and signal tracking
-export function calculateRollingStats(symbol: 'BTC' | 'ETH'): RollingStats | null {
-  const buffer = symbol === 'BTC' ? btcBuffer : ethBuffer;
+export function calculateRollingStats(symbol: Asset): RollingStats | null {
+  const buffer = ASSET_BUFFER_MAP[symbol];
   const snaps = buffer.getAll();
   
   console.log(`[ROLLING_STATS] ${symbol}: Buffer has ${snaps.length} snaps`);
@@ -430,7 +484,7 @@ export function calculateRollingStats(symbol: 'BTC' | 'ETH'): RollingStats | nul
 // Market regime classifier
 export type MarketRegime = 'TREND_UP' | 'TREND_DOWN' | 'RANGE' | 'CHOPPY';
 
-export function classifyRegime(symbol: 'BTC' | 'ETH'): { regime: MarketRegime; confidence: number } | null {
+export function classifyRegime(symbol: Asset): { regime: MarketRegime; confidence: number } | null {
   const stats = calculateRollingStats(symbol);
   if (!stats) return null;
   
@@ -467,7 +521,7 @@ export function classifyRegime(symbol: 'BTC' | 'ETH'): { regime: MarketRegime; c
 }
 
 // Track regime changes and log them
-function trackRegimeChange(symbol: 'BTC' | 'ETH', newRegime: MarketRegime): void {
+function trackRegimeChange(symbol: Asset, newRegime: MarketRegime): void {
   const now = Date.now();
   const key = symbol;
   const lastRegime = lastRegimeTracking[key];
@@ -563,7 +617,7 @@ export function generateRangeBandSignal(snap: FlatSnap): { signal: 'LONG' | 'SHO
 
 // Enhanced analysis incorporating regime detection
 export async function getEnhancedSynthAnalysis(
-  asset: 'BTC' | 'ETH',
+  asset: Asset,
   currentPrice: number,
   currentPricePercentile: number,
   currentPercentiles: PercentileDataPoint,
@@ -586,7 +640,7 @@ export async function getEnhancedSynthAnalysis(
   
   if (snapshots.length > 0) {
     // Process all snapshots to update buffers (avoid reprocessing same data)
-    const buffer = asset === 'BTC' ? btcBuffer : ethBuffer;
+    const buffer = ASSET_BUFFER_MAP[asset];
     const currentBufferSize = buffer.getAll().length;
     
     snapshots.forEach(snap => processSnapshot(snap, asset));

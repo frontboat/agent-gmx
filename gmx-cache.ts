@@ -1,4 +1,5 @@
 import { type GmxSdk } from "@gmx-io/sdk";
+import { type Asset } from "./gmx-utils";
 
 // Enhanced cache for all GMX data types and external APIs
 export class EnhancedDataCache {
@@ -228,7 +229,7 @@ export class EnhancedDataCache {
     // 📈 VOLATILITY CACHE METHODS
     // ═══════════════════════════════════════════════════════════════════════════════
 
-    async getVolatility(asset: 'BTC' | 'ETH', forceRefresh = false): Promise<number> {
+    async getVolatility(asset: Asset, forceRefresh = false): Promise<number> {
         const now = Date.now();
         const cacheKey = `volatility_${asset}`;
 
@@ -267,7 +268,7 @@ export class EnhancedDataCache {
         }
     }
 
-    private async fetchVolatility(asset: 'BTC' | 'ETH'): Promise<number> {
+    private async fetchVolatility(asset: Asset): Promise<number> {
         try {
             // Import here to avoid circular dependencies
             const { calculate24HourVolatility } = await import('./gmx-utils');

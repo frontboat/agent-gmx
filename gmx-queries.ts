@@ -1,5 +1,5 @@
 import { GmxSdk } from "@gmx-io/sdk";
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility } from "./gmx-utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, type Asset, getGMXMarket } from "./gmx-utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 import type { EnhancedDataCache } from './gmx-cache';
@@ -914,7 +914,7 @@ export const get_orders_str = async (sdk: GmxSdk, gmxDataCache: EnhancedDataCach
 };
 
 // Helper function to get current asset price
-const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache): Promise<number> => {
+const getCurrentAssetPrice = async (asset: Asset, gmxDataCache: EnhancedDataCache): Promise<number> => {
     try {
         const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
             throw new Error(`Failed to get market data: ${error.message || error}`);
@@ -927,7 +927,7 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache: Enhanced
         const { marketsInfoData, tokensData } = marketsResult;
         
         // Find the correct market for the asset
-        const targetMarketName = asset === 'BTC' ? 'BTC/USD [BTC-USDC]' : 'ETH/USD [WETH-USDC]';
+        const targetMarketName = getGMXMarket(asset);
         
         for (const [marketAddress, marketInfo] of Object.entries(marketsInfoData)) {
             if ((marketInfo as any).name === targetMarketName) {
@@ -946,11 +946,11 @@ const getCurrentAssetPrice = async (asset: 'BTC' | 'ETH', gmxDataCache: Enhanced
 };
 
 // Get 24-hour volatility for an asset - now uses cache
-export const get24HourVolatility = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache): Promise<number> => {
+export const get24HourVolatility = async (asset: Asset, gmxDataCache: EnhancedDataCache): Promise<number> => {
     return await gmxDataCache.getVolatility(asset);
 };
 
-export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache) => {
+export const get_synth_analysis_str = async (asset: Asset, gmxDataCache: EnhancedDataCache) => {
     try {
         // Get current price from GMX SDK
         const currentPrice = await getCurrentAssetPrice(asset, gmxDataCache);
@@ -959,7 +959,7 @@ export const get_synth_analysis_str = async (asset: 'BTC' | 'ETH', gmxDataCache:
             throw new Error(`Failed to get current ${asset} price from GMX SDK`);
         }
         
-        // Get merged percentile analysis from all available snapshots (up to 48) using synth-utils
+        // Get merged percentile analysis from all available snapshots using synth-utils
         const percentileResult = await getMergedPercentileBounds(asset, currentPrice);
         
         // Return null if no historical data available
@@ -1251,7 +1251,7 @@ const calculateTechnicalIndicators = (candles: number[][], period: string) => {
 };
 
 // Technical Analysis Query - Fetch candlestick data for all timeframes and calculate indicators
-export const get_technical_analysis_str = async (tokenSymbol: 'BTC' | 'ETH', gmxDataCache: EnhancedDataCache): Promise<string> => {
+export const get_technical_analysis_str = async (tokenSymbol: Asset, gmxDataCache: EnhancedDataCache): Promise<string> => {
     try {
         // First get current market price
         const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
@@ -1273,8 +1273,10 @@ export const get_technical_analysis_str = async (tokenSymbol: 'BTC' | 'ETH', gmx
                     (marketInfo.name.includes('BTC/USD') || marketInfo.name.includes('BTC-USD'));
                 const isEthMarket = tokenSymbol === 'ETH' && 
                     (marketInfo.name.includes('ETH/USD') || marketInfo.name.includes('ETH-USD'));
+                const isSolMarket = tokenSymbol === 'SOL' &&
+                    (marketInfo.name.includes('SOL/USD') || marketInfo.name.includes('SOL-USD'));
                 
-                if ((isBtcMarket || isEthMarket) && !marketInfo.isSpotOnly) {
+                if ((isBtcMarket || isEthMarket || isSolMarket) && !marketInfo.isSpotOnly) {
                     const indexToken = tokensData[marketInfo.indexTokenAddress];
                     if (indexToken && indexToken.prices) {
                         // Use mid price for technical analysis

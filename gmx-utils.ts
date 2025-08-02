@@ -16,6 +16,59 @@ export const BASIS_POINTS_DIVISOR = 10000n;
 export const PRECISION = 10n ** 30n;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 🏛️ ASSET TYPE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Canonical Asset type - replaces all 'BTC' | 'ETH' | 'SOL' union types */
+export const ASSETS = ['BTC', 'ETH', 'SOL'] as const;
+export type Asset = typeof ASSETS[number];
+
+/** Buffer name mappings for Synth data */
+const ASSET_BUFFER_MAP = {
+    BTC: 'btcBuffer',
+    ETH: 'ethBuffer',
+    SOL: 'solBuffer'
+} as const;
+
+/** GMX market symbol mappings */
+const ASSET_MARKET_MAP = {
+    BTC: 'BTC/USD [BTC-USDC]',
+    ETH: 'ETH/USD [WETH-USDC]', 
+    SOL: 'SOL/USD [SOL-USDC]'
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 ASSET HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Get buffer name for asset (replaces ternary chains)
+ * @param asset The asset symbol
+ * @returns Buffer name string (e.g. 'btcBuffer', 'ethBuffer', 'solBuffer')
+ */
+export function getAssetBuffer(asset: Asset): string {
+    return ASSET_BUFFER_MAP[asset];
+}
+
+/**
+ * Get GMX market name for asset (replaces ternary chains)
+ * @param asset The asset symbol  
+ * @returns GMX market name (e.g. 'BTC/USD [BTC-USDC]')
+ */
+export function getGMXMarket(asset: Asset): string {
+    return ASSET_MARKET_MAP[asset];
+}
+
+/**
+ * Type guard to check if a string is a valid Asset
+ * @param value String to check
+ * @returns True if value is a valid Asset
+ */
+export function isValidAsset(value: string): value is Asset {
+    return ASSETS.includes(value as Asset);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -282,7 +335,7 @@ export function extractPositionCount(positionsStr: string): number {
 
 // Check if a Synth signal is in cooldown period (30 minutes)
 export function isInCooldown(
-    asset: 'BTC' | 'ETH', 
+    asset: Asset, 
     triggerType: 'LONG' | 'SHORT',
     lastTriggerTimestamp?: number,
     lastTriggerType?: string

@@ -1,13 +1,10 @@
 import { GmxSdk } from "@gmx-io/sdk";
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket } from "./gmx-utils";
 import { type Asset, ASSETS } from "./gmx-types";
+import type { EnhancedDataCache } from './gmx-cache';
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket } from "./gmx-utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
-import type { EnhancedDataCache } from './gmx-cache';
-import { 
-    getMergedPercentileBounds,
-    getEnhancedSynthAnalysis
-} from './synth-utils';
+import { getMergedPercentileBounds, getEnhancedSynthAnalysis } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
     // Get tokens data with balances and prices - use cache

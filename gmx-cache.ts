@@ -55,7 +55,6 @@ export class EnhancedDataCache {
         }
 
         // Start new fetch
-        console.warn('[MarketCache] Fetching fresh market data');
         this.marketFetchPromise = this.fetchMarkets();
 
         try {
@@ -88,7 +87,6 @@ export class EnhancedDataCache {
         }
 
         // Start new fetch
-        console.warn('[TokenCache] Fetching fresh token data');
         this.tokenFetchPromise = this.fetchTokens();
 
         try {
@@ -121,7 +119,6 @@ export class EnhancedDataCache {
         }
 
         // Start new fetch
-        console.warn('[PositionCache] Fetching fresh position data');
         this.positionFetchPromise = this.fetchPositions(marketsData, tokensData);
 
         try {
@@ -150,7 +147,6 @@ export class EnhancedDataCache {
         }
 
         // Start new fetch
-        console.warn('[PositionInfoCache] Fetching fresh position info data');
         this.positionInfoFetchPromise = this.fetchPositionsInfo(marketsInfoData, tokensData);
 
         try {

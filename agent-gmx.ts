@@ -342,8 +342,6 @@ const gmxContext = context({
       },
 
     async loader({ memory }) {
-        console.warn("🔄 Loading fresh GMX trading data into memory...");
-        
         try {
             // Load all data in parallel for maximum speed
             const basePromises = [
@@ -397,7 +395,9 @@ const gmxContext = context({
             
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
-            console.warn(`✅ GMX trading data loaded successfully`);
+
+            console.warn(memory);
+
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
@@ -405,8 +405,6 @@ const gmxContext = context({
     },
 
     render({ memory }) {
-        console.warn("🔄 Rendering GMX trading data...");
-
         return render(vega_template, {
             instructions: memory.instructions,
             currentTask: memory.currentTask,
@@ -543,16 +541,12 @@ const gmxContext = context({
                         }
                         
                         if (triggered) {
-                            // For REGIME triggers, asset and signal type are already set in the loop above
-                            
                             // Create data for triggerTradingCycle function
                             const triggerData = {
                                 triggeredAsset,
                                 triggerType: triggeredSignalType
                             };
-                            
                             await triggerTradingCycle(send, triggerReason, triggerType, triggerData);
-                            
                             // Update last trading cycle time
                             lastTradingCycleTime = now;
                         }                        
@@ -563,12 +557,7 @@ const gmxContext = context({
                 
                 // Check every minute
                 const interval = setInterval(unifiedMonitor, 60000);
-                
-                console.warn("✅ Unified trading monitor initialized - checking every 1 minute");
-                return () => {
-                    console.warn("🛑 Unified trading monitor cleanup");
-                    clearInterval(interval);
-                };
+                return () => clearInterval(interval);
             }
         })
     });

@@ -392,7 +392,6 @@ export function calculateRollingStats(symbol: Asset): RollingStats | null {
   const buffer = ASSET_BUFFER_MAP[symbol];
   const snaps = buffer.getAll();
   
-  console.log(`[ROLLING_STATS] ${symbol}: Buffer has ${snaps.length} snaps`);
   if (snaps.length < 2) {
     console.log(`[ROLLING_STATS] ${symbol}: Insufficient snaps (${snaps.length} < 2) - returning null`);
     return null;

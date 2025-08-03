@@ -406,12 +406,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                         throw new Error(`Invalid long limit order: limit price (${limitPriceFormatted}) must be lower than current market price (${currentPriceFormatted})`);
                     }
                     
-                    console.warn('OPEN_LONG_LIMIT', 'Price validation passed', {
-                        currentMarketPrice: formatUsdAmount(currentMarketPrice, 2),
-                        limitPrice: formatUsdAmount(limitPriceBigInt, 2),
-                        priceCheck: 'limitPrice < currentPrice ✓'
-                    });
-                    
                     const helperParams: any = {
                         payAmount: BigInt(data.payAmount),
                         marketAddress: data.marketAddress,
@@ -657,13 +651,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                         const currentPriceFormatted = formatUsdAmount(currentMarketPrice, 2);
                         const limitPriceFormatted = formatUsdAmount(limitPriceBigInt, 2);
                         throw new Error(`Invalid short limit order: limit price (${limitPriceFormatted}) must be higher than current market price (${currentPriceFormatted})`);
-                    }
-                    
-                    console.warn('OPEN_SHORT_LIMIT', 'Price validation passed', {
-                        currentMarketPrice: formatUsdAmount(currentMarketPrice, 2),
-                        limitPrice: formatUsdAmount(limitPriceBigInt, 2),
-                        priceCheck: 'limitPrice > currentPrice ✓'
-                    });
+                    }                    
     
                     const helperParams: any = {
                         marketAddress: data.marketAddress,
@@ -783,8 +771,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
-                console.warn(`[CLOSE_POSITION] Found ${direction} position to close`);
-                console.warn(`[CLOSE_POSITION] Position size: ${position.sizeInUsd.toString()} USD`);
                 
                 // Validate receive token
                 const receiveToken = tokensData[data.receiveTokenAddress];
@@ -910,9 +896,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     
                     throw new Error(errorMessage);
                 });
-                
-                console.warn(`[CLOSE_POSITION] Transaction successful (transactionHash: result?.transactionHash || 'No hash returned')`);
-                
+                               
                 // Update memory with fresh data after closing position
                 memory = await updateMemoryAfterClose(memory, sdk, gmxDataCache);
                 
@@ -1187,14 +1171,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     throw new Error(`Take profit price too close to current price. Minimum distance: 0.1% (at least $${minDistance.toFixed(2)} from current $${currentPriceFormatted})`);
                 }
                 
-                console.warn('SET_TAKE_PROFIT', 'Position and price data retrieved', {
-                    market: marketInfo.name,
-                    direction,
-                    currentPrice: `$${currentPrice.toFixed(2)}`,
-                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
-                    positionSize: formatUsdAmount(position.sizeInUsd, 2)
-                });
-                
                 // Calculate position size to close based on percentage
                 const positionSizeUsd = data.percentage === 100 ? 
                     position.sizeInUsd : 
@@ -1220,8 +1196,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: isLong ? 
-                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
-                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
+                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
                     acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
@@ -1418,8 +1394,8 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     collateralPrice: collateralToken.prices?.minPrice || 0n,
                     triggerPrice: BigInt(data.triggerPrice),
                     acceptablePrice: isLong ? 
-                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
-                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
+                        BigInt(data.triggerPrice) - (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n) :
+                        BigInt(data.triggerPrice) + (BigInt(data.triggerPrice) * BigInt(FIXED_PRICE_IMPACT_BPS) / 10000n),
                     acceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     recommendedAcceptablePriceDeltaBps: BigInt(FIXED_SLIPPAGE_BPS),
                     estimatedPnl: 0n,
@@ -1443,18 +1419,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     triggerOrderType: 6, // StopLossDecrease
                     decreaseSwapType: 0, // NoSwap
                 };
-                                
-                console.warn('SET_STOP_LOSS', 'Executing stop loss order transaction', { 
-                    market: marketInfo.name,
-                    direction,
-                    triggerPrice: `$${triggerPriceDecimal.toFixed(2)}`,
-                    currentPrice: `$${currentPrice.toFixed(2)}`,
-                    positionSize: formatUsdAmount(positionSizeUsd, 2),
-                    maxLoss: isLong ? 
-                        `-${((currentPrice - triggerPriceDecimal) / currentPrice * 100).toFixed(2)}%` :
-                        `-${((triggerPriceDecimal - currentPrice) / currentPrice * 100).toFixed(2)}%`
-                });
-                
+
                 const result = await transactionQueue.enqueueWriteTransaction(
                     "set_stop_loss",
                     async () => {

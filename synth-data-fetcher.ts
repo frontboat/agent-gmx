@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { type Asset, ASSETS } from './gmx-utils';
+import { type Asset, ASSETS } from './gmx-types';
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);

@@ -17,11 +17,17 @@ Vega is an autonomous AI-powered trading agent for GMX perpetual futures on Arbi
 - **Dynamic Leverage Management**: Adjusts position sizes based on market volatility
 
 ### AI Intelligence
-- **Synth AI Integration**: Decentralized AI miner predictions for BTC/ETH
+- **Synth AI Integration**: Decentralized AI miner predictions for BTC/ETH/SOL
 - **Multi-Timeframe Analysis**: Short (15m-1h), Medium (1h-4h), Long (4h+) term signals
 - **Dynamic Levels**: Prediction-based stops and targets (not arbitrary percentages)
 - **Smart Setup Detection**: WAIT vs actionable signals with trade quality grading (A-D)
 - **Momentum Confluence**: Aligns multiple timeframes for high-probability setups
+
+### Dynamic Multi-Asset Architecture
+- **Scalable Design**: Single codebase supports BTC, ETH, SOL with easy expansion
+- **Dynamic Market Detection**: Automatically handles new assets through ASSETS configuration
+- **Unified Processing**: Same intelligence system works across all trading pairs
+- **Asset-Agnostic Logic**: Add new cryptocurrencies by simply updating the ASSETS array
 
 ### Performance Optimization
 - **Advanced Caching System**: 5-minute TTL cache with promise deduplication prevents redundant API calls
@@ -91,8 +97,8 @@ bun run dev
 - `get_positions` - Position analysis with PnL, liquidation prices, risk metrics
 - `get_orders` - Pending orders with execution probability analysis
 - `get_trading_history` - Performance metrics and trade analysis
-- `get_synth_btc_predictions` - Advanced BTC analysis with AI predictions
-- `get_synth_eth_predictions` - Advanced ETH analysis with AI predictions
+- `get_synth_analysis` - Advanced AI analysis for BTC/ETH/SOL with regime detection
+- `get_technical_analysis` - Technical indicator analysis for all supported assets
 
 ### Position Management
 - `open_long_market` / `open_long_limit` - Long position entry (market/limit orders)
@@ -128,12 +134,13 @@ bun run dev
 ## 🧠 AI Intelligence System
 
 ### Synth AI Integration
-Vega leverages decentralized AI miners for market predictions:
+Vega leverages decentralized AI miners for market predictions across all supported assets:
 
 ### Smart Setup Detection
 - **High Confidence + Aligned Timeframes** → Actionable LONG/SHORT signals
 - **Conflicting Signals or Low Confidence** → WAIT recommendation
 - **Trade Quality Grading** → A (excellent) to D (poor) based on confluence
+- **Multi-Asset Analysis** → Compares opportunities across BTC/ETH/SOL for optimal allocation
 
 ## ⚠️ Risk Warning
 

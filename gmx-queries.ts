@@ -1,5 +1,6 @@
 import { GmxSdk } from "@gmx-io/sdk";
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, type Asset, getGMXMarket } from "./gmx-utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket } from "./gmx-utils";
+import { type Asset, ASSETS } from "./gmx-types";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 import type { EnhancedDataCache } from './gmx-cache';
@@ -438,8 +439,8 @@ export const get_positions_str = async (gmxDataCache: EnhancedDataCache) => {
     return output;
 };
 
-// Get market data for specific BTC and ETH markets - returns formatted string
-export const get_btc_eth_markets_str = async (gmxDataCache: EnhancedDataCache) => {
+// Get market data for main trading assets - returns formatted string
+export const get_assets_markets_str = async (gmxDataCache: EnhancedDataCache) => {
     try {
         // Get all markets data
         const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
@@ -451,15 +452,15 @@ export const get_btc_eth_markets_str = async (gmxDataCache: EnhancedDataCache) =
             throw new Error("Failed to get market and token data");
         }
         
-        // Define the specific markets we want - look for BTC and ETH USD pairs
+        // Define the specific markets we want - look for main asset USD pairs
         const filteredMarkets: any[] = [];
-        
+
         Object.entries(marketsInfoData).forEach(([marketTokenAddress, marketInfo]: [string, any]) => {
-            // Only get the main BTC/USD [BTC-USDC] and ETH/USD [WETH-USDC] markets
-            const isBtcUsdcMarket = marketInfo.name === 'BTC/USD [BTC-USDC]';
-            const isEthWethUsdcMarket = marketInfo.name === 'ETH/USD [WETH-USDC]';
+            // Only get the main asset markets
+            const targetMarkets = ASSETS.map(asset => getGMXMarket(asset));
+            const isTargetMarket = targetMarkets.includes(marketInfo.name);
             
-            if ((isBtcUsdcMarket || isEthWethUsdcMarket) && !marketInfo.isSpotOnly) {
+            if (isTargetMarket && !marketInfo.isSpotOnly) {
                 const indexToken = tokensData[marketInfo.indexTokenAddress];
                 const longToken = tokensData[marketInfo.longTokenAddress];
                 const shortToken = tokensData[marketInfo.shortTokenAddress];
@@ -534,10 +535,19 @@ export const get_btc_eth_markets_str = async (gmxDataCache: EnhancedDataCache) =
             }
         });
         
-        // Sort by BTC first, then ETH
+        // Sort by ASSETS array order (preserves the priority defined in gmx-types.ts)
         filteredMarkets.sort((a, b) => {
-            if (a.indexToken.includes('BTC') && !b.indexToken.includes('BTC')) return -1;
-            if (!a.indexToken.includes('BTC') && b.indexToken.includes('BTC')) return 1;
+            const aIndex = ASSETS.findIndex(asset => a.indexToken.includes(asset));
+            const bIndex = ASSETS.findIndex(asset => b.indexToken.includes(asset));
+            
+            // If both found, sort by ASSETS order
+            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+            
+            // If only one found, prioritize it
+            if (aIndex !== -1 && bIndex === -1) return -1;
+            if (aIndex === -1 && bIndex !== -1) return 1;
+            
+            // If neither found, maintain current order
             return 0;
         });
         
@@ -549,12 +559,18 @@ export const get_btc_eth_markets_str = async (gmxDataCache: EnhancedDataCache) =
         }
         
         // Summary for quick assessment
-        const btcMarkets = filteredMarkets.filter(m => m.indexToken.includes('BTC'));
-        const ethMarkets = filteredMarkets.filter(m => m.indexToken.includes('ETH'));
+        const marketsByAsset = ASSETS.reduce((acc, asset) => {
+            acc[asset] = filteredMarkets.filter(m => m.indexToken.includes(asset));
+            return acc;
+        }, {} as Record<Asset, any[]>);
         
         output += `├─ Available Markets: ${filteredMarkets.length}\n`;
-        output += `├─ BTC Markets: ${btcMarkets.length}\n`;
-        output += `└─ ETH Markets: ${ethMarkets.length}\n\n`;
+        ASSETS.forEach((asset, index) => {
+            const isLast = index === ASSETS.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            output += `${prefix} ${asset} Markets: ${marketsByAsset[asset].length}\n`;
+        });
+        output += `\n`;
         
         // Market details optimized for trading decisions
         filteredMarkets.forEach((market, index) => {
@@ -575,11 +591,11 @@ export const get_btc_eth_markets_str = async (gmxDataCache: EnhancedDataCache) =
         
         return output;
     } catch (error) {
-        throw new Error(`Failed to get BTC/ETH markets data: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Failed to get markets data for assets (${ASSETS.join(', ')}): ${error instanceof Error ? error.message : String(error)}`);
     }
 };
 
-// Get tokens data filtered for BTC/ETH/USD/USDC - returns formatted string
+// Get tokens data filtered for main assets/USD/USDC - returns formatted string
 export const get_tokens_data_str = async (gmxDataCache: EnhancedDataCache) => {
     try {
         // Get all tokens data - use cache if available
@@ -591,9 +607,15 @@ export const get_tokens_data_str = async (gmxDataCache: EnhancedDataCache) => {
         if (!tokensData || typeof tokensData !== 'object') {
             throw new Error("Failed to get tokens data");
         }
-        
+
         // Define target tokens for scalping
-        const targetTokens = ['BTC', 'ETH', 'WBTC', 'WETH', 'USDC', 'USDT', 'USD'];
+        const baseAssets = [...ASSETS];
+        const wrappedTokenMap: Record<Asset, string> = Object.fromEntries(
+            ASSETS.map(asset => [asset, asset === 'BTC' ? 'WBTC' : asset === 'ETH' ? 'WETH' : `W${asset}`])
+        );
+        const wrappedTokens = baseAssets.map(asset => wrappedTokenMap[asset]);
+        const stableTokens = ['USDC', 'USDT', 'USD'];
+        const targetTokens = [...baseAssets, ...wrappedTokens, ...stableTokens];
         
         // Filter and enhance token data
         const filteredTokens: any[] = [];
@@ -677,7 +699,7 @@ export const get_tokens_data_str = async (gmxDataCache: EnhancedDataCache) => {
     }
 };
 
-// Get daily volumes filtered for BTC/ETH markets - returns formatted string
+// Get daily volumes filtered for main asset markets - returns formatted string
 export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache: EnhancedDataCache) => {
     try {
         // Get daily volumes data
@@ -708,18 +730,18 @@ export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache: EnhancedD
             throw new Error("Failed to get markets info for volume mapping");
         }
         
-        // Filter and enhance volume data for BTC/ETH markets
+        // Filter and enhance volume data for main asset markets
         const filteredVolumes: any[] = [];
         
         Object.entries(volumes).forEach(([marketAddress, volumeBigInt]) => {
             const marketInfo = marketsInfoData[marketAddress];
             
             if (marketInfo && marketInfo.name) {
-                // Only get the main BTC/USD [BTC-USDC] and ETH/USD [WETH-USDC] markets
-                const isBtcUsdcMarket = marketInfo.name === 'BTC/USD [BTC-USDC]';
-                const isEthWethUsdcMarket = marketInfo.name === 'ETH/USD [WETH-USDC]';
+                // Only get the main asset markets
+                const targetMarkets = ASSETS.map(asset => getGMXMarket(asset));
+                const isTargetMarket = targetMarkets.includes(marketInfo.name);
                 
-                if ((isBtcUsdcMarket || isEthWethUsdcMarket) && !marketInfo.isSpotOnly) {
+                if (isTargetMarket && !marketInfo.isSpotOnly) {
                     const volumeUsd = bigIntToDecimal(volumeBigInt, USD_DECIMALS);
                     
                     filteredVolumes.push({
@@ -751,19 +773,25 @@ export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache: EnhancedD
         
         // Summary for liquidity assessment
         const totalVolume = filteredVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
-        const btcVolumes = filteredVolumes.filter(v => v.indexToken.includes('BTC'));
-        const ethVolumes = filteredVolumes.filter(v => v.indexToken.includes('ETH'));
-        
-        const btcTotalVolume = btcVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
-        const ethTotalVolume = ethVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
+        const volumesByAsset = ASSETS.reduce((acc, asset) => {
+            const assetVolumes = filteredVolumes.filter(v => v.indexToken.includes(asset));
+            const totalVolume = assetVolumes.reduce((sum, vol) => sum + parseFloat(vol.volumeUsd), 0);
+            acc[asset] = { volumes: assetVolumes, total: totalVolume };
+            return acc;
+        }, {} as Record<Asset, { volumes: any[], total: number }>);
         
         output += `├─ Total 24h Volume: $${totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })}\n`;
-        output += `├─ BTC Volume: $${btcTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${btcVolumes.length} markets)\n`;
-        output += `└─ ETH Volume: $${ethTotalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${ethVolumes.length} markets)\n\n`;
+        ASSETS.forEach((asset, index) => {
+            const isLast = index === ASSETS.length - 1;
+            const prefix = isLast ? '└─' : '├─';
+            const assetData = volumesByAsset[asset];
+            output += `${prefix} ${asset} Volume: $${assetData.total.toLocaleString('en-US', { maximumFractionDigits: 0 })} (${assetData.volumes.length} markets)\n`;
+        });
+        output += `\n`;
         
         // Volume details for trading decisions
         filteredVolumes.forEach((volume, index) => {
-            const token = volume.indexToken.includes('BTC') ? 'BTC' : 'ETH';
+            const token = ASSETS.find(asset => volume.indexToken.includes(asset)) || 'UNKNOWN';
             const volumeNum = parseFloat(volume.volumeUsd);
             const liquidityLevel = volumeNum > 50000000 ? '🟢 HIGH' : volumeNum > 10000000 ? '🟡 MEDIUM' : '🔴 LOW';
             const isLast = index === filteredVolumes.length - 1;
@@ -1263,20 +1291,16 @@ export const get_technical_analysis_str = async (tokenSymbol: Asset, gmxDataCach
             throw new Error("Failed to get market and token data");
         }
         
-        // Find the appropriate market for the token (BTC/USD or ETH/USD)
+        // Find the appropriate market for the token
         let currentMarkPrice: bigint | null = null;
         let marketFound = false;
         
         for (const [marketAddress, marketInfo] of Object.entries(marketsInfoData)) {
             if (marketInfo.name && marketInfo.indexToken) {
-                const isBtcMarket = tokenSymbol === 'BTC' && 
-                    (marketInfo.name.includes('BTC/USD') || marketInfo.name.includes('BTC-USD'));
-                const isEthMarket = tokenSymbol === 'ETH' && 
-                    (marketInfo.name.includes('ETH/USD') || marketInfo.name.includes('ETH-USD'));
-                const isSolMarket = tokenSymbol === 'SOL' &&
-                    (marketInfo.name.includes('SOL/USD') || marketInfo.name.includes('SOL-USD'));
+                const targetMarketName = getGMXMarket(tokenSymbol);
+                const isTargetMarket = marketInfo.name === targetMarketName && !marketInfo.isSpotOnly;
                 
-                if ((isBtcMarket || isEthMarket || isSolMarket) && !marketInfo.isSpotOnly) {
+                if (isTargetMarket) {
                     const indexToken = tokensData[marketInfo.indexTokenAddress];
                     if (indexToken && indexToken.prices) {
                         // Use mid price for technical analysis

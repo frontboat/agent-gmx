@@ -42,22 +42,16 @@ export async function updatePositionsMemory(
     gmxDataCache: EnhancedDataCache
 ): Promise<GmxMemory> {
     try {
-        console.warn('[MemoryUpdate] Waiting 5s for blockchain state to settle...');
         await sleep(MEMORY_UPDATE_DELAY_MS);
-        
-        console.warn('[MemoryUpdate] Invalidating position cache for fresh data');
         
         // Force cache invalidation for positions
         gmxDataCache.invalidatePositions();
         
         // Get fresh data (cache will be refreshed due to invalidation)
-        console.warn('[MemoryUpdate] Fetching fresh position and portfolio data');
         const [freshPositions, freshPortfolio] = await Promise.all([
             get_positions_str(gmxDataCache),
             get_portfolio_balance_str(gmxDataCache)
         ]);
-        
-        console.warn('[MemoryUpdate] Position memory updated successfully');
         
         return {
             ...memory,
@@ -83,15 +77,12 @@ export async function updateOrdersMemory(
     gmxDataCache: EnhancedDataCache
 ): Promise<GmxMemory> {
     try {
-        console.warn('[MemoryUpdate] Waiting 5s for blockchain state to settle...');
         await sleep(MEMORY_UPDATE_DELAY_MS);
         
-        console.warn('[MemoryUpdate] Fetching fresh order data (not cached)');
         
         // Orders are fetched directly from SDK, not cached
         const freshOrders = await get_orders_str(sdk, gmxDataCache);
         
-        console.warn('[MemoryUpdate] Order memory updated successfully');
         
         return {
             ...memory,
@@ -114,17 +105,14 @@ export async function updatePortfolioMemory(
     gmxDataCache: EnhancedDataCache
 ): Promise<GmxMemory> {
     try {
-        console.warn('[MemoryUpdate] Waiting 5s for blockchain state to settle...');
         await sleep(MEMORY_UPDATE_DELAY_MS);
         
-        console.warn('[MemoryUpdate] Invalidating token cache for fresh portfolio data');
         
         // Force cache invalidation for tokens
         gmxDataCache.invalidateTokens();
         
         const freshPortfolio = await get_portfolio_balance_str(gmxDataCache);
         
-        console.warn('[MemoryUpdate] Portfolio memory updated successfully');
         
         return {
             ...memory,
@@ -148,10 +136,8 @@ export async function updateMemoryAfterClose(
     gmxDataCache: EnhancedDataCache
 ): Promise<GmxMemory> {
     try {
-        console.warn('[MemoryUpdate] Waiting 5s for blockchain state to settle...');
         await sleep(MEMORY_UPDATE_DELAY_MS);
         
-        console.warn('[MemoryUpdate] Updating all relevant data after position close');
         
         // Invalidate position and token caches
         gmxDataCache.invalidatePositions();
@@ -164,7 +150,6 @@ export async function updateMemoryAfterClose(
             get_orders_str(sdk, gmxDataCache)
         ]);
         
-        console.warn('[MemoryUpdate] All memory fields updated successfully after close');
         
         return {
             ...memory,
@@ -196,7 +181,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
         }),
         async handler(data, ctx, agent) {
             try {
-                console.warn(`[CANCEL_ORDERS] Starting order cancellation (input: ${JSON.stringify(data)})`);
                 
                 const result = await transactionQueue.enqueueWriteTransaction(
                     "cancel_orders",
@@ -227,7 +211,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                     }
                 };
                 
-                console.warn('CANCEL_ORDERS', 'Order cancellation completed successfully', successResult);
                 
                 return successResult;
             } catch (error) {
@@ -257,7 +240,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             }),
             async handler(data, ctx, agent) {
                 try {
-                    console.warn(`[OPEN_LONG_MARKET] Starting long market order (input: ${JSON.stringify(data)})`);
                     
                     const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
@@ -378,7 +360,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             }),
             async handler(data, ctx, agent) {
                 try {
-                    console.warn(`[OPEN_LONG_LIMIT] Starting long limit order (input: ${JSON.stringify(data)})`);
                     
                     const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
@@ -519,7 +500,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             }),
             async handler(data, ctx, agent) {
                 try {
-                    console.warn(`[OPEN_SHORT] Starting short position open (input: ${JSON.stringify(data)})`);
                     
                     const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
@@ -634,7 +614,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             }),
             async handler(data, ctx, agent) {
                 try {
-                    console.warn(`[OPEN_SHORT_LIMIT] Starting short limit order (input: ${JSON.stringify(data)})`);
                     
                     const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
                         const errorMsg = `Failed to get market data: ${error.message || error}`;
@@ -769,7 +748,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             try {
                 let memory = ctx.memory as GmxMemory;
                 
-                console.warn(`[CLOSE_POSITION] Starting position close (input: ${JSON.stringify(data)})`);
 
                 // Get required market and token data
                 const marketsResult = await gmxDataCache.getMarketsInfo().catch(error => {
@@ -997,7 +975,6 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             try {
                 let memory = ctx.memory as GmxMemory;
                 
-                console.warn(`[SWAP_TOKENS] Starting token swap (input: ${JSON.stringify(data)})`);
 
                 const tokensResult = await gmxDataCache.getTokensData().catch(error => {
                     console.error('SWAP_TOKENS', error, { stage: 'getTokensData' });

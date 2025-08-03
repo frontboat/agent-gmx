@@ -68,8 +68,9 @@ bun run agent-gmx.ts
    - Validates private keys, addresses, and chain configurations
 
 8. **synth-utils.ts** - Synth AI integration utilities
+   - Dynamic asset support for all trading pairs (BTC/ETH/SOL)
    - Volatility dial data fetching and parsing
-   - Past percentile data analysis for BTC/ETH
+   - Past percentile data analysis with scalable architecture
    - Consolidated prediction formatting for AI consumption
    - Risk percentile calculations based on market conditions
 
@@ -82,6 +83,7 @@ bun run agent-gmx.ts
 - **Memory System**: Tracks positions, trades, and performance metrics
 - **Error Resilience**: Comprehensive error handling with detailed logging
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms with failsafe validations
+- **Dynamic Asset Support**: Scalable architecture supporting multiple trading pairs (BTC/ETH/SOL)
 - **Intelligent Analysis**: Advanced Synth AI integration with momentum analysis and dynamic levels
 - **Event-Driven Trading**: Multiple trigger types (scheduled, Synth alerts, user input)
 
@@ -124,9 +126,10 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 5. **Cache-First Data Access**: All query functions use cache for optimal performance and reduced API calls
 6. **Sequential Write Operations**: All write transactions must use the transaction queue to prevent nonce errors
 7. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
-8. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
-9. **Dynamic Leverage**: Position sizes adjusted based on volatility (higher volatility = lower leverage)
-10. **Synth Percentile Triggers**: Extreme market conditions (>90th or <10th percentile) trigger immediate trading cycles
+8. **Dynamic Asset Architecture**: Single codebase scales to support any number of trading pairs
+9. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
+10. **Dynamic Leverage**: Position sizes adjusted based on volatility (higher volatility = lower leverage)
+11. **Regime Signal Triggers**: High-strength regime signals (≥80% confidence) trigger immediate trading cycles
 
 ## Trading Action Pattern
 
@@ -307,8 +310,14 @@ BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level
 - **Cache-First Architecture**: All query functions and actions use cache for data access
 - **Simplified Integration**: Clean separation between data fetching and string formatting
 
+### Dynamic Multi-Asset Architecture
+- **Scalable Asset Support**: Single codebase dynamically supports BTC, ETH, SOL and can easily add new assets
+- **ASSETS Constant**: Central configuration in gmx-types.ts - adding new assets requires only updating the ASSETS array
+- **Dynamic Market Detection**: Automatically generates market mappings and helper functions for all assets
+- **Unified Data Processing**: Same logic handles all assets through dynamic iteration patterns
+
 ### Enhanced Trading Intelligence
 - **Dynamic Leverage**: Position sizes adjust based on market volatility
-- **Synth Percentile Triggers**: Extreme market conditions trigger immediate trading cycles
+- **Regime Signal Triggers**: High-confidence regime signals (≥80% strength) trigger immediate trading cycles
 - **Multi-Event System**: Scheduled, Synth-based, and user-input triggers
 - **Volatility-Based Risk Management**: Higher volatility = lower leverage automatically

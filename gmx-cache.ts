@@ -46,13 +46,11 @@ export class EnhancedDataCache {
 
         // Return cached data if still valid
         if (!forceRefresh && this.marketCache.has(cacheKey) && (now - this.lastMarketFetch) < this.MARKET_TTL_MS) {
-            console.warn(`[MarketCache] Returning cached market data (age: ${now - this.lastMarketFetch}ms, ttl: ${this.MARKET_TTL_MS}ms)`);
             return this.marketCache.get(cacheKey)!;
         }
 
         // If a fetch is already in progress, return that promise
         if (this.marketFetchPromise) {
-            console.warn('[MarketCache] Returning in-progress market fetch');
             return this.marketFetchPromise;
         }
 
@@ -81,13 +79,11 @@ export class EnhancedDataCache {
 
         // Return cached data if still valid
         if (!forceRefresh && this.tokenCache.has(cacheKey) && (now - this.lastTokenFetch) < this.TOKEN_TTL_MS) {
-            console.warn(`[TokenCache] Returning cached token data (age: ${now - this.lastTokenFetch}ms, ttl: ${this.TOKEN_TTL_MS}ms)`);
             return this.tokenCache.get(cacheKey)!;
         }
 
         // If a fetch is already in progress, return that promise
         if (this.tokenFetchPromise) {
-            console.warn('[TokenCache] Returning in-progress token fetch');
             return this.tokenFetchPromise;
         }
 
@@ -116,13 +112,11 @@ export class EnhancedDataCache {
 
         // Return cached data if still valid
         if (!forceRefresh && this.positionCache.has(cacheKey) && (now - this.lastPositionFetch) < this.POSITION_TTL_MS) {
-            console.warn(`[PositionCache] Returning cached position data (age: ${now - this.lastPositionFetch}ms, ttl: ${this.POSITION_TTL_MS}ms)`);
             return this.positionCache.get(cacheKey)!;
         }
 
         // If a fetch is already in progress, return that promise
         if (this.positionFetchPromise) {
-            console.warn('[PositionCache] Returning in-progress position fetch');
             return this.positionFetchPromise;
         }
 
@@ -147,13 +141,11 @@ export class EnhancedDataCache {
 
         // Return cached data if still valid
         if (!forceRefresh && this.positionInfoCache.has(cacheKey) && (now - this.lastPositionInfoFetch) < this.POSITION_INFO_TTL_MS) {
-            console.warn(`[PositionInfoCache] Returning cached position info data (age: ${now - this.lastPositionInfoFetch}ms, ttl: ${this.POSITION_INFO_TTL_MS}ms)`);
             return this.positionInfoCache.get(cacheKey)!;
         }
 
         // If a fetch is already in progress, return that promise
         if (this.positionInfoFetchPromise) {
-            console.warn('[PositionInfoCache] Returning in-progress position info fetch');
             return this.positionInfoFetchPromise;
         }
 
@@ -238,14 +230,12 @@ export class EnhancedDataCache {
             const lastFetch = this.lastVolatilityFetch.get(cacheKey) || 0;
             if ((now - lastFetch) < this.VOLATILITY_TTL_MS) {
                 const cachedValue = this.volatilityCache.get(cacheKey)!;
-                console.warn(`[VolatilityCache] Returning cached ${asset} volatility: ${cachedValue.toFixed(1)}% (age: ${now - lastFetch}ms)`);
                 return cachedValue;
             }
         }
 
         // If a fetch is already in progress, return that promise
         if (this.volatilityFetchPromises.has(cacheKey)) {
-            console.warn(`[VolatilityCache] Returning in-progress ${asset} volatility fetch`);
             return this.volatilityFetchPromises.get(cacheKey)!;
         }
 

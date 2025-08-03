@@ -24,10 +24,11 @@ import { createSupabaseBaseMemory } from "@daydreamsai/supabase";
 import { createGmxActions } from './gmx-actions';
 import { createGmxWalletFromEnv } from './gmx-wallet';
 import { 
-    get_btc_eth_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str 
+    get_assets_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str 
 } from "./gmx-queries";
 import { EnhancedDataCache } from './gmx-cache';
-import { extractPercentileFromSynthAnalysis, extractRegimeSignalFromSynthAnalysis, isInCooldown, getVolatilityThresholds } from "./gmx-utils";
+import { extractPercentileFromSynthAnalysis, extractRegimeSignalFromSynthAnalysis, isInCooldown } from "./gmx-utils";
+import { ASSETS, type Asset } from "./gmx-types";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚙️ ENVIRONMENT VALIDATION & SETUP
@@ -69,30 +70,12 @@ const gmxDataCache = new EnhancedDataCache(sdk);
 
 // Trigger a trading cycle with context update and proper memory state tracking
 async function triggerTradingCycle(send: any, reason: string, eventType: string, stateUpdates?: {
-    btcPercentile?: number | null,
-    ethPercentile?: number | null,
     positionCount?: number,
-    triggeredAsset?: 'BTC' | 'ETH',
+    triggeredAsset?: Asset,
     triggerType?: 'LONG' | 'SHORT'
 }) {
     const now = Date.now();
     console.warn(`🚨 [${eventType}] ${reason} - Triggering trading cycle`);
-
-    // Calculate cooldown updates for Synth triggers locally
-    let btcTriggerUpdate = undefined;
-    let ethTriggerUpdate = undefined;
-    let btcTriggerTypeUpdate = undefined;
-    let ethTriggerTypeUpdate = undefined;
-
-    if (eventType === "SYNTH" && stateUpdates?.triggeredAsset && stateUpdates?.triggerType) {
-        if (stateUpdates.triggeredAsset === 'BTC') {
-            btcTriggerUpdate = now;
-            btcTriggerTypeUpdate = stateUpdates.triggerType;
-        } else if (stateUpdates.triggeredAsset === 'ETH') {
-            ethTriggerUpdate = now;
-            ethTriggerTypeUpdate = stateUpdates.triggerType;
-        }
-    }
 
     await send(gmxContext, {
         instructions: vega_template,
@@ -105,12 +88,8 @@ async function triggerTradingCycle(send: any, reason: string, eventType: string,
         volumes: "",
         orders: "",
         tradingHistory: "",
-        synthBtcPredictions: "",
-        synthEthPredictions: "",
-        synthSolPredictions: "",
-        btcTechnicalAnalysis: "",
-        ethTechnicalAnalysis: "",
-        solTechnicalAnalysis: "",
+        assetTechnicalAnalysis: "",
+        assetSynthAnalysis: ""
     }, {text: `${eventType}: ${reason}`});
 }
 
@@ -154,23 +133,11 @@ All data is automatically refreshed and available:
 - **Trading History:** 
 {{tradingHistory}}
 
-- **BTC AI Predictions:** 
-{{synthBtcPredictions}}
+- **Assets Technical Analysis:** 
+{{assetTechnicalAnalysis}}
 
-- **ETH AI Predictions:** 
-{{synthEthPredictions}}
-
-- **SOL AI Predictions:** 
-{{synthSolPredictions}}
-
-- **BTC Technical Analysis:** 
-{{btcTechnicalAnalysis}}
-
-- **ETH Technical Analysis:** 
-{{ethTechnicalAnalysis}}
-
-- **SOL Technical Analysis:** 
-{{solTechnicalAnalysis}}
+- **Assets AI Predictions:** 
+{{assetSynthAnalysis}}
 
 ---
 
@@ -244,8 +211,8 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 **Portfolio Management:**
 - **Base Holdings:** 90% USDC when not trading
 - **Gas Reserve:** 2% ETH minimum
-- **Max Single Position:** 60% (100% signal strength only)
-- **Leverage:** Dynamic based on volatility (lower vol = higher leverage)
+- **Max Single Position:** 60%
+- **Leverage:** Dynamic based on volatility (lower vol = higher leverage) from 1x to 5x
 
 ---
 
@@ -256,9 +223,9 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 
 ### Step 2: Position Management
 1. **Check existing positions:** P&L, take profit status, thesis validity
-2. **Move stops to breakeven:** When profitable (LONG: entry + 0.3%, SHORT: entry - 0.3%)
+2. **When position is profitable:** Move stops to breakeven
 3. **Never close positions early**: Trust setups, let stop loss and take profit do their jobs
-4. **Close if near P50:** Close positions near median percentile
+4. **Close stale positions:** Close positions that no longer align with current thesis
 5. **Cancel invalid orders:** Orders with invalidated thesis
 
 ### Step 3: Market Analysis
@@ -266,7 +233,8 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 2. **Signal Strength:** Verify SIGNAL_STRENGTH ≥ 80% for triggers
 3. **Drift Analysis:** Review 24h drift and volatility metrics
 4. **Prediction Bias:** Monitor model accuracy for bias adjustments
-5. **Best Opportunity:** Compare BTC vs ETH signal quality
+5. **Technical Analysis:** Review technical analysis
+6. **Best Opportunity:** Compare assets signal quality
 
 ### Step 4: Trade Execution
 **Entry Decision Matrix:**
@@ -275,7 +243,7 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 - **Scale In:** Multiple confluence levels available
 
 **Confluence Requirements (minimum 4/6):**
-- [ ] Strong regime signal (≥80% strength)
+- [ ] Strong regime signal
 - [ ] Technical indicators confirm (RSI, MACD, etc.)
 - [ ] Multiple timeframes aligned
 - [ ] Near key support (LONG) or resistance (SHORT)
@@ -289,7 +257,7 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 - **<4 boxes:** WAIT - "NO QUALIFYING SETUP"
 
 **Position Sizing:**
-- Base size from signal strength (15-60%)
+- Base size from signal strength (between 20%-50% of available capital)
 - Adjust for overall confluence score
 - Scale based on volatility environment
 
@@ -348,12 +316,8 @@ const gmxContext = context({
         volumes: z.string().describe("The agent's volumes"),
         orders: z.string().describe("The agent's pending orders"),
         tradingHistory: z.string().describe("The agent's trading history and performance analysis"),
-        synthBtcPredictions: z.string().describe("The agent's BTC predictions"),
-        synthEthPredictions: z.string().describe("The agent's ETH predictions"),
-        btcTechnicalAnalysis: z.string().describe("The agent's BTC technical analysis"),
-        ethTechnicalAnalysis: z.string().describe("The agent's ETH technical analysis"),
-        synthSolPredictions: z.string().describe("The agent's SOL predictions"),
-        solTechnicalAnalysis: z.string().describe("The agent's SOL technical analysis"),
+        assetTechnicalAnalysis: z.string().describe("Technical analysis for all assets"),
+        assetSynthAnalysis: z.string().describe("AI predictions for all assets"),
     }),
 
     key({ id }) {
@@ -372,12 +336,8 @@ const gmxContext = context({
             volumes:state.args.volumes,
             orders:state.args.orders,
             tradingHistory:state.args.tradingHistory,
-            synthBtcPredictions:state.args.synthBtcPredictions,
-            synthEthPredictions:state.args.synthEthPredictions,
-            btcTechnicalAnalysis:state.args.btcTechnicalAnalysis,
-            ethTechnicalAnalysis:state.args.ethTechnicalAnalysis,
-            synthSolPredictions: state.args.synthSolPredictions,
-            solTechnicalAnalysis: state.args.solTechnicalAnalysis,
+            assetTechnicalAnalysis:state.args.assetTechnicalAnalysis,
+            assetSynthAnalysis:state.args.assetSynthAnalysis,
           };
       },
 
@@ -386,6 +346,24 @@ const gmxContext = context({
         
         try {
             // Load all data in parallel for maximum speed
+            const basePromises = [
+                get_portfolio_balance_str(gmxDataCache),
+                get_positions_str(gmxDataCache),
+                get_assets_markets_str(gmxDataCache),
+                get_tokens_data_str(gmxDataCache),
+                get_daily_volumes_str(sdk, gmxDataCache),
+                get_orders_str(sdk, gmxDataCache),
+                get_trading_history_str(sdk, gmxDataCache),
+            ];
+            
+            const assetPromises = ASSETS.flatMap(asset => [
+                get_synth_analysis_str(asset, gmxDataCache),
+                get_technical_analysis_str(asset, gmxDataCache)
+            ]);
+            
+            const allResults = await Promise.all([...basePromises, ...assetPromises]);
+            
+            // Destructure base results
             const [
                 portfolio,
                 positions,
@@ -393,29 +371,19 @@ const gmxContext = context({
                 tokens,
                 volumes,
                 orders,
-                tradingHistory,
-                btcPredictions,
-                ethPredictions,
-                solPredictions,
-                btcTechnicalAnalysis,
-                ethTechnicalAnalysis,
-                solTechnicalAnalysis
-            ] = await Promise.all([
-                get_portfolio_balance_str(gmxDataCache),
-                get_positions_str(gmxDataCache),
-                get_btc_eth_markets_str(gmxDataCache),
-                get_tokens_data_str(gmxDataCache),
-                get_daily_volumes_str(sdk, gmxDataCache),
-                get_orders_str(sdk, gmxDataCache),
-                get_trading_history_str(sdk, gmxDataCache),
-                get_synth_analysis_str('BTC', gmxDataCache),
-                get_synth_analysis_str('ETH', gmxDataCache),
-                get_synth_analysis_str('SOL', gmxDataCache),
-                get_technical_analysis_str('BTC', gmxDataCache),
-                get_technical_analysis_str('ETH', gmxDataCache),
-                get_technical_analysis_str('SOL', gmxDataCache)
-            ]);
-
+                tradingHistory
+            ] = allResults;
+            
+            // Combine all asset synth analysis into one string
+            const synthAnalysisArray: string[] = [];
+            const techAnalysisArray: string[] = [];
+            let assetIndex = basePromises.length;
+            
+            ASSETS.forEach(asset => {
+                synthAnalysisArray.push(allResults[assetIndex++]);
+                techAnalysisArray.push(allResults[assetIndex++]);
+            });
+            
             // Update memory with fresh data
             memory.portfolio = portfolio;
             memory.positions = positions;
@@ -424,12 +392,8 @@ const gmxContext = context({
             memory.volumes = volumes;
             memory.orders = orders;
             memory.tradingHistory = tradingHistory;
-            memory.synthBtcPredictions = btcPredictions;
-            memory.synthEthPredictions = ethPredictions;
-            memory.btcTechnicalAnalysis = btcTechnicalAnalysis;
-            memory.ethTechnicalAnalysis = ethTechnicalAnalysis;
-            memory.synthSolPredictions = solPredictions;
-            memory.solTechnicalAnalysis = solTechnicalAnalysis;
+            memory.assetSynthAnalysis = synthAnalysisArray.join('\n\n');
+            memory.assetTechnicalAnalysis = techAnalysisArray.join('\n\n');
             
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
@@ -454,12 +418,8 @@ const gmxContext = context({
             volumes: memory.volumes,
             orders: memory.orders,
             tradingHistory: memory.tradingHistory,
-            synthBtcPredictions: memory.synthBtcPredictions,
-            synthEthPredictions: memory.synthEthPredictions,
-            btcTechnicalAnalysis: memory.btcTechnicalAnalysis,
-            ethTechnicalAnalysis: memory.ethTechnicalAnalysis,
-            synthSolPredictions: memory.synthSolPredictions,
-            solTechnicalAnalysis: memory.solTechnicalAnalysis,
+            assetTechnicalAnalysis: memory.assetTechnicalAnalysis,
+            assetSynthAnalysis: memory.assetSynthAnalysis,
           });
     },
     }).setInputs({
@@ -469,36 +429,47 @@ const gmxContext = context({
                 text: z.string(),
             }),
             subscribe: (send) => {
-                // Track cooldown state locally
-                let lastBtcTriggerTime: number | undefined = undefined;
-                let lastEthTriggerTime: number | undefined = undefined;
-                let lastBtcTriggerType: string | undefined = undefined;
-                let lastEthTriggerType: string | undefined = undefined;
+                // Track cooldown state locally - dynamic for all assets
+                const lastTriggerTimes = new Map<Asset, number | undefined>();
+                const lastTriggerTypes = new Map<Asset, string | undefined>();
+                
+                // Initialize tracking for all assets
+                ASSETS.forEach(asset => {
+                    lastTriggerTimes.set(asset, undefined);
+                    lastTriggerTypes.set(asset, undefined);
+                });
 
                 // Track timing for scheduled cycles
                 let lastTradingCycleTime = Date.now();
                 
                 const unifiedMonitor = async () => {
                     const now = Date.now();
-                        // Fetch all monitoring data (synth and volatility independently)
-                        const [btc_predictions, eth_predictions, btcVolatility, ethVolatility] = await Promise.all([
-                            get_synth_analysis_str('BTC', gmxDataCache),
-                            get_synth_analysis_str('ETH', gmxDataCache),
-                            gmxDataCache.getVolatility('BTC'),
-                            gmxDataCache.getVolatility('ETH')
+                        // Fetch all monitoring data for all assets (synth and volatility independently)
+                        const [predictionsResults, volatilityResults] = await Promise.all([
+                            Promise.all(ASSETS.map(asset => get_synth_analysis_str(asset, gmxDataCache))),
+                            Promise.all(ASSETS.map(asset => gmxDataCache.getVolatility(asset)))
                         ]);
                         
-                        // Get volatility-based thresholds
-                        const btcThresholds = getVolatilityThresholds(btcVolatility);
-                        const ethThresholds = getVolatilityThresholds(ethVolatility);
+                        // Create maps for easier access
+                        const predictions = new Map<Asset, string>();
+                        const volatilities = new Map<Asset, number>();
                         
-                        // Get legacy percentile signals (for fallback/info)
-                        const btcPercentile = extractPercentileFromSynthAnalysis(btc_predictions);
-                        const ethPercentile = extractPercentileFromSynthAnalysis(eth_predictions);
+                        ASSETS.forEach((asset, index) => {
+                            predictions.set(asset, predictionsResults[index]);
+                            volatilities.set(asset, volatilityResults[index]);
+                        });
                         
-                        // Get enhanced regime signals (primary trigger source)
-                        const btcRegimeSignal = extractRegimeSignalFromSynthAnalysis(btc_predictions);
-                        const ethRegimeSignal = extractRegimeSignalFromSynthAnalysis(eth_predictions);
+                        // Get percentile data for display
+                        const percentiles = new Map<Asset, number | null>();
+                        ASSETS.forEach(asset => {
+                            percentiles.set(asset, extractPercentileFromSynthAnalysis(predictions.get(asset)!));
+                        });
+                        
+                        // Get enhanced regime signals (primary trigger source) for all assets
+                        const regimeSignals = new Map<Asset, any>();
+                        ASSETS.forEach(asset => {
+                            regimeSignals.set(asset, extractRegimeSignalFromSynthAnalysis(predictions.get(asset)!));
+                        });
                         
                         // Minimum signal strength required for triggers (80% = high conviction only)  
                         const MIN_SIGNAL_STRENGTH = 80;
@@ -507,48 +478,54 @@ const gmxContext = context({
                         let triggered = false;
                         let triggerReason = "";
                         let triggerType = "";
+                        let triggeredAsset: Asset | undefined = undefined;
+                        let triggeredSignalType: 'LONG' | 'SHORT' | undefined = undefined;
                         
-                        // 1. Check for high-strength regime signals (PRIORITY)
-                        if (btcRegimeSignal && btcRegimeSignal.hasRegimeSignal && btcRegimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && btcRegimeSignal.regimeSignal) {
-                            const signalType = btcRegimeSignal.regimeSignal;
-                            const inCooldown = isInCooldown('BTC', signalType, lastBtcTriggerTime, lastBtcTriggerType);
+                        // 1. Check for high-strength regime signals (PRIORITY) - iterate through all assets
+                        for (const asset of ASSETS) {
+                            const regimeSignal = regimeSignals.get(asset);
+                            const volatility = volatilities.get(asset)!;
                             
-                            if (inCooldown) {
-                                const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastBtcTriggerTime!)) / 60000);
-                                console.warn(`🧊 [REGIME] BTC ${signalType} signal (${btcRegimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
-                            } else {
-                                const volCategory = btcVolatility < 25 ? 'LOW' : btcVolatility < 40 ? 'STD' : btcVolatility < 60 ? 'HIGH' : 'VERY HIGH';
-                                triggerReason = `BTC regime ${signalType} signal (${btcRegimeSignal.signalStrength}% strength, ${btcRegimeSignal.marketRegime}, Vol:${volCategory} ${btcVolatility.toFixed(1)}%)`;
-                                triggerType = "REGIME";
-                                triggered = true;
-                                console.warn(`🚨 [REGIME] BTC trigger detected: ${signalType} ${btcRegimeSignal.signalStrength}% strength in ${btcRegimeSignal.marketRegime} [Vol:${volCategory} ${btcVolatility.toFixed(1)}%]`);
-                                console.warn(`📊 [REGIME] BTC reason: ${btcRegimeSignal.signalReason}`);
-                            }
-                        }
-                        else if (ethRegimeSignal && ethRegimeSignal.hasRegimeSignal && ethRegimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && ethRegimeSignal.regimeSignal) {
-                            const signalType = ethRegimeSignal.regimeSignal;
-                            const inCooldown = isInCooldown('ETH', signalType, lastEthTriggerTime, lastEthTriggerType);
-                            
-                            if (inCooldown) {
-                                const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastEthTriggerTime!)) / 60000);
-                                console.warn(`🧊 [REGIME] ETH ${signalType} signal (${ethRegimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
-                            } else {
-                                const volCategory = ethVolatility < 25 ? 'LOW' : ethVolatility < 40 ? 'STD' : ethVolatility < 60 ? 'HIGH' : 'VERY HIGH';
-                                triggerReason = `ETH regime ${signalType} signal (${ethRegimeSignal.signalStrength}% strength, ${ethRegimeSignal.marketRegime}, Vol:${volCategory} ${ethVolatility.toFixed(1)}%)`;
-                                triggerType = "REGIME";
-                                triggered = true;
-                                console.warn(`🚨 [REGIME] ETH trigger detected: ${signalType} ${ethRegimeSignal.signalStrength}% strength in ${ethRegimeSignal.marketRegime} [Vol:${volCategory} ${ethVolatility.toFixed(1)}%]`);
-                                console.warn(`📊 [REGIME] ETH reason: ${ethRegimeSignal.signalReason}`);
+                            if (regimeSignal && regimeSignal.hasRegimeSignal && regimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && regimeSignal.regimeSignal) {
+                                const signalType = regimeSignal.regimeSignal;
+                                const inCooldown = isInCooldown(asset, signalType, lastTriggerTimes.get(asset), lastTriggerTypes.get(asset));
+                                
+                                if (inCooldown) {
+                                    const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastTriggerTimes.get(asset)!)) / 60000);
+                                    console.warn(`🧊 [REGIME] ${asset} ${signalType} signal (${regimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                } else {
+                                    const volCategory = volatility < 25 ? 'LOW' : volatility < 40 ? 'STD' : volatility < 60 ? 'HIGH' : 'VERY HIGH';
+                                    triggerReason = `${asset} regime ${signalType} signal (${regimeSignal.signalStrength}% strength, ${regimeSignal.marketRegime}, Vol:${volCategory} ${volatility.toFixed(1)}%)`;
+                                    triggerType = "REGIME";
+                                    triggered = true;
+                                    triggeredAsset = asset;
+                                    triggeredSignalType = signalType;
+                                    
+                                    // Update local cooldown state
+                                    lastTriggerTimes.set(asset, Date.now());
+                                    lastTriggerTypes.set(asset, triggeredSignalType);
+                                    
+                                    console.warn(`🚨 [REGIME] ${asset} trigger detected: ${signalType} ${regimeSignal.signalStrength}% strength in ${regimeSignal.marketRegime} [Vol:${volCategory} ${volatility.toFixed(1)}%]`);
+                                    console.warn(`📊 [REGIME] ${asset} reason: ${regimeSignal.signalReason}`);
+                                    break; // Exit loop after first valid trigger
+                                }
                             }
                         }
                         // 2. Check for scheduled cycle (lowest priority - only if no regime triggers)
-                        else {
+                        if (!triggered) {
                             const timeSinceLastCycle = now - lastTradingCycleTime;
                             const cycleInterval = 1200000; // 20 minutes in milliseconds
                             
-                            // Don't trigger scheduled cycles if we don't have percentile data
-                            if (btcPercentile === null || ethPercentile === null) {
-                                console.warn(`🔍 [MONITOR] No triggers - BTC:P${btcPercentile || 'N/A'} ETH:P${ethPercentile || 'N/A'} Volatility: BTC:${btcVolatility.toFixed(1)}% ETH:${ethVolatility.toFixed(1)}% | Waiting for sufficient data before scheduled cycles`);
+                            // Check if any asset has regime signal data
+                            const hasAnyRegimeData = ASSETS.some(asset => {
+                                const signal = regimeSignals.get(asset);
+                                return signal && signal.hasRegimeSignal;
+                            });
+                            
+                            if (!hasAnyRegimeData) {
+                                const percentileStr = ASSETS.map(asset => `${asset}:P${percentiles.get(asset) || 'N/A'}`).join(' ');
+                                const volatilityStr = ASSETS.map(asset => `${asset}:${volatilities.get(asset)!.toFixed(1)}%`).join(' ');
+                                console.warn(`🔍 [MONITOR] No triggers - ${percentileStr} Volatility: ${volatilityStr} | Waiting for sufficient data before scheduled cycles`);
                             } else if (timeSinceLastCycle >= cycleInterval) {
                                 triggerReason = "Regular 20-minute scheduled check";
                                 triggerType = "SCHEDULED";
@@ -556,53 +533,25 @@ const gmxContext = context({
                                 console.warn(`⏰ [SCHEDULED] 20-minute timer triggered - fallback trading cycle`);
                             } else {
                                 const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
-                                const btcRegimeStr = btcRegimeSignal ? `${btcRegimeSignal.marketRegime}(${btcRegimeSignal.signalStrength}%)` : 'N/A';
-                                const ethRegimeStr = ethRegimeSignal ? `${ethRegimeSignal.marketRegime}(${ethRegimeSignal.signalStrength}%)` : 'N/A';
-                                console.warn(`🔍 [MONITOR] No triggers - BTC:${btcRegimeStr} ETH:${ethRegimeStr} Vol:${btcVolatility.toFixed(1)}%/${ethVolatility.toFixed(1)}% | Next cycle in ${minutesRemaining}min`);
+                                const regimeStr = ASSETS.map(asset => {
+                                    const regime = regimeSignals.get(asset);
+                                    return `${asset}:${regime ? `${regime.marketRegime}(${regime.signalStrength}%)` : 'N/A'}`;
+                                }).join(' ');
+                                const volatilityStr = ASSETS.map(asset => `${volatilities.get(asset)!.toFixed(1)}%`).join('/');
+                                console.warn(`🔍 [MONITOR] No triggers - ${regimeStr} Vol:${volatilityStr} | Next cycle in ${minutesRemaining}min`);
                             }
                         }
                         
                         if (triggered) {
-                            // Determine which asset and signal type for regime/percentile triggers
-                            let triggeredAsset: 'BTC' | 'ETH' | undefined = undefined;
-                            let triggeredSignalType: 'LONG' | 'SHORT' | undefined = undefined;
+                            // For REGIME triggers, asset and signal type are already set in the loop above
                             
-                            if (triggerType === "REGIME") {
-                                if (triggerReason.includes('BTC')) {
-                                    triggeredAsset = 'BTC';
-                                    triggeredSignalType = btcRegimeSignal!.regimeSignal!;
-                                    // Update local cooldown state
-                                    lastBtcTriggerTime = Date.now();
-                                    lastBtcTriggerType = triggeredSignalType;
-                                } else if (triggerReason.includes('ETH')) {
-                                    triggeredAsset = 'ETH';
-                                    triggeredSignalType = ethRegimeSignal!.regimeSignal!;
-                                    // Update local cooldown state
-                                    lastEthTriggerTime = Date.now();
-                                    lastEthTriggerType = triggeredSignalType;
-                                }
-                            } else if (triggerType === "PERCENTILE") {
-                                if (triggerReason.includes('BTC')) {
-                                    triggeredAsset = 'BTC';
-                                    triggeredSignalType = btcPercentile! <= btcThresholds.lowThreshold ? 'LONG' : 'SHORT';
-                                    // Update local cooldown state
-                                    lastBtcTriggerTime = Date.now();
-                                    lastBtcTriggerType = triggeredSignalType;
-                                } else if (triggerReason.includes('ETH')) {
-                                    triggeredAsset = 'ETH';
-                                    triggeredSignalType = ethPercentile! <= ethThresholds.lowThreshold ? 'LONG' : 'SHORT';
-                                    // Update local cooldown state
-                                    lastEthTriggerTime = Date.now();
-                                    lastEthTriggerType = triggeredSignalType;
-                                }
-                            }
-                            
-                            await triggerTradingCycle(send, triggerReason, triggerType, {
-                                btcPercentile,
-                                ethPercentile,
+                            // Create data for triggerTradingCycle function
+                            const triggerData = {
                                 triggeredAsset,
                                 triggerType: triggeredSignalType
-                            });
+                            };
+                            
+                            await triggerTradingCycle(send, triggerReason, triggerType, triggerData);
                             
                             // Update last trading cycle time
                             lastTradingCycleTime = now;
@@ -676,10 +625,8 @@ await agent.start({
     volumes: "Loading...",
     orders: "Loading...",
     tradingHistory: "Loading...",
-    synthBtcPredictions: "Loading...",
-    synthEthPredictions: "Loading...",
-    btcTechnicalAnalysis: "Loading...",
-    ethTechnicalAnalysis: "Loading...",
+    assetTechnicalAnalysis: "Loading...",
+    assetSynthAnalysis: "Loading...",
 });
 
 console.warn("🎯 Vega is now live and ready for GMX trading!");

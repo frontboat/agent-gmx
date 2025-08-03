@@ -19,23 +19,21 @@ export const PRECISION = 10n ** 30n;
 // 🏛️ ASSET TYPE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Canonical Asset type - replaces all 'BTC' | 'ETH' | 'SOL' union types */
-export const ASSETS = ['BTC', 'ETH', 'SOL'] as const;
-export type Asset = typeof ASSETS[number];
+import { Asset, ASSETS } from './gmx-types';
 
-/** Buffer name mappings for Synth data */
-const ASSET_BUFFER_MAP = {
-    BTC: 'btcBuffer',
-    ETH: 'ethBuffer',
-    SOL: 'solBuffer'
-} as const;
+/** Buffer name mappings for Synth data (dynamically generated) */
+const ASSET_BUFFER_MAP = Object.fromEntries(
+    ASSETS.map(asset => [asset, `${asset.toLowerCase()}Buffer`])
+) as Record<Asset, string>;
 
-/** GMX market symbol mappings */
-const ASSET_MARKET_MAP = {
-    BTC: 'BTC/USD [BTC-USDC]',
-    ETH: 'ETH/USD [WETH-USDC]', 
-    SOL: 'SOL/USD [SOL-USDC]'
-} as const;
+/** GMX market symbol mappings (dynamically generated) */
+const ASSET_MARKET_MAP = Object.fromEntries(
+    ASSETS.map(asset => {
+        // SOL market uses SOL-USDC, not WSOL-USDC
+        const collateralSymbol = asset === 'BTC' ? 'BTC' : asset === 'ETH' ? 'WETH' : asset === 'SOL' ? 'SOL' : `W${asset}`;
+        return [asset, `${asset}/USD [${collateralSymbol}-USDC]`];
+    })
+) as Record<Asset, string>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 ASSET HELPER FUNCTIONS
@@ -320,7 +318,7 @@ export function getTradeActionDescriptionEnhanced(
 // 🔧 HELPER FUNCTIONS FOR EVENT-DRIVEN MONITORING
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Extract percentile value from Synth analysis string
+// Extract percentile value from Synth analysis string (for display purposes only, not triggering)
 export function extractPercentileFromSynthAnalysis(synthAnalysis: string): number | null {
     const match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+)/);
     return match ? parseInt(match[1], 10) : null;
@@ -350,23 +348,6 @@ export function isInCooldown(
     const isInCooldownPeriod = (now - lastTriggerTimestamp) < COOLDOWN_MS;
     
     return isSameSignal && isInCooldownPeriod;
-}
-
-// Get volatility-based activation thresholds
-export function getVolatilityThresholds(volatilityPercent: number): { lowThreshold: number, highThreshold: number } {
-    if (volatilityPercent < 20) {
-        // Low volatility: P25/P75 (wider thresholds, filter noise)
-        return { lowThreshold: 25, highThreshold: 75 };
-    } else if (volatilityPercent < 40) {
-        // Standard volatility: P15/P85
-        return { lowThreshold: 15, highThreshold: 85 };
-    } else if (volatilityPercent < 60) {
-        // High volatility: P10/P90
-        return { lowThreshold: 10, highThreshold: 90 };
-    } else {
-        // Very high volatility: P5/P95 (tighter thresholds, catch real moves)
-        return { lowThreshold: 5, highThreshold: 95 };
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

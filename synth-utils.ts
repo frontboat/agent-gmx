@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { type Asset, getAssetBuffer } from './gmx-utils';
+import { type Asset, ASSETS } from './gmx-types';
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -35,11 +35,7 @@ interface LPBoundsSnapshot {
 
 interface SnapshotStorage {
   version: string;
-  snapshots: {
-    BTC: LPBoundsSnapshot[];
-    ETH: LPBoundsSnapshot[];
-    SOL: LPBoundsSnapshot[];
-  };
+  snapshots: Record<Asset, LPBoundsSnapshot[]>;
 }
 
 // Path to synth data file
@@ -61,7 +57,6 @@ export async function getSynthSnapshots(asset: Asset): Promise<LPBoundsSnapshot[
   }
   
   // Return all snapshots, sorted by timestamp (oldest first)
-  // Use all available data for proper 24h analysis (need ~288 for 24h of 5-min data)
   return store.snapshots[asset]
     .sort((a, b) => a.timestamp - b.timestamp);
 }
@@ -130,8 +125,10 @@ export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
     try {
       const data = await fs.readFile(SYNTH_DATA_PATH, 'utf-8');
       const parsed = JSON.parse(data) as SnapshotStorage;
-      // Validate structure
-      if (parsed.version && parsed.snapshots && parsed.snapshots.BTC && parsed.snapshots.ETH && parsed.snapshots.SOL) {
+      // Validate structure - only require version and snapshots object
+      // Assets may not all be present initially, they'll be added as data comes in
+      if (parsed.version && parsed.snapshots && 
+          typeof parsed.snapshots === 'object') {
         return parsed;
       }
       console.warn('[SynthUtils] Invalid synth data structure');
@@ -189,17 +186,18 @@ export class SnapRingBuffer {
   }
 }
 
-// Global buffers for each asset
-const btcBuffer = new SnapRingBuffer();
-const ethBuffer = new SnapRingBuffer();
-const solBuffer = new SnapRingBuffer();
+// Global buffers for each asset (dynamically created)
+const assetBuffers = new Map<Asset, SnapRingBuffer>();
+
+// Initialize buffers for all assets
+ASSETS.forEach(asset => {
+  assetBuffers.set(asset, new SnapRingBuffer());
+});
 
 // Buffer mapping for cleaner access (replaces ternary chains)
-const ASSET_BUFFER_MAP = {
-    BTC: btcBuffer,
-    ETH: ethBuffer,
-    SOL: solBuffer
-} as const;
+const ASSET_BUFFER_MAP = Object.fromEntries(
+  ASSETS.map(asset => [asset, assetBuffers.get(asset)!])
+) as Record<Asset, SnapRingBuffer>;
 
 // Regime tracking for change detection
 let lastRegimeTracking: { [key: string]: { regime: MarketRegime; timestamp: number } } = {};
@@ -220,14 +218,9 @@ interface SignalTrackingEntry {
   completed: boolean;
 }
 
-// In-memory signal tracking (should be persisted in production)
+// Signal tracking
 const SIGNAL_TRACK_PATH = path.join(__dirname, 'data', 'signal-tracking.json');
 
-/**
- * In-memory log of regime signals that have been fired. The log is hydrated
- * from disk at module load and flushed back to disk every time it changes so
- * that stats survive process restarts.
- */
 let signalTrackingLog: SignalTrackingEntry[] = [];
 
 (function loadSignalTrackingLog() {
@@ -623,7 +616,6 @@ export async function getEnhancedSynthAnalysis(
   currentPercentiles: PercentileDataPoint,
   volatility24h: number
 ): Promise<string> {
-  console.log(`[ENHANCED_ANALYSIS] Starting enhanced analysis for ${asset} at $${currentPrice}`);
   
   // Build base analysis output
   let result = `SYNTH_${asset}_ANALYSIS:\n\n`;
@@ -636,7 +628,6 @@ export async function getEnhancedSynthAnalysis(
   
   // Process latest snapshots if available
   const snapshots = await getSynthSnapshots(asset);
-  console.log(`[ENHANCED_ANALYSIS] ${asset}: Found ${snapshots.length} snapshots`);
   
   if (snapshots.length > 0) {
     // Process all snapshots to update buffers (avoid reprocessing same data)
@@ -645,11 +636,9 @@ export async function getEnhancedSynthAnalysis(
     
     snapshots.forEach(snap => processSnapshot(snap, asset));
     const newBufferSize = buffer.getAll().length;
-    console.log(`[ENHANCED_ANALYSIS] ${asset}: Processed ${snapshots.length} snapshots, buffer: ${currentBufferSize} → ${newBufferSize}`);
     
     // Process any signal exits that are ready
     const recentSnaps = buffer.getAll();
-    console.log(`[ENHANCED_ANALYSIS] ${asset}: Buffer contains ${recentSnaps.length} snaps (max ${buffer.maxSize})`);
     
     if (recentSnaps.length > 0) {
       processSignalExits(recentSnaps);
@@ -657,27 +646,21 @@ export async function getEnhancedSynthAnalysis(
     
     if (recentSnaps.length > 0) {
       const latestSnap = recentSnaps[recentSnaps.length - 1];
-      console.log(`[ENHANCED_ANALYSIS] ${asset}: Latest snap - price: $${latestSnap.price}, q10: $${latestSnap.q10}, q50: $${latestSnap.q50}, q90: $${latestSnap.q90}`);
       
       // Calculate regime
       const regimeResult = classifyRegime(asset);
       const stats = calculateRollingStats(asset);
       
-      console.log(`[ENHANCED_ANALYSIS] ${asset}: Regime result:`, regimeResult);
-      console.log(`[ENHANCED_ANALYSIS] ${asset}: Stats result:`, stats ? `drift: ${(stats.drift.mean * 100).toFixed(2)}%±${(stats.drift.std * 100).toFixed(2)}%, bias: ${(stats.bias * 100).toFixed(2)}%` : 'null');
       
       if (regimeResult && stats) {
         // Generate appropriate signal based on regime
         let advancedSignal;
         if (regimeResult.regime === 'RANGE') {
           advancedSignal = generateRangeBandSignal(latestSnap);
-          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated RANGE signal:`, advancedSignal);
         } else if (regimeResult.regime === 'TREND_UP' || regimeResult.regime === 'TREND_DOWN') {
           advancedSignal = generateContrarianSignal(latestSnap, stats, regimeResult.regime);
-          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated CONTRARIAN signal:`, advancedSignal);
         } else {
           advancedSignal = { signal: 'NEUTRAL', strength: 0, reason: 'Market too choppy for signals' };
-          console.log(`[ENHANCED_ANALYSIS] ${asset}: Generated CHOPPY signal:`, advancedSignal);
         }
         
         // Replace the placeholder regime signal at the top
@@ -712,27 +695,22 @@ export async function getEnhancedSynthAnalysis(
           if (!hasOpenSignal) {
             trackSignal(asset, signalType, advancedSignal.signal, latestSnap.price, latestSnap.q50);
           } else {
-            console.log(`[SIGNAL_TRACK] ${asset} ${signalType} ${advancedSignal.signal} already tracked - skipping duplicate`);
           }
         }
         
         regimeLines.splice(insertIdx, 0, ...regimeInfo);
         result = regimeLines.join('\n');
-        console.log(`[ENHANCED_ANALYSIS] ${asset}: Successfully added regime information to output`);
       } else {
-        console.log(`[ENHANCED_ANALYSIS] ${asset}: Missing regime result or stats - cannot add enhanced features`);
         // Update placeholder with no signal
         result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
         result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: Insufficient data for regime analysis');
       }
     } else {
-      console.log(`[ENHANCED_ANALYSIS] ${asset}: No processed snaps in buffer - cannot perform regime analysis`);
       // Update placeholder with no signal
       result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
       result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: No snapshots in buffer for analysis');
     }
   } else {
-    console.log(`[ENHANCED_ANALYSIS] ${asset}: No snapshots found - using basic analysis only`);
     // Update placeholder with no signal
     result = result.replace('REGIME_SIGNAL: PENDING', 'REGIME_SIGNAL: NEUTRAL');
     result = result.replace('SIGNAL_EXPLANATION: Analyzing market regime...', 'SIGNAL_EXPLANATION: No historical data available');
@@ -754,6 +732,5 @@ export async function getEnhancedSynthAnalysis(
       result += `P${p.percentile}: $${p.price.toFixed(0)}\n`;
     });
   
-  console.log(`[ENHANCED_ANALYSIS] ${asset}: Completed analysis`);
   return result;
 }

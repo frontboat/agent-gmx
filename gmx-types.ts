@@ -6,6 +6,11 @@
  * Type definitions for GMX trading agent
  */
 
+// Asset definitions
+export const ASSETS = ['BTC', 'ETH', 'SOL'] as const;
+export type Asset = typeof ASSETS[number];
+
+// Main memory interface
 export interface GmxMemory {
     portfolio: string;
     positions: string;
@@ -16,8 +21,7 @@ export interface GmxMemory {
     tradingHistory: string;
     currentTask: string | null;
     lastResult: string | null;
-    synthBtcPredictions: string;
-    synthEthPredictions: string;
-    btcTechnicalAnalysis: string;
-    ethTechnicalAnalysis: string;
+    instructions: string;
+    assetTechnicalAnalysis: string;
+    assetSynthAnalysis: string;
 }

@@ -194,3 +194,5 @@ trading-logs/
 
 # Data files
 data/
+backtest-results/
+backtest-synth-strategy.ts

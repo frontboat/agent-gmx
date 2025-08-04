@@ -5,8 +5,8 @@
  */
 
 import * as fs from 'fs/promises';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import * as path from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { type Asset, ASSETS } from './gmx-types';
@@ -202,130 +202,6 @@ const ASSET_BUFFER_MAP = Object.fromEntries(
 // Regime tracking for change detection
 let lastRegimeTracking: { [key: string]: { regime: MarketRegime; timestamp: number } } = {};
 
-// Signal tracking for 24h performance analysis
-interface SignalTrackingEntry {
-  timestamp: number;
-  symbol: Asset;
-  signalType: 'CONTRARIAN' | 'RANGE_BAND';
-  direction: 'LONG' | 'SHORT';
-  entryPrice: number;
-  predictedPrice: number; // q50 at time of signal
-  exitTimestamp?: number;
-  exitPrice?: number;
-  realizedReturn?: number;
-  predictedReturn?: number;
-  biasError?: number;
-  completed: boolean;
-}
-
-// Signal tracking
-const SIGNAL_TRACK_PATH = path.join(__dirname, 'data', 'signal-tracking.json');
-
-let signalTrackingLog: SignalTrackingEntry[] = [];
-
-(function loadSignalTrackingLog() {
-  try {
-    if (existsSync(SIGNAL_TRACK_PATH)) {
-      const raw = readFileSync(SIGNAL_TRACK_PATH, 'utf-8');
-      const parsed = JSON.parse(raw) as SignalTrackingEntry[];
-      if (Array.isArray(parsed)) {
-        signalTrackingLog = parsed;
-        console.log(`[SIGNAL_TRACK] Loaded ${signalTrackingLog.length} entries from disk`);
-      }
-    }
-  } catch (error) {
-    console.error('[SIGNAL_TRACK] Failed to load log:', error);
-  }
-})();
-
-function saveSignalTrackingLog(): void {
-  try {
-    const dir = path.dirname(SIGNAL_TRACK_PATH);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    const tmp = `${SIGNAL_TRACK_PATH}.tmp`;
-    writeFileSync(tmp, JSON.stringify(signalTrackingLog, null, 2));
-    renameSync(tmp, SIGNAL_TRACK_PATH);
-  } catch (error) {
-    console.error('[SIGNAL_TRACK] Failed to save log:', error);
-  }
-}
-
-// Track a new signal for 24h analysis
-function trackSignal(
-  symbol: Asset,
-  signalType: 'CONTRARIAN' | 'RANGE_BAND',
-  direction: 'LONG' | 'SHORT',
-  entryPrice: number,
-  predictedPrice: number
-): void {
-  const entry: SignalTrackingEntry = {
-    timestamp: Date.now(),
-    symbol,
-    signalType,
-    direction,
-    entryPrice,
-    predictedPrice,
-    completed: false
-  };
-  
-  signalTrackingLog.push(entry);
-  // Persist to disk
-  saveSignalTrackingLog();
-  
-  // Clean up old entries (keep last 100)
-  if (signalTrackingLog.length > 100) {
-    signalTrackingLog = signalTrackingLog.slice(-100);
-  }
-  
-  console.log(`[SIGNAL_TRACK] ${symbol} ${signalType} ${direction} tracked at $${entryPrice.toFixed(2)}`);
-}
-
-// Process signal exits and calculate performance
-function processSignalExits(currentSnaps: FlatSnap[]): void {
-  let updated = false;
-  const now = Date.now();
-  const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-  
-  signalTrackingLog.forEach(entry => {
-    if (entry.completed) return;
-    
-    // Check if 24h has passed
-    if (now - entry.timestamp >= twentyFourHoursMs) {
-      // Find the closest current snap for this symbol
-      const symbolSnaps = currentSnaps.filter(snap => snap.symbol === entry.symbol);
-      if (symbolSnaps.length === 0) return;
-      
-      // Use the most recent price for exit
-      const latestSnap = symbolSnaps[symbolSnaps.length - 1];
-      const exitPrice = latestSnap.price;
-      
-      // Calculate realized return
-      const realizedReturn = (exitPrice / entry.entryPrice) - 1;
-      
-      // Calculate predicted return (what the q50 prediction was)
-      const predictedReturn = (entry.predictedPrice / entry.entryPrice) - 1;
-      
-      // Calculate bias error
-      const biasError = realizedReturn - predictedReturn;
-      
-      // Update entry
-      entry.exitTimestamp = now;
-      entry.exitPrice = exitPrice;
-      entry.realizedReturn = realizedReturn;
-      entry.predictedReturn = predictedReturn;
-      entry.biasError = biasError;
-      entry.completed = true;
-      updated = true;
-      
-      console.log(`[SIGNAL_EXIT] ${entry.symbol} ${entry.signalType} ${entry.direction}: Real ${(realizedReturn * 100).toFixed(2)}% vs Pred ${(predictedReturn * 100).toFixed(2)}% | Bias: ${(biasError * 100).toFixed(2)}%`);
-    }
-  });
-  if (updated) {
-    saveSignalTrackingLog();
-  }
-}
 
 // Extract quantiles from probability_below data with proper interpolation
 function extractQuantiles(bounds: LPBoundsResponse): { q10: number; q50: number; q90: number } {
@@ -393,31 +269,14 @@ export function calculateRollingStats(symbol: Asset): RollingStats | null {
   const snaps = buffer.getAll();
   
   if (snaps.length < 2) {
-    console.log(`[ROLLING_STATS] ${symbol}: Insufficient snaps (${snaps.length} < 2) - returning null`);
     return null;
   }
   
   const realised24h: number[] = [];
   const biasErrors: number[] = [];
   
-  // First, use completed signal tracking entries for more accurate bias calculation
-  const completedSignals = signalTrackingLog.filter(entry => 
-    entry.completed && entry.symbol === symbol
-  );
-  
-  if (completedSignals.length >= 3) {
-    // Use signal-based bias calculation (more accurate)
-    console.log(`[ROLLING_STATS] ${symbol}: Using ${completedSignals.length} completed signals for bias calculation`);
-    completedSignals.slice(-8).forEach(signal => {
-      if (signal.realizedReturn !== undefined && signal.biasError !== undefined) {
-        realised24h.push(signal.realizedReturn);
-        biasErrors.push(signal.biasError);
-      }
-    });
-  } else {
-    console.log(`[ROLLING_STATS] ${symbol}: Only ${completedSignals.length} completed signals, falling back to snapshot-based calculation`);
-    // Fallback to snapshot-based calculation
-    for (let i = 0; i < snaps.length; i++) {
+  // Use snapshot-based calculation
+  for (let i = 0; i < snaps.length; i++) {
       const current = snaps[i];
       const target24h = current.t - (24 * 60 * 60 * 1000);
       
@@ -445,19 +304,14 @@ export function calculateRollingStats(symbol: Asset): RollingStats | null {
         biasErrors.push(biasError);
       }
     }
-  }
   
-  console.log(`[ROLLING_STATS] ${symbol}: Collected ${realised24h.length} realized returns and ${biasErrors.length} bias errors`);
   if (realised24h.length < 3) {
-    console.log(`[ROLLING_STATS] ${symbol}: Insufficient data points (${realised24h.length} < 3) - returning null`);
     return null;
   }
   
   // Take last 8 observations
   const recentRealised = realised24h.slice(-8);
   const recentBias = biasErrors.slice(-8);
-  console.log(`[ROLLING_STATS] ${symbol}: Using last ${recentRealised.length} observations for stats`);
-  console.log(`[ROLLING_STATS] ${symbol}: Recent realized returns:`, recentRealised.map(r => `${(r * 100).toFixed(2)}%`).join(', '));
   
   // Calculate mean and std
   const mean = recentRealised.reduce((a, b) => a + b, 0) / recentRealised.length;
@@ -530,16 +384,15 @@ function trackRegimeChange(symbol: Asset, newRegime: MarketRegime): void {
   }
 }
 
-// Signal generation parameters
-const TAU = 0.015;   // 1.5% tilt threshold (increased from 0.6% to make 100% strength harder)
+// Signal generation parameters - use volatility directly
+const STRENGTH_DIVISOR = 50.0;  // Strength = |tilt| / (volatility * STRENGTH_DIVISOR)
 const EPS = 0.0005;  // 0.05% band filter
 
 // Signal strength scaling documentation:
-// - Contrarian signals: strength = min(tilt / (2*TAU), 1)
-//   When tilt = TAU (1.5%), strength = 0.5
-//   When tilt = 2*TAU (3.0%), strength = 1.0 (max)
-// - Range-band signals: strength = min(deviation / 2, 1) 
-//   Linear scaling where 2% deviation = 100% strength
+// - Contrarian signals: TAU = volatility, strength = |tilt| / (volatility * STRENGTH_DIVISOR)
+//   Uses actual market volatility as threshold - more volatile markets need bigger tilts
+//   Strength scales with how much the tilt exceeds the volatility-based threshold
+// - Range-band signals: Similar volatility-based scaling
 // Both scales map 0-1 → position size fraction for execution layer
 
 // Contrarian signal for trend regimes
@@ -547,36 +400,40 @@ export function generateContrarianSignal(snap: FlatSnap, stats: RollingStats, re
   const bias = stats.bias;
   const tilt = (snap.q50 / snap.price) - 1 - bias;
   
+  // Use volatility directly as TAU threshold
+  const volatility = stats.drift.std; // 24h rolling standard deviation
+  const dynamicTAU = volatility; // TAU = volatility directly
+  
   if (regime === 'TREND_DOWN') {
-    if (tilt >= TAU) {
+    if (tilt >= dynamicTAU) {
       return {
         signal: 'SHORT',
-        strength: Math.min(tilt / (2 * TAU), 1),
-        reason: `Contrarian SHORT: Positive tilt ${(tilt * 100).toFixed(2)}% in downtrend`
+        strength: Math.min(Math.abs(tilt) / (volatility * STRENGTH_DIVISOR), 1),
+        reason: `Contrarian SHORT: Tilt ${(tilt * 100).toFixed(2)}% > Vol ${(dynamicTAU * 100).toFixed(2)}%`
       };
     }
-    if (tilt <= -TAU) {
+    if (tilt <= -dynamicTAU) {
       return {
         signal: 'LONG',
-        strength: Math.min(Math.abs(tilt) / (2 * TAU), 1),
-        reason: `Contrarian LONG: Negative tilt ${(tilt * 100).toFixed(2)}% in downtrend (rare)`
+        strength: Math.min(Math.abs(tilt) / (volatility * STRENGTH_DIVISOR), 1),
+        reason: `Contrarian LONG: Tilt ${(tilt * 100).toFixed(2)}% < -Vol ${(dynamicTAU * 100).toFixed(2)}%`
       };
     }
   }
   
   if (regime === 'TREND_UP') {
-    if (tilt <= -TAU) {
+    if (tilt <= -dynamicTAU) {
       return {
         signal: 'LONG',
-        strength: Math.min(Math.abs(tilt) / (2 * TAU), 1),
-        reason: `Contrarian LONG: Negative tilt ${(tilt * 100).toFixed(2)}% in uptrend`
+        strength: Math.min(Math.abs(tilt) / (volatility * STRENGTH_DIVISOR), 1),
+        reason: `Contrarian LONG: Tilt ${(tilt * 100).toFixed(2)}% < -Vol ${(dynamicTAU * 100).toFixed(2)}%`
       };
     }
-    if (tilt >= TAU) {
+    if (tilt >= dynamicTAU) {
       return {
         signal: 'SHORT',
-        strength: Math.min(tilt / (2 * TAU), 1),
-        reason: `Contrarian SHORT: Positive tilt ${(tilt * 100).toFixed(2)}% in uptrend (rare)`
+        strength: Math.min(Math.abs(tilt) / (volatility * STRENGTH_DIVISOR), 1),
+        reason: `Contrarian SHORT: Tilt ${(tilt * 100).toFixed(2)}% > Vol ${(dynamicTAU * 100).toFixed(2)}%`
       };
     }
   }
@@ -590,7 +447,7 @@ export function generateRangeBandSignal(snap: FlatSnap): { signal: 'LONG' | 'SHO
     const deviation = (snap.q10 / snap.price - 1) * 100;
     return {
       signal: 'LONG',
-      strength: Math.min(deviation / 2, 1),
+      strength: Math.min(deviation / 3, 1), // More restrictive: 3% for 100% strength
       reason: `Range LONG: Price ${deviation.toFixed(2)}% below Q10 support`
     };
   }
@@ -599,7 +456,7 @@ export function generateRangeBandSignal(snap: FlatSnap): { signal: 'LONG' | 'SHO
     const deviation = (1 - snap.q90 / snap.price) * 100;
     return {
       signal: 'SHORT',
-      strength: Math.min(deviation / 2, 1),
+      strength: Math.min(deviation / 3, 1), // More restrictive: 3% for 100% strength
       reason: `Range SHORT: Price ${deviation.toFixed(2)}% above Q90 resistance`
     };
   }
@@ -636,12 +493,7 @@ export async function getEnhancedSynthAnalysis(
     snapshots.forEach(snap => processSnapshot(snap, asset));
     const newBufferSize = buffer.getAll().length;
     
-    // Process any signal exits that are ready
     const recentSnaps = buffer.getAll();
-    
-    if (recentSnaps.length > 0) {
-      processSignalExits(recentSnaps);
-    }
     
     if (recentSnaps.length > 0) {
       const latestSnap = recentSnaps[recentSnaps.length - 1];
@@ -682,19 +534,6 @@ export async function getEnhancedSynthAnalysis(
         if (advancedSignal.signal !== 'NEUTRAL') {
           regimeInfo.push(`SIGNAL_STRENGTH: ${(advancedSignal.strength * 100).toFixed(0)}%`);
           
-          // Track the signal for 24h performance analysis (avoid duplicates)
-          const signalType = regimeResult.regime === 'RANGE' ? 'RANGE_BAND' : 'CONTRARIAN';
-          const hasOpenSignal = signalTrackingLog.some(entry => 
-            !entry.completed && 
-            entry.symbol === asset && 
-            entry.signalType === signalType &&
-            entry.direction === advancedSignal.signal
-          );
-          
-          if (!hasOpenSignal) {
-            trackSignal(asset, signalType, advancedSignal.signal, latestSnap.price, latestSnap.q50);
-          } else {
-          }
         }
         
         regimeLines.splice(insertIdx, 0, ...regimeInfo);

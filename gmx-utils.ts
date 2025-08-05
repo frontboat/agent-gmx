@@ -329,8 +329,13 @@ export function getTradeActionDescriptionEnhanced(
 
 // Extract percentile value from Synth analysis string (for display purposes only, not triggering)
 export function extractPercentileFromSynthAnalysis(synthAnalysis: string): number | null {
-    const match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+    // Match the new format with exact percentile
+    let match = synthAnalysis.match(/CURRENT_PRICE_PERCENTILE:\s*P(\d+\.?\d*)/);
+    if (match) {
+        return parseFloat(match[1]);
+    }
+    
+    return null;
 }
 
 // Extract position count from positions string
@@ -465,7 +470,7 @@ export function calculate24HourVolatility(candles: number[][]): number {
     return annualizedVolatility;
 }
 
-// Extract regime signal information from enhanced synth analysis
+// Extract prediction trend signal information from enhanced synth analysis
 export function extractRegimeSignalFromSynthAnalysis(synthAnalysis: string): {
     hasRegimeSignal: boolean;
     regimeSignal: 'LONG' | 'SHORT' | null;
@@ -484,23 +489,64 @@ export function extractRegimeSignalFromSynthAnalysis(synthAnalysis: string): {
     let regimeConfidence = 0;
     
     for (const line of lines) {
-        if (line.startsWith('MARKET_REGIME: ')) {
-            marketRegime = line.replace('MARKET_REGIME: ', '').trim();
-        } else if (line.startsWith('REGIME_CONFIDENCE: ')) {
-            const confStr = line.replace('REGIME_CONFIDENCE: ', '').replace('%', '').trim();
-            regimeConfidence = parseInt(confStr) || 0;
-        } else if (line.startsWith('REGIME_SIGNAL: ')) {
-            const signal = line.replace('REGIME_SIGNAL: ', '').trim();
-            if (signal === 'LONG' || signal === 'SHORT') {
-                regimeSignal = signal;
+        // Handle new simplified format
+        if (line.startsWith('SIGNAL: ')) {
+            const signal = line.replace('SIGNAL: ', '').trim();
+            if (signal === 'LONG') {
+                regimeSignal = 'LONG';
+                hasRegimeSignal = true;
+                signalStrength = 90; // High confidence for new simplified strategy
+            } else if (signal === 'SHORT') {
+                regimeSignal = 'SHORT';
+                hasRegimeSignal = true;
+                signalStrength = 90; // High confidence for new simplified strategy
+            } else if (signal === 'WAIT') {
+                regimeSignal = null;
+                hasRegimeSignal = false;
+                signalStrength = 0;
+            }
+            // Map legacy BUY/SELL to LONG/SHORT for compatibility
+            else if (signal === 'BUY') {
+                regimeSignal = 'LONG';
+                hasRegimeSignal = true;
+            } else if (signal === 'SELL') {
+                regimeSignal = 'SHORT';
                 hasRegimeSignal = true;
             }
-        } else if (line.startsWith('SIGNAL_STRENGTH: ')) {
-            const strengthStr = line.replace('SIGNAL_STRENGTH: ', '').replace('%', '').trim();
-            signalStrength = parseInt(strengthStr) || 0;
-        } else if (line.startsWith('SIGNAL_EXPLANATION: ')) {
-            signalReason = line.replace('SIGNAL_EXPLANATION: ', '').trim();
+        } 
+        // Handle volatility regime as market regime
+        else if (line.startsWith('VOLATILITY_REGIME: ')) {
+            marketRegime = line.replace('VOLATILITY_REGIME: ', '').trim();
+            // Assign confidence based on volatility regime
+            if (marketRegime === 'LOW') regimeConfidence = 95;
+            else if (marketRegime === 'MEDIUM') regimeConfidence = 85;
+            else if (marketRegime === 'HIGH') regimeConfidence = 75;
         }
+        // Legacy signal strength parsing
+        else if (line.startsWith('SIGNAL_STRENGTH: ')) {
+            const strengthStr = line.replace('SIGNAL_STRENGTH: ', '').replace('%', '').trim();
+            signalStrength = parseInt(strengthStr) || signalStrength;
+        }
+        // Legacy parsing
+        else if (line.startsWith('SIGNAL_EXPLANATION: ')) {
+            signalReason = line.replace('SIGNAL_EXPLANATION: ', '').trim();
+        } else if (line.startsWith('PREDICTION_TREND: ')) {
+            const trend = line.replace('PREDICTION_TREND: ', '').trim();
+            if (!marketRegime) marketRegime = trend; // Use as fallback if no volatility regime
+        }
+        // Extract strategy logic as signal reason for new format
+        else if (line.startsWith('STRATEGY_LOGIC:')) {
+            // Get the next line which contains the actual strategy
+            const strategyIndex = lines.indexOf(line);
+            if (strategyIndex >= 0 && strategyIndex + 1 < lines.length) {
+                signalReason = lines[strategyIndex + 1].trim();
+            }
+        }
+    }
+    
+    // Set default signal reason if not found
+    if (!signalReason && hasRegimeSignal) {
+        signalReason = `Simplified percentile strategy: ${regimeSignal} signal based on ${marketRegime} volatility`;
     }
     
     return {
@@ -508,7 +554,7 @@ export function extractRegimeSignalFromSynthAnalysis(synthAnalysis: string): {
         regimeSignal,
         signalStrength,
         signalReason,
-        marketRegime,
+        marketRegime: marketRegime || 'unknown',
         regimeConfidence
     };
 }

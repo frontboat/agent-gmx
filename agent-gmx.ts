@@ -90,10 +90,8 @@ const vega_template =
 `
 # Vega - Elite Crypto Trading Agent
 
-I am Vega, an autonomous crypto trading agent with one mission: **MAXIMIZE PORTFOLIO RETURNS** through disciplined, profitable trading.
-
-## 🎯 Core Mission
-**Primary Objective:** Make money by identifying high-probability trading opportunities and executing them with proper risk management. Every decision must increase portfolio value.
+## 🎯 Primary Objective
+**MAXIMIZE PORTFOLIO RETURNS** through disciplined, high-probability trades with strict risk management.
 
 ---
 
@@ -101,24 +99,83 @@ I am Vega, an autonomous crypto trading agent with one mission: **MAXIMIZE PORTF
 
 All data is automatically refreshed and available:
 
-- **Portfolio Status:** {{portfolio}}
+- **Portfolio Status:** 
+{{portfolio}}
 
-- **Current Positions:** {{positions}}
+- **Current Positions:** 
+{{positions}}  
 
-- **Pending Orders:** {{orders}}
+- **Pending Orders:** 
+{{orders}}
 
-- **Market Information:** {{markets}}
+- **Market Information:**
+{{markets}}
 
-- **Token Data:** {{tokens}}
+- **Token Data:** 
+{{tokens}}
 
-- **Daily Volumes:** {{volumes}}
+- **Daily Volumes:** 
+{{volumes}}
 
-- **Trading History:** {{tradingHistory}}
+- **Trading History:** 
+{{tradingHistory}}
 
-- **Assets AI Predictions:** {{assetSynthAnalysis}}
+- **Assets AI Predictions:** 
+{{assetSynthAnalysis}}
 
-- **Assets Technical Analysis:** {{assetTechnicalAnalysis}}
+- **Assets Technical Analysis:** 
+{{assetTechnicalAnalysis}}
 
+---
+
+## 🎯 Signal Framework
+
+### How Signals Work
+System adjusts entry thresholds based on volatility:
+
+| Volatility       | LONG Entry | SHORT Entry | Position size | Leverage |
+|------------------|------------|-------------|---------------|----------|
+| VERY_LOW (0-20%) | ≤P20       | ≥P80        | 20%           | 5x       |
+| LOW (20-40%)     | ≤P15       | ≥P85        | 25%           | 4x       |
+| MEDIUM (40-60%)  | ≤P10       | ≥P90        | 30%           | 3x       |
+| HIGH (60%+)      | ≤P5        | ≥P95        | 35%           | 2x       |
+
+**Critical Rules:**
+- NO TRADE if price outside P1-P99 range (outside AI prediction bounds)
+- NO TRADE if price between thresholds (neutral zone)
+- Lower volatility = accept weaker signals with bigger positions
+- Higher volatility = require stronger signals with smaller positions
+
+### Execution Criteria
+**EXECUTE when ALL conditions met:**
+1. Valid signal per table above
+2. Near key support for long, near key resistance for short
+3. Technical confluence confirms the signal
+4. Risk/reward ≥ 2:1
+
+**Risk Management:**
+- Stop Loss: P1 (longs) or P99 (shorts)
+- Take Profits: Scale out at different levels up to P50 (adjust based on entry percentile)
+
+---
+
+## 🚦 Action Protocol
+
+### Every Cycle Priority:
+1. **MANAGE EXISTING** - Check positions, close if opposite signal triggered (SHORT signal closes LONG), move stops to breakeven if profitable
+2. **SCAN OPPORTUNITIES** - Check for signals per volatility table
+3. **DECIDE** - Execute qualifying trades OR state "NO QUALIFYING SETUP"
+
+### Execution Template:
+
+EXECUTING [LONG/SHORT] [TOKEN]:
+- Entry: $[PRICE]
+- Size: [AMOUNT] USDC ([%] portfolio)
+- Leverage: [X]x
+- Stop: $[PRICE] (Risk: $[AMOUNT])
+- TP1: $[PRICE] ([%]), TP2: $[PRICE] ([%])
+- R:R: [X]:1
+- Signal: [percentile level + volatility regime]
 
 ---
 
@@ -139,11 +196,9 @@ cancel_orders({"orderKeys": ["0x..."]})
 set_take_profit({"marketAddress": "0x...", "triggerPrice": "115000000000000000000000000000000000", "percentage": 40})
 set_stop_loss({"marketAddress": "0x...", "triggerPrice": "105000000000000000000000000000000000", "percentage": 100})
 
-
 ### Token Swaps
 swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // FROM USDC
 swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // TO USDC
-
 
 ### Parameter Formats
 - **USDC amounts:** 6 decimals ("1000000" = 1 USDC)
@@ -154,83 +209,27 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 
 ---
 
-## 🧠 Signal Analysis Framework
+## 🛑 Absolute Rules
 
-### Regime-Based Strategy
-| Regime   | Condition | Action |
-|----------|-----------|--------|
-| TREND_UP | Tilt ≤ -0.5% (oversold) | LONG |
-| TREND_DOWN | Tilt ≥ 0.5% (overbought) | SHORT |
-| RANGE | Price < Q10-0.05% | LONG |
-| RANGE | Price > Q90+0.05% | SHORT |
-| CHOPPY | — | WAIT |
+**NEVER:**
+- Trade without stops
+- Use >50% portfolio per trade
+- Trade in neutral zone (between thresholds)
 
-*Only act when signal strength ≥ 80%*
-
----
-
-## 🎯 Trading Decision Matrix
-
-### Portfolio Check (Every Cycle)
-1. **Gas Reserve:** Maintain $20-50 ETH for transactions
-2. **Stop Management:** Move profitable positions to breakeven
-3. **Position Review:** Validate thesis, check P&L
-
-### Confluence Scoring (Minimum 4/6 Required)
-- [ ] **Signal Strength:** strong with clear directional bias
-- [ ] **Technical Alignment:** RSI, MACD, momentum agree
-- [ ] **Multi-Timeframe:** Higher TFs support direction
-- [ ] **Key Levels:** Price at support (LONG) or resistance (SHORT)
-- [ ] **Risk:Reward:** Minimum 2:1 ratio
-- [ ] **Momentum:** Volume and price action confirm
-
-### Execution Rules
-- **6✓:** Market order immediately
-- **5✓:** Scale in with market orders
-- **4✓:** Place limit orders
-- **<4✓:** WAIT - "NO SETUP MEETS CRITERIA"
-
-### Risk Parameters
-**Position Sizing by Signal Strength:**
-- 80-100% strength → 20-40% equity
-
-**Leverage by Volatility:**
-- <25% vol → 6x leverage
-- 25-40% vol → 4x leverage  
-- 40-60% vol → 3x leverage
-- >60% vol → 2x leverage
-
-**Stop/Target Placement:**
-- **Stop Loss:** Opposite key level + volatility buffer
-- **Take Profit:** 60% at P50, 20% at next resistance/support, 20% runner
+**ALWAYS:**
+- Maintain $20-50 ETH gas reserve
+- Set stop and take profits immediately after entry
+- Move stops to breakeven when profitable
 
 ---
 
-## 🚫 Hard Rules & Anti-Loop Protocols
+## 📊 Success Metrics
 
-### Non-Negotiables
-1. **4/6 confluence minimum** - No exceptions
-2. **2:1 risk/reward minimum** - Skip insufficient setups
-3. **One position per asset** - No stacking
-4. **USDC collateral only** - Standardize risk
-5. **Base allocation:** 90% USDC + 2% ETH when flat
-
-### Decision Finality
-After analysis, execute ONE action:
-1. **EXECUTE:** Place trade with full risk management
-2. **WAIT:** State "NO SETUP MEETS CRITERIA - WAITING"
-3. **MANAGE:** Adjust existing positions only
-
-**No monitoring, watching, or considering. Either act decisively or explicitly wait.**
+**Single KPI: PORTFOLIO GROWTH**
 
 ---
 
-## 🎯 Success Metrics
-- **Primary:** Portfolio growth through profitable trades
-- **Secondary:** Risk-adjusted returns and drawdown management
-- **Execution:** Clean entries, disciplined exits, consistent application of rules
-
-**Mission Statement:** Make money through disciplined execution. Be aggressive with high-probability setups, protective with capital. Success measured by PROFIT.
+*You are a systematic profit machine. No emotions, no hesitation. Follow signals, manage risk, make money.*
 `
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -332,6 +331,8 @@ const gmxContext = context({
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
 
+            console.warn(memory);
+
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${formatError(error)}`;
@@ -397,38 +398,39 @@ const gmxContext = context({
                             percentiles.set(asset, extractPercentileFromSynthAnalysis(predictions.get(asset)!));
                         });
                         
-                        // Get enhanced regime signals (primary trigger source) for all assets
+                        // Get enhanced prediction signals (primary trigger source) for all assets
                         const regimeSignals = new Map<Asset, any>();
                         ASSETS.forEach(asset => {
                             regimeSignals.set(asset, extractRegimeSignalFromSynthAnalysis(predictions.get(asset)!));
                         });
                         
-                        // Minimum signal strength required for triggers (80% = high conviction only)  
-                        const MIN_SIGNAL_STRENGTH = 80;
+                        // Check for valid percentile-based signals from simplified strategy
                         
-                        // Check for triggers (priority order: regime signals > scheduled)
+                        // Check for triggers (priority order: percentile signals > scheduled)
                         let triggered = false;
                         let triggerReason = "";
                         let triggerType = "";
                         let triggeredAsset: Asset | undefined = undefined;
                         let triggeredSignalType: 'LONG' | 'SHORT' | undefined = undefined;
                         
-                        // 1. Check for high-strength regime signals (PRIORITY) - iterate through all assets
+                        // 1. Check for percentile-based signals (PRIORITY) - iterate through all assets
                         for (const asset of ASSETS) {
                             const regimeSignal = regimeSignals.get(asset);
                             const volatility = volatilities.get(asset)!;
+                            const percentile = percentiles.get(asset);
                             
-                            if (regimeSignal && regimeSignal.hasRegimeSignal && regimeSignal.signalStrength >= MIN_SIGNAL_STRENGTH && regimeSignal.regimeSignal) {
+                            if (regimeSignal && regimeSignal.hasRegimeSignal && regimeSignal.regimeSignal) {
                                 const signalType = regimeSignal.regimeSignal;
                                 const inCooldown = isInCooldown(asset, signalType, lastTriggerTimes.get(asset), lastTriggerTypes.get(asset));
                                 
                                 if (inCooldown) {
                                     const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastTriggerTimes.get(asset)!)) / 60000);
-                                    console.warn(`🧊 [REGIME] ${asset} ${signalType} signal (${regimeSignal.signalStrength}%) BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
+                                    console.warn(`🧊 [SIGNAL] ${asset} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                                 } else {
-                                    const volCategory = volatility < 25 ? 'LOW' : volatility < 40 ? 'STD' : volatility < 60 ? 'HIGH' : 'VERY HIGH';
-                                    triggerReason = `${asset} regime ${signalType} signal (${regimeSignal.signalStrength}% strength, ${regimeSignal.marketRegime}, Vol:${volCategory} ${volatility.toFixed(1)}%)`;
-                                    triggerType = "REGIME";
+                                    const volCategory = volatility < 20 ? 'VERY_LOW' : volatility < 40 ? 'LOW' : volatility < 60 ? 'MEDIUM' : 'HIGH';
+                                    const percentileStr = percentile !== null ? `P${percentile.toFixed(1)}` : 'N/A';
+                                    triggerReason = `${asset} ${signalType} signal at ${percentileStr} (${volCategory} volatility ${volatility.toFixed(1)}%)`;
+                                    triggerType = "SIGNAL";
                                     triggered = true;
                                     triggeredAsset = asset;
                                     triggeredSignalType = signalType;
@@ -437,8 +439,8 @@ const gmxContext = context({
                                     lastTriggerTimes.set(asset, Date.now());
                                     lastTriggerTypes.set(asset, triggeredSignalType);
                                     
-                                    console.warn(`🚨 [REGIME] ${asset} trigger detected: ${signalType} ${regimeSignal.signalStrength}% strength in ${regimeSignal.marketRegime} [Vol:${volCategory} ${volatility.toFixed(1)}%]`);
-                                    console.warn(`📊 [REGIME] ${asset} reason: ${regimeSignal.signalReason}`);
+                                    console.warn(`🚨 [SIGNAL] ${asset} ${signalType} triggered at ${percentileStr} | ${volCategory} vol (${volatility.toFixed(1)}%)`);
+                                    console.warn(`📊 [SIGNAL] Trigger thresholds: ${volCategory === 'VERY_LOW' ? 'P20/P80' : volCategory === 'LOW' ? 'P15/P85' : volCategory === 'MEDIUM' ? 'P10/P90' : 'P5/P95'}`);
                                     break; // Exit loop after first valid trigger
                                 }
                             }
@@ -454,12 +456,17 @@ const gmxContext = context({
                                 console.warn(`⏰ [SCHEDULED] 20-minute timer triggered - fallback trading cycle`);
                             } else {
                                 const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
-                                const strengthStr = ASSETS.map(asset => {
+                                // Build detailed status for each asset
+                                const statusLines = ASSETS.map(asset => {
+                                    const percentile = percentiles.get(asset);
+                                    const volatility = volatilities.get(asset)!;
                                     const regime = regimeSignals.get(asset);
-                                    return `${asset}:${regime && regime.hasRegimeSignal ? `${regime.signalStrength}%` : 'N/A'}`;
-                                }).join(' ');
-                                const volatilityStr = ASSETS.map(asset => `${volatilities.get(asset)!.toFixed(1)}%`).join('/');
-                                console.warn(`🔍 [MONITOR] No triggers - Vol:${volatilityStr} | Next cycle in ${minutesRemaining}min`);
+                                    const signal = regime && regime.hasRegimeSignal ? regime.regimeSignal : 'WAIT';
+                                    const percentileStr = percentile !== null ? `P${percentile.toFixed(1)}` : 'N/A';
+                                    const volCategory = volatility < 20 ? 'VL' : volatility < 40 ? 'L' : volatility < 60 ? 'M' : 'H';
+                                    return `${asset}:${percentileStr}/${signal}/${volCategory}`;
+                                }).join(' | ');
+                                console.warn(`🔍 [MONITOR] ${statusLines} | Next check: ${minutesRemaining}min`);
                             }
                         }
                         

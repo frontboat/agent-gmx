@@ -4,7 +4,7 @@ import type { EnhancedDataCache } from './gmx-cache';
 import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket, formatError } from "./gmx-utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
-import { getMergedPercentileBounds, getEnhancedSynthAnalysis } from './synth-utils';
+import { getEnhancedSynthAnalysis } from './synth-utils';
 
 export const get_portfolio_balance_str = async (gmxDataCache: EnhancedDataCache) => {
     // Get tokens data with balances and prices - use cache
@@ -984,23 +984,13 @@ export const get_synth_analysis_str = async (asset: Asset, gmxDataCache: Enhance
             throw new Error(`Failed to get current ${asset} price from GMX SDK`);
         }
         
-        // Get merged percentile analysis from all available snapshots using synth-utils
-        const percentileResult = await getMergedPercentileBounds(asset, currentPrice);
-        
-        // Return null if no historical data available
-        if (percentileResult === null) {
-            return `SYNTH_${asset}_ANALYSIS:\n\nSTATUS: INSUFFICIENT_DATA\nREASON: No snapshots available for percentile analysis\nCURRENT_PRICE: $${currentPrice.toFixed(0)}\nCURRENT_PRICE_PERCENTILE: N/A`;
-        }
-        
         // Get 24-hour volatility
         const volatility24h = await get24HourVolatility(asset, gmxDataCache);
         
-        // Use enhanced analysis with regime detection
+        // Use enhanced analysis with simplified percentile strategy
         const result = await getEnhancedSynthAnalysis(
             asset,
             currentPrice,
-            percentileResult.percentile,
-            percentileResult.mergedBounds,
             volatility24h
         );
         

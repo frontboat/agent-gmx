@@ -478,8 +478,8 @@ const gmxContext = context({
                 // Initial run
                 unifiedMonitor();
                 
-                // Check every minute
-                const interval = setInterval(unifiedMonitor, 60000);
+                // Check every 5 minutes
+                const interval = setInterval(unifiedMonitor, 300000);
                 return () => clearInterval(interval);
             }
         })

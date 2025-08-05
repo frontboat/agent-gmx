@@ -15,7 +15,7 @@ import { createGmxActions } from './gmx-actions';
 import { createGmxWalletFromEnv } from './gmx-wallet';
 import { EnhancedDataCache } from './gmx-cache';
 import { ASSETS, type Asset } from "./gmx-types";
-import { extractPercentileFromSynthAnalysis, extractRegimeSignalFromSynthAnalysis, isInCooldown } from "./gmx-utils";
+import { extractPercentileFromSynthAnalysis, extractRegimeSignalFromSynthAnalysis, isInCooldown, formatError } from "./gmx-utils";
 import { get_assets_markets_str, get_daily_volumes_str, get_portfolio_balance_str, get_positions_str, get_tokens_data_str, get_orders_str, get_synth_analysis_str, get_technical_analysis_str, get_trading_history_str } from "./gmx-queries";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -333,7 +333,7 @@ const gmxContext = context({
 
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
-            memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
+            memory.lastResult = `Data loading failed: ${formatError(error)}`;
         }
     },
 

@@ -78,6 +78,15 @@ export function safeBigInt(value: string): bigint {
     return BigInt(cleanValue);
 }
 
+/**
+ * Format error objects consistently throughout the codebase
+ * @param error - The error to format (can be Error, string, or unknown)
+ * @returns Formatted error message string
+ */
+export function formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 // Utility function to add delay before write operations to prevent nonce errors
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

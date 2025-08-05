@@ -15,7 +15,8 @@ import {
     convertToUsd,
     safeBigInt,
     calculatePositionPnl,
-    sleep
+    sleep,
+    formatError
 } from './gmx-utils';
 import { get_positions_str, get_portfolio_balance_str, get_orders_str } from './gmx-queries';
 import { transactionQueue } from './transaction-queue';
@@ -216,7 +217,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             } catch (error) {
                 const errorResult = {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: formatError(error),
                     message: "Failed to cancel orders"
                 };
                 
@@ -335,7 +336,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 } catch (error) {
                     const errorResult = {
                         success: false,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: formatError(error),
                         message: "Failed to open long position"
                     };
                     
@@ -471,7 +472,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 } catch (error) {
                     const errorResult = {
                         success: false,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: formatError(error),
                         message: "Failed to place long limit order"
                     };
                     
@@ -583,7 +584,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 } catch (error) {
                     const errorResult = {
                         success: false,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: formatError(error),
                         message: "Failed to open short market order"
                     };
                     
@@ -712,7 +713,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 } catch (error) {
                     const errorResult = {
                         success: false,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: formatError(error),
                         message: "Failed to place short limit order"
                     };
                     
@@ -928,7 +929,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             } catch (error) {
                 const errorResult = {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: formatError(error),
                     message: "Failed to close position"
                 };
                 
@@ -1091,7 +1092,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             } catch (error) {
                 const errorResult = {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: formatError(error),
                     message: "Failed to execute token swap"
                 };
                 
@@ -1286,7 +1287,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             } catch (error) {
                 const errorResult = {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: formatError(error),
                     message: "Failed to set take profit order"
                 };
                 
@@ -1477,7 +1478,7 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
             } catch (error) {
                 const errorResult = {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: formatError(error),
                     message: "Failed to set stop loss order"
                 };
                 

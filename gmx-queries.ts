@@ -1,7 +1,7 @@
 import { GmxSdk } from "@gmx-io/sdk";
 import { type Asset, ASSETS } from "./gmx-types";
 import type { EnhancedDataCache } from './gmx-cache';
-import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket } from "./gmx-utils";
+import { bigIntToDecimal, formatTokenAmount, formatUsdAmount, convertToUsd, USD_DECIMALS, getTradeActionDescriptionEnhanced, calculatePerformanceMetrics, calculate24HourVolatility, getGMXMarket, formatError } from "./gmx-utils";
 import { calculatePositionPnl, calculateLeverage, calculateLiquidationPrice, calculatePositionNetValue } from "./gmx-utils";
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, Stochastic, WilliamsR, CCI, ADX } from 'technicalindicators';
 import { getMergedPercentileBounds, getEnhancedSynthAnalysis } from './synth-utils';
@@ -588,7 +588,7 @@ export const get_assets_markets_str = async (gmxDataCache: EnhancedDataCache) =>
         
         return output;
     } catch (error) {
-        throw new Error(`Failed to get markets data for assets (${ASSETS.join(', ')}): ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Failed to get markets data for assets (${ASSETS.join(', ')}): ${formatError(error)}`);
     }
 };
 
@@ -692,7 +692,7 @@ export const get_tokens_data_str = async (gmxDataCache: EnhancedDataCache) => {
         
         return output;
     } catch (error) {
-        throw new Error(`Failed to get tokens data: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Failed to get tokens data: ${formatError(error)}`);
     }
 };
 
@@ -705,7 +705,7 @@ export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache: EnhancedD
             volumes = await sdk.markets.getDailyVolumes();
         } catch (error) {
             // Handle GraphQL errors gracefully
-            const errorMsg = error instanceof Error ? error.message : String(error);
+            const errorMsg = formatError(error);
             if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('getMarketsValues')) {
                 console.warn('Daily volumes unavailable due to GraphQL error:', errorMsg);
                 return '📈 MARKET LIQUIDITY: Volume data temporarily unavailable\n';
@@ -803,7 +803,7 @@ export const get_daily_volumes_str = async (sdk: GmxSdk, gmxDataCache: EnhancedD
         
         return output;
     } catch (error) {
-        throw new Error(`Failed to get daily volumes: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Failed to get daily volumes: ${formatError(error)}`);
     }
 };
 
@@ -933,7 +933,7 @@ export const get_orders_str = async (sdk: GmxSdk, gmxDataCache: EnhancedDataCach
         return ordersString;
         
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorMsg = formatError(error);
         return `❌ Error fetching orders: ${errorMsg}`;
     }
 };
@@ -1007,7 +1007,7 @@ export const get_synth_analysis_str = async (asset: Asset, gmxDataCache: Enhance
         return result;
         
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorMsg = formatError(error);
         console.error(`[SYNTH_ANALYSIS] Failed to get ${asset} analysis:`, errorMsg);
         return `SYNTH_${asset}_ANALYSIS:\n\n⚠️ Error: ${errorMsg}\n`;
     }
@@ -1503,7 +1503,7 @@ export const get_technical_analysis_str = async (tokenSymbol: Asset, gmxDataCach
         return output;
         
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorMsg = formatError(error);
         throw new Error(`Failed to fetch technical analysis for ${tokenSymbol}: ${errorMsg}`);
     }
 };
@@ -1553,7 +1553,7 @@ export const get_trading_history_str = async (sdk: GmxSdk, gmxDataCache: Enhance
                     hasMoreData = false;
                 }
             } catch (error) {
-                const errorMsg = error instanceof Error ? error.message : String(error);
+                const errorMsg = formatError(error);
                 
                 // Handle GraphQL errors gracefully
                 if (errorMsg.includes('GraphQL') || errorMsg.includes('502') || errorMsg.includes('HTTP error')) {
@@ -1702,6 +1702,6 @@ export const get_trading_history_str = async (sdk: GmxSdk, gmxDataCache: Enhance
         return output;
         
     } catch (error) {
-        throw new Error(`Failed to get trading history: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Failed to get trading history: ${formatError(error)}`);
     }
 };

@@ -164,6 +164,18 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 
 ---
 
+## Synth AI Regime Reference
+
+| Regime   | Strategy trigger (strength≥80%) | Action |
+|----------|---------------------------------|--------|
+| TREND_*  | Tilt ≥ 0.5 % (under-priced)     | SHORT  |
+| TREND_*  | Tilt ≤ -0.5 % (over-priced)     | LONG   |
+| RANGE    | Price < Q10-0.05 %              | LONG   |
+| RANGE    | Price > Q90+0.05 %              | SHORT  |
+| CHOPPY   | —                               | WAIT   |
+
+---
+
 ## Decision Loop (run every data refresh)
 
 1. **Portfolio check** - ensure gas $20-50; move SL to BE on winners.
@@ -189,7 +201,7 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
      - 40-60 % (HIGH)    → 3x
      - >60 % (VERY HIGH) → 2x
    - SL = opposite Q10/Q90 (plus vol buffer)
-   - TP = Q50 (40 %), next band (40 %), runner (20 %)
+   - TP = Q50 (60 %), next band (20 %), runner (20 %)
 
 ---
 
@@ -212,17 +224,6 @@ After analysis, reply with **one** of:
 - **WAIT** - no qualifying setup
 
 No other chatter. No monitoring loops.
-
----
-
-## Synth AI Regime Reference
-
-| Regime      | Strategy           |
-| ----------- | ------------------ |
-| TREND_UP    | contrarian shorts  |
-| TREND_DOWN  | contrarian longs   |
-| RANGE       | buy Q10 / sell Q90 |
-| CHOPPY      | **no trades**      |
 
 ---
 

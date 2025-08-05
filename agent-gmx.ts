@@ -507,8 +507,8 @@ console.warn("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory_debug",
-     vectorTableName: "gmx_embeddings_debug",
+     memoryTableName: "gmx_memory",
+     vectorTableName: "gmx_embeddings",
      vectorModel: openai("gpt-4o-mini"),
  });
 

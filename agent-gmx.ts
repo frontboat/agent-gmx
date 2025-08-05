@@ -478,8 +478,8 @@ const gmxContext = context({
                 // Initial run
                 unifiedMonitor();
                 
-                // Check every 5 minutes
-                const interval = setInterval(unifiedMonitor, 300000);
+                // Check every minute
+                const interval = setInterval(unifiedMonitor, 60000);
                 return () => clearInterval(interval);
             }
         })
@@ -507,8 +507,8 @@ console.warn("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory",
-     vectorTableName: "gmx_embeddings",
+     memoryTableName: "gmx_memory_debug",
+     vectorTableName: "gmx_embeddings_debug",
      vectorModel: openai("gpt-4o-mini"),
  });
 

@@ -331,8 +331,6 @@ const gmxContext = context({
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
 
-            console.warn(memory);
-
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${formatError(error)}`;

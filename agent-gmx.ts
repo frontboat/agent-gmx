@@ -331,8 +331,6 @@ const gmxContext = context({
             memory.currentTask = "Data loaded - ready for trading analysis";
             memory.lastResult = `Data refresh completed at ${new Date().toISOString()}`;
 
-            console.warn(memory);
-
         } catch (error) {
             console.error("❌ Error loading GMX data:", error);
             memory.lastResult = `Data loading failed: ${error instanceof Error ? error.message : error}`;
@@ -508,8 +506,8 @@ console.warn("⚡ Initializing Vega trading agent...");
  const supabaseMemory = createSupabaseBaseMemory({
      url: env.SUPABASE_URL,
      key: env.SUPABASE_KEY,
-     memoryTableName: "gmx_memory_debug",
-     vectorTableName: "gmx_embeddings_debug",
+     memoryTableName: "gmx_memory",
+     vectorTableName: "gmx_embeddings",
      vectorModel: openai("gpt-4o-mini"),
  });
 

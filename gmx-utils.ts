@@ -489,8 +489,8 @@ export function extractRegimeSignalFromSynthAnalysis(synthAnalysis: string): {
         } else if (line.startsWith('SIGNAL_STRENGTH: ')) {
             const strengthStr = line.replace('SIGNAL_STRENGTH: ', '').replace('%', '').trim();
             signalStrength = parseInt(strengthStr) || 0;
-        } else if (line.startsWith('SIGNAL_REASON: ')) {
-            signalReason = line.replace('SIGNAL_REASON: ', '').trim();
+        } else if (line.startsWith('SIGNAL_EXPLANATION: ')) {
+            signalReason = line.replace('SIGNAL_EXPLANATION: ', '').trim();
         }
     }
     

@@ -21,6 +21,9 @@ bun run dev
 # or directly
 bun run agent-gmx.ts
 
+# Run backtesting (analyze historical performance)
+bun run backtest-synth-strategy.ts
+
 # No build step needed - Bun handles TypeScript compilation
 # No test commands - testing framework not implemented
 # No lint commands defined - TypeScript strict mode enforces code quality
@@ -74,6 +77,18 @@ bun run agent-gmx.ts
    - Consolidated prediction formatting for AI consumption
    - Risk percentile calculations based on market conditions
 
+9. **backtest-synth-strategy.ts** - Historical performance analysis tool
+   - 48-hour backtest implementation using chronological snapshots
+   - Applies same regime/tilt/range logic as live agent
+   - Configurable parameters (signal strength, cooldown periods)
+   - Generates detailed trade logs and performance metrics
+   - Results stored in backtest-results/ directory
+
+10. **synth-data-fetcher.ts** - Historical data collection utility
+    - Fetches and stores Synth AI prediction snapshots
+    - Creates chronological data sets for backtesting
+    - Manages data storage in data/ directory
+
 ### Key Design Patterns
 
 - **AI-First Data Formatting**: All data returned as formatted strings, not objects
@@ -86,6 +101,7 @@ bun run agent-gmx.ts
 - **Dynamic Asset Support**: Scalable architecture supporting multiple trading pairs (BTC/ETH/SOL)
 - **Intelligent Analysis**: Advanced Synth AI integration with momentum analysis and dynamic levels
 - **Event-Driven Trading**: Multiple trigger types (scheduled, Synth alerts, user input)
+- **Backtesting Framework**: Historical performance analysis with configurable parameters
 
 ## Development Requirements
 
@@ -294,6 +310,40 @@ BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level
 2. **Analysis Function**: Processes raw data into intelligent trading signals
 3. **Action Layer**: Consumes analyzed recommendations for trading decisions
 
+## Backtesting System
+
+### Running Backtests
+
+```bash
+# Run 48-hour historical backtest
+bun run backtest-synth-strategy.ts
+```
+
+### Backtest Configuration
+
+Key parameters in `backtest-synth-strategy.ts`:
+
+```typescript
+const MIN_SIGNAL_STRENGTH = 0.8;  // 80% minimum signal strength
+// Positions exit after 24h OR when price touches Q50 (whichever first)
+// Results expressed as percentage returns per "unit" position
+```
+
+### Backtest Output
+
+Results saved to `backtest-results/` directory:
+- **trades.json**: Individual trade records with entry/exit details
+- **summary.json**: Overall performance metrics and statistics
+- **equity.json**: Equity curve data for performance visualization
+
+### Data Collection
+
+Use `synth-data-fetcher.ts` to collect historical Synth AI prediction snapshots for backtesting:
+
+```bash
+bun run synth-data-fetcher.ts
+```
+
 ## Debugging and Logging
 
 - **Console Logging**: All actions log with `[Action]` prefix for easy filtering
@@ -301,6 +351,7 @@ BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level
 - **Transaction Queue**: Operations logged with execution timing
 - **Error Handling**: Comprehensive error logging with context
 - **Failsafe Logging**: Detailed validation error messages for debugging risk management
+- **Backtest Logging**: Detailed trade execution logs during backtesting
 
 ## Recent Architectural Changes
 

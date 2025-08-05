@@ -49,15 +49,19 @@ export interface PercentileDataPoint {
   }>;
 }
 
-// Get synth data snapshots for analysis (all available snapshots for 24h+ analysis)
+// Get synth data snapshots for analysis (72h data for robust 24h lookback calculations)
 export async function getSynthSnapshots(asset: Asset): Promise<LPBoundsSnapshot[]> {
   const store = await loadSynthDataStore();
   if (!store || !store.snapshots || !store.snapshots[asset]) {
     return [];
   }
   
-  // Return all snapshots, sorted by timestamp (oldest first)
+  // Filter to last 72h of data to ensure sufficient lookback for rolling stats
+  const now = Date.now();
+  const H72 = 72 * 60 * 60 * 1000; // 72 hours in milliseconds
+  
   return store.snapshots[asset]
+    .filter(snapshot => now - snapshot.timestamp <= H72)
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
@@ -103,7 +107,7 @@ export async function getMergedPercentileBounds(asset: Asset, currentPrice: numb
     currentPercentile = Math.round((belowCount / allPredictions.length) * 100);
   }
   
-  console.warn(`[SynthUtils] ${asset} at $${currentPrice.toFixed(0)}: P${currentPercentile} from ${allPredictions.length} total predictions across ${snapshots.length} snapshots`);
+  // Percentile calculated - signal strength will be logged in enhanced analysis
   
   // Create merged percentile data structure
   const mergedPercentileData = {
@@ -165,10 +169,10 @@ export interface FlatSnap {
   q90: number;          // 90th percentile price
 }
 
-// Ring buffer for storing historical snapshots (keep last 355+ for full dataset)
+// Ring buffer for storing historical snapshots (72h @ 5min intervals = 864 snapshots)
 export class SnapRingBuffer {
   private buffer: FlatSnap[] = [];
-  public readonly maxSize = 500; // Increased to handle full dataset
+  public readonly maxSize = 1000; // 72h (864) + buffer for safety and irregular intervals
   
   push(snap: FlatSnap): void {
     this.buffer.push(snap);
@@ -384,9 +388,48 @@ function trackRegimeChange(symbol: Asset, newRegime: MarketRegime): void {
   }
 }
 
-// Signal generation parameters - use volatility directly
-const STRENGTH_DIVISOR = 50.0;  // Strength = |tilt| / (volatility * STRENGTH_DIVISOR)
-const EPS = 0.0005;  // 0.05% band filter
+// Enhanced signal generation parameters
+const MIN_ABSOLUTE_TILT = 0.005;  // 0.5% minimum tilt regardless of volatility
+const PERSISTENCE_WINDOW = 3;     // Require 3 consecutive snapshots in same direction
+const Z_THRESHOLD = 2.0;          // 2 standard deviations for z-score
+const TILT_HISTORY_SIZE = 20;     // Rolling window for z-score calculation
+const EPS = 0.0005;               // 0.05% band filter
+
+// Regime strength multipliers
+const REGIME_MULTIPLIERS = {
+  'TREND_UP': 1.0,    // Full strength in trends
+  'TREND_DOWN': 1.0,  
+  'RANGE': 0.7,       // Reduce strength in ranges
+  'CHOPPY': 0.3       // Heavily reduce in chop
+} as const;
+
+// Data structures for enhanced signal generation
+interface TiltHistoryEntry {
+  timestamp: number;
+  tilt: number;
+  regime: MarketRegime;
+}
+
+interface TiltStats {
+  mean: number;
+  std: number;
+  zscore: number;
+}
+
+// Global tilt history tracking per asset
+const ASSET_TILT_HISTORY = new Map<Asset, TiltHistoryEntry[]>();
+
+// Initialize tilt history for all assets
+ASSETS.forEach(asset => {
+  ASSET_TILT_HISTORY.set(asset, []);
+});
+
+// Function to clear tilt history (useful for backtests)
+export function clearTiltHistory(): void {
+  ASSETS.forEach(asset => {
+    ASSET_TILT_HISTORY.set(asset, []);
+  });
+}
 
 // Signal strength scaling documentation:
 // - Contrarian signals: TAU = volatility, strength = |tilt| / (volatility * STRENGTH_DIVISOR)
@@ -395,10 +438,145 @@ const EPS = 0.0005;  // 0.05% band filter
 // - Range-band signals: Similar volatility-based scaling
 // Both scales map 0-1 → position size fraction for execution layer
 
-// Contrarian signal for trend regimes
-export function generateContrarianSignal(snap: FlatSnap, stats: RollingStats, regime: MarketRegime): { signal: 'LONG' | 'SHORT' | 'NEUTRAL'; strength: number; reason: string } {
+// Helper functions for enhanced signal generation
+function updateTiltHistory(asset: Asset, timestamp: number, tilt: number, regime: MarketRegime): void {
+  const history = ASSET_TILT_HISTORY.get(asset)!;
+  history.push({ timestamp, tilt, regime });
+  
+  // Keep only the last TILT_HISTORY_SIZE entries
+  if (history.length > TILT_HISTORY_SIZE) {
+    history.shift();
+  }
+}
+
+function calculateTiltZScore(currentTilt: number, tiltHistory: TiltHistoryEntry[]): TiltStats {
+  if (tiltHistory.length < 3) {
+    return { mean: 0, std: 1, zscore: 0 };
+  }
+  
+  const tilts = tiltHistory.map(h => h.tilt);
+  const mean = tilts.reduce((a, b) => a + b, 0) / tilts.length;
+  const variance = tilts.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / tilts.length;
+  const std = Math.sqrt(variance);
+  
+  const zscore = std > 0 ? (currentTilt - mean) / std : 0;
+  
+  return { mean, std, zscore };
+}
+
+function checkTiltPersistence(currentTilt: number, tiltHistory: TiltHistoryEntry[]): boolean {
+  if (tiltHistory.length < PERSISTENCE_WINDOW - 1) {
+    return false; // Not enough history
+  }
+  
+  const recentTilts = tiltHistory.slice(-(PERSISTENCE_WINDOW - 1));
+  recentTilts.push({ timestamp: Date.now(), tilt: currentTilt, regime: 'TREND_UP' }); // dummy entry
+  
+  // Check if all tilts have the same sign (direction)
+  const currentSign = Math.sign(currentTilt);
+  return recentTilts.every(h => Math.sign(h.tilt) === currentSign);
+}
+
+function calculateTiltAcceleration(currentTilt: number, tiltHistory: TiltHistoryEntry[]): number {
+  if (tiltHistory.length < 2) {
+    return 0;
+  }
+  
+  const prevEntry = tiltHistory[tiltHistory.length - 1];
+  const timeDelta = (Date.now() - prevEntry.timestamp) / 1000; // seconds
+  
+  if (timeDelta <= 0) return 0;
+  
+  return (currentTilt - prevEntry.tilt) / timeDelta;
+}
+
+function adjustStrengthForRegime(
+  baseStrength: number, 
+  regime: MarketRegime, 
+  regimeConfidence: number
+): number {
+  const regimeMultiplier = REGIME_MULTIPLIERS[regime] || 0.5;
+  const confidenceMultiplier = 0.5 + (regimeConfidence * 0.5); // 50-100% based on confidence
+  
+  return baseStrength * regimeMultiplier * confidenceMultiplier;
+}
+
+// Enhanced contrarian signal generator with all 5 improvements
+export function generateContrarianSignal(
+  snap: FlatSnap, 
+  stats: RollingStats, 
+  regime: MarketRegime,
+  asset?: Asset,
+  regimeConfidence: number = 1.0
+): { signal: 'LONG' | 'SHORT' | 'NEUTRAL'; strength: number; reason: string } {
   const bias = stats.bias;
   const tilt = (snap.q50 / snap.price) - 1 - bias;
+  
+  // If asset is provided, update tilt history and apply enhanced filters
+  if (asset) {
+    const timestamp = snap.timestamp || Date.now();
+    const tiltHistory = ASSET_TILT_HISTORY.get(asset)!;
+    
+    // Update tilt history
+    updateTiltHistory(asset, timestamp, tilt, regime);
+    
+    // 1. Minimum Absolute Tilt Filter
+    if (Math.abs(tilt) < MIN_ABSOLUTE_TILT) {
+      return { 
+        signal: 'NEUTRAL', 
+        strength: 0, 
+        reason: `Tilt ${(Math.abs(tilt) * 100).toFixed(2)}% below minimum ${(MIN_ABSOLUTE_TILT * 100).toFixed(1)}%` 
+      };
+    }
+    
+    // 2. Tilt Persistence Check
+    if (!checkTiltPersistence(tilt, tiltHistory)) {
+      return { 
+        signal: 'NEUTRAL', 
+        strength: 0, 
+        reason: 'Insufficient tilt persistence' 
+      };
+    }
+    
+    // 3. Z-Score Analysis
+    const tiltStats = calculateTiltZScore(tilt, tiltHistory);
+    if (Math.abs(tiltStats.zscore) < Z_THRESHOLD) {
+      return { 
+        signal: 'NEUTRAL', 
+        strength: 0, 
+        reason: `Z-score ${tiltStats.zscore.toFixed(1)} below threshold ${Z_THRESHOLD}` 
+      };
+    }
+    
+    // 4. Calculate base strength from z-score (more extreme = higher strength)
+    let strength = Math.min(Math.abs(tiltStats.zscore) / 3, 1); // 3 std devs = 100%
+    
+    // 5. Tilt Acceleration Adjustment
+    const acceleration = calculateTiltAcceleration(tilt, tiltHistory);
+    if (acceleration !== 0) {
+      // Boost strength for accelerating tilts in same direction
+      if (Math.sign(acceleration) === Math.sign(tilt)) {
+        strength = strength * (1 + Math.min(Math.abs(acceleration) * 100, 0.5)); // Max 50% boost
+      } else {
+        // Reduce strength for decelerating tilts
+        strength = strength * 0.7; // 30% reduction
+      }
+    }
+    
+    // 6. Regime-Adjusted Strength
+    strength = adjustStrengthForRegime(strength, regime, regimeConfidence);
+    
+    // Determine signal direction
+    const signal = tilt < 0 ? 'LONG' : 'SHORT';
+    
+    return {
+      signal,
+      strength: Math.min(strength, 1), // Cap at 100%
+      reason: `Enhanced: Z=${tiltStats.zscore.toFixed(1)} | Accel=${(acceleration * 1000).toFixed(1)} | Regime=${regime}(${(regimeConfidence * 100).toFixed(0)}%)`
+    };
+  }
+  
+  // Fallback to original logic if no asset provided (for backwards compatibility)
   
   // Use volatility directly as TAU threshold
   const volatility = stats.drift.std; // 24h rolling standard deviation
@@ -509,7 +687,7 @@ export async function getEnhancedSynthAnalysis(
         if (regimeResult.regime === 'RANGE') {
           advancedSignal = generateRangeBandSignal(latestSnap);
         } else if (regimeResult.regime === 'TREND_UP' || regimeResult.regime === 'TREND_DOWN') {
-          advancedSignal = generateContrarianSignal(latestSnap, stats, regimeResult.regime);
+          advancedSignal = generateContrarianSignal(latestSnap, stats, regimeResult.regime, asset, regimeResult.confidence);
         } else {
           advancedSignal = { signal: 'NEUTRAL', strength: 0, reason: 'Market too choppy for signals' };
         }
@@ -533,6 +711,9 @@ export async function getEnhancedSynthAnalysis(
         
         if (advancedSignal.signal !== 'NEUTRAL') {
           regimeInfo.push(`SIGNAL_STRENGTH: ${(advancedSignal.strength * 100).toFixed(0)}%`);
+          
+          // Log signal strength instead of percentiles
+          console.warn(`[SynthUtils] ${asset} at $${currentPrice.toFixed(0)}: ${(advancedSignal.strength * 100).toFixed(0)}% strength (${advancedSignal.signal}) from ${snapshots.length} snapshots`);
           
         }
         

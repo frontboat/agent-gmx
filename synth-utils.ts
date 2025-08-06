@@ -90,6 +90,59 @@ export async function loadSynthDataStore(): Promise<SnapshotStorage | null> {
 // SIMPLIFIED PERCENTILE-BASED STRATEGY
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Merge multiple snapshots by averaging their percentile values
+function calculateMergedPercentiles(snapshots: LPBoundsSnapshot[]): { prices: number[], probs: number[] } {
+  // Target percentiles we want to calculate
+  const targetPercentiles = [0.01, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.85, 0.90, 0.95, 0.99];
+  
+  // Calculate percentiles for each snapshot
+  const allPercentileValues: number[][] = [];
+  
+  for (const snapshot of snapshots) {
+    const bounds = snapshot.bounds.data['24h'].probability_below;
+    const prices = Object.keys(bounds).map(p => parseFloat(p)).sort((a, b) => a - b);
+    const probs = prices.map(p => bounds[p.toString()]);
+    
+    // Calculate each target percentile for this snapshot
+    const percentileValues: number[] = [];
+    for (const target of targetPercentiles) {
+      // Linear interpolation to find percentile value
+      let found = false;
+      for (let i = 0; i < probs.length - 1; i++) {
+        if (probs[i] <= target && target <= probs[i + 1]) {
+          const t = (target - probs[i]) / (probs[i + 1] - probs[i]);
+          percentileValues.push(prices[i] + t * (prices[i + 1] - prices[i]));
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        // Fallback: use closest price
+        if (target <= probs[0]) {
+          percentileValues.push(prices[0]);
+        } else if (target >= probs[probs.length - 1]) {
+          percentileValues.push(prices[prices.length - 1]);
+        } else {
+          percentileValues.push(prices[Math.floor(prices.length / 2)]);
+        }
+      }
+    }
+    allPercentileValues.push(percentileValues);
+  }
+  
+  // Average the percentile values across all snapshots
+  const mergedPrices: number[] = [];
+  for (let i = 0; i < targetPercentiles.length; i++) {
+    const sum = allPercentileValues.reduce((acc, values) => acc + values[i], 0);
+    mergedPrices.push(sum / snapshots.length);
+  }
+  
+  return {
+    prices: mergedPrices,
+    probs: targetPercentiles
+  };
+}
+
 interface SimplifiedSynthAnalysis {
   signal: 'LONG' | 'SHORT' | 'WAIT';
   currentPrice: number;
@@ -125,17 +178,34 @@ export async function getEnhancedSynthAnalysis(
     // Load snapshots to get 24h ago data (288 snapshots @ 5min intervals = 24h)
     const snapshots = await getSynthSnapshots(asset);
     
-    if (snapshots.length < 288) {
-      return `SYNTH_${asset}_ANALYSIS:\n\nSTATUS: INSUFFICIENT_DATA\nREASON: Need at least 288 snapshots (24h of data) for strategy\nCURRENT_SNAPSHOTS: ${snapshots.length}\nCURRENT_PRICE: $${currentPrice.toFixed(2)}`;
+    // Need at least 291 snapshots to get 7 snapshots around the 24h mark
+    if (snapshots.length < 291) {
+      throw new Error(`Need at least 291 snapshots (24h+3 of data), have ${snapshots.length}`);
     }
 
-    // Get snapshot from 24h ago (288 snapshots back)
-    const snapshot24hAgo = snapshots[snapshots.length - 288];
-    const bounds24h = snapshot24hAgo.bounds.data['24h'].probability_below;
+    // Gather 7 snapshots around the 24h ago mark (indices 285-291, with 288 being the center)
+    const targetSnapshots: LPBoundsSnapshot[] = [];
+    for (let i = 285; i <= 291; i++) {
+      const snapshot = snapshots[snapshots.length - i];
+      const bounds = snapshot?.bounds?.data?.['24h']?.probability_below;
+      
+      if (!bounds || Object.keys(bounds).length === 0) {
+        throw new Error(`Invalid snapshot at index ${i} - missing probability data`);
+      }
+      targetSnapshots.push(snapshot);
+    }
     
-    // Extract percentiles from 24h ago data
-    const prices = Object.keys(bounds24h).map(p => parseFloat(p)).sort((a, b) => a - b);
-    const probs = prices.map(p => bounds24h[p.toString()]);
+    // Verify we have exactly 7 snapshots
+    if (targetSnapshots.length !== 7) {
+      throw new Error(`Expected 7 snapshots, got ${targetSnapshots.length}`);
+    }
+    
+    // Merge the 7 snapshots by averaging their percentiles
+    const mergedData = calculateMergedPercentiles(targetSnapshots);
+    
+    // Use merged data for analysis
+    const prices = mergedData.prices;
+    const probs = mergedData.probs;
     
     // Calculate key percentiles using interpolation
     const findPercentile = (target: number): number => {

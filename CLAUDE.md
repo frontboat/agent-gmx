@@ -279,30 +279,32 @@ if (isLong && triggerPriceBigInt < markPrice + minimumDistance) {
 
 ## Advanced Synth AI Integration
 
-### Intelligent Analysis System
-The `get_synth_analysis_str` function provides comprehensive market intelligence:
+### Percentile-Based Mean Reversion System
+The `get_synth_analysis_str` function implements a simplified, robust strategy:
 
-#### Multi-Timeframe Momentum Analysis:
-- **Short-term (15m-1h)**: High-frequency signals for entry timing
-- **Medium-term (1h-4h)**: Trend confirmation and direction bias
-- **Long-term (4h+)**: Overall market structure and major levels
+#### Core Strategy Logic:
+- **24h Distribution Analysis**: Uses historical price snapshots to build percentile distributions
+- **Exact Percentile Calculation**: Current price position calculated through precise interpolation
+- **7-Snapshot Averaging**: Timestamps at 22h, 23h, 24h, 25h, 26h ago for robustness
+- **Anti-Cherry-Picking**: Strict requirement for ALL 7 snapshots to prevent data selection bias
 
-#### Dynamic Stop/Take Profit Recommendations:
-- **Prediction-Based Levels**: Uses actual AI prediction clusters instead of arbitrary percentages
-- **Risk/Reward Optimization**: Ensures minimum 2:1 R:R ratios
-- **Volatility Adjustment**: Adapts stops based on current market volatility regime
+#### 4-Tier Volatility Classification:
+- **VERY_LOW (0-25th percentile)**: Tightest mean reversion thresholds
+- **LOW (25-50th percentile)**: Conservative entry requirements  
+- **MEDIUM (50-75th percentile)**: Moderate risk tolerance
+- **HIGH (75-100th percentile)**: Widest bands for volatile market conditions
 
-#### Smart Setup Detection:
-- **WAIT**: When timeframes conflict or insufficient prediction range
-- **LONG/SHORT**: Only when multiple signals align with sufficient confidence
-- **Trade Quality Grading**: A, B+, B, C, D based on setup confluence
+#### Entry Signal Logic:
+- **Mean Reversion Bias**: Price at extreme percentiles (high = SHORT bias, low = LONG bias)
+- **Volatility-Adjusted Thresholds**: Entry requirements scale with market volatility tier
+- **Robust Data Requirements**: Fails gracefully when insufficient historical data available
 
 ```typescript
 // Example analysis output structure
-BEARISH bias with MODERATE confidence. Best Setup: WAIT. Key level: $3532.
+VOLATILITY: MEDIUM (61.4th percentile). PERCENTILE: 23.7% (LOW bias). Signal: WAIT.
 
-// Only shows detailed metrics for actionable setups (not WAIT)
-BULLISH bias with HIGH confidence. Trade Quality: A. Best Setup: LONG. Key level: $3587.
+// Actionable signal example
+VOLATILITY: LOW (34.2nd percentile). PERCENTILE: 89.1% (HIGH - SHORT bias). Signal: SHORT.
 ```
 
 ### Synth Data Flow Architecture:
@@ -325,8 +327,11 @@ Key parameters in `backtest-synth-strategy.ts`:
 
 ```typescript
 const MIN_SIGNAL_STRENGTH = 0.8;  // 80% minimum signal strength
-// Positions exit after 24h OR when price touches Q50 (whichever first)
+// Strategy: Percentile-based mean reversion with 4-tier volatility system
+// Entry: Based on current price percentile within 24h distribution
+// Exit: 24h time limit OR mean reversion to Q50 (whichever first)
 // Results expressed as percentage returns per "unit" position
+// Requires all 7 snapshots (22h-26h ago) for robust percentile calculation
 ```
 
 ### Backtest Output
@@ -372,3 +377,13 @@ bun run synth-data-fetcher.ts
 - **Regime Signal Triggers**: High-confidence regime signals (≥80% strength) trigger immediate trading cycles
 - **Multi-Event System**: Scheduled, Synth-based, and user-input triggers
 - **Volatility-Based Risk Management**: Higher volatility = lower leverage automatically
+
+### Simplified Percentile-Based Strategy (v2.07+)
+- **Mean Reversion Focus**: Replaced complex regime detection with robust percentile-based mean reversion
+- **4-Tier Volatility System**: VERY_LOW/LOW/MEDIUM/HIGH classification with different entry thresholds
+- **Exact Percentile Interpolation**: Precise calculation of current price position within 24h distributions
+- **7-Snapshot Robustness**: Uses 7 timestamps around 24h mark (22h-26h) to prevent cherry-picking
+- **Strict Data Requirements**: Requires ALL 7 snapshots for trading decisions, ensuring data integrity
+- **Anti-Bias Architecture**: Eliminates selective data usage through comprehensive snapshot requirements
+- **Simplified Decision Logic**: Clear percentile-based signals replace complex multi-timeframe analysis
+- **Improved Backtesting**: Historical performance analysis using same percentile logic as live trading

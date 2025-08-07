@@ -18,10 +18,12 @@ Vega is an autonomous AI-powered trading agent for GMX perpetual futures on Arbi
 
 ### AI Intelligence
 - **Synth AI Integration**: Decentralized AI miner predictions for BTC/ETH/SOL
-- **Multi-Timeframe Analysis**: Short (15m-1h), Medium (1h-4h), Long (4h+) term signals
+- **Percentile-Based Mean Reversion**: Simplified strategy using exact percentile interpolation within 24h price distributions
+- **4-Tier Volatility System**: VERY_LOW/LOW/MEDIUM/HIGH volatility regimes with different entry thresholds
+- **7-Snapshot Averaging**: Robust 24h lookback using 7 snapshots around 24h mark to avoid cherry-picking
+- **Strict Error Handling**: Requires all 7 snapshots for trading decisions, ensuring data integrity
 - **Dynamic Levels**: Prediction-based stops and targets (not arbitrary percentages)
 - **Smart Setup Detection**: WAIT vs actionable signals with trade quality grading (A-D)
-- **Momentum Confluence**: Aligns multiple timeframes for high-probability setups
 
 ### Dynamic Multi-Asset Architecture
 - **Scalable Design**: Single codebase supports BTC, ETH, SOL with easy expansion
@@ -136,10 +138,16 @@ bun run dev
 ### Synth AI Integration
 Vega leverages decentralized AI miners for market predictions across all supported assets:
 
-### Smart Setup Detection
-- **High Confidence + Aligned Timeframes** → Actionable LONG/SHORT signals
-- **Conflicting Signals or Low Confidence** → WAIT recommendation
-- **Trade Quality Grading** → A (excellent) to D (poor) based on confluence
+### Percentile-Based Mean Reversion Strategy
+- **Current Price Percentile**: Calculates exact position of current price within 24h ago distribution
+- **4-Tier Volatility Classification**: 
+  - VERY_LOW (0-25th percentile): Tightest entry thresholds
+  - LOW (25-50th percentile): Conservative entry points
+  - MEDIUM (50-75th percentile): Moderate risk tolerance
+  - HIGH (75-100th percentile): Widest entry bands for volatile conditions
+- **7-Snapshot Robustness**: Uses timestamps 22h, 23h, 24h, 25h, 26h from current time
+- **Anti-Cherry-Picking**: Requires ALL 7 snapshots to be available, preventing data selection bias
+- **Exact Interpolation**: Precise percentile calculation using sorted price arrays
 - **Multi-Asset Analysis** → Compares opportunities across BTC/ETH/SOL for optimal allocation
 
 ## ⚠️ Risk Warning

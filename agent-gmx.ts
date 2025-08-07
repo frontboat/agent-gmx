@@ -181,8 +181,8 @@ close_position({"marketAddress": "0x...", "receiveTokenAddress": "0xaf88d065e77c
 cancel_orders({"orderKeys": ["0x..."]})
 
 // RISK (30 decimal prices, percentage 1-100)
-set_stop_loss({"marketAddress": "0x...", "triggerPrice": "105000000000000000000000000000000000", "percentage": 100})
-set_take_profit({"marketAddress": "0x...", "triggerPrice": "108000000000000000000000000000000000", "percentage": 60})
+set_stop_loss({"marketAddress": "0x...", "triggerPrice": "105000000000000000000000000000000000", "percentage": 100}) // $105 000
+set_take_profit({"marketAddress": "0x...", "triggerPrice": "108000000000000000000000000000000000", "percentage": 60}) // $108 000
 
 // SWAPS
 swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // FROM USDC
@@ -192,7 +192,7 @@ swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC22
 **Formats:**
 - USDC: "1000000" = 1 USDC (6 decimals)
 - Leverage: "30000" = 3x (basis points)
-- Prices: "110000000000000000000000000000000000" = $110,000 (30 decimals)
+- Prices: "110000000000000000000000000000000000" = $110 000 (30 decimals)
 - Percentages: 40 = 40% (no decimals)
 
 ## 📝 RESPONSE FORMAT
@@ -435,7 +435,7 @@ const gmxContext = context({
                                 const inCooldown = isInCooldown(asset, signalType, lastTriggerTimes.get(asset), lastTriggerTypes.get(asset));
                                 
                                 if (inCooldown) {
-                                    const cooldownMinutes = Math.ceil((1800000 - (Date.now() - lastTriggerTimes.get(asset)!)) / 60000);
+                                    const cooldownMinutes = Math.ceil((3600000 - (Date.now() - lastTriggerTimes.get(asset)!)) / 60000);
                                     console.warn(`🧊 [SIGNAL] ${asset} ${signalType} signal BLOCKED - Cooldown active (${cooldownMinutes}min remaining)`);
                                 } else {
                                     const volCategory = volatility < 20 ? 'VERY_LOW' : volatility < 40 ? 'LOW' : volatility < 60 ? 'MEDIUM' : 'HIGH';

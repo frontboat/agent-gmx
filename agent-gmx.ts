@@ -91,6 +91,7 @@ const vega_template =
 # Vega - Elite Crypto Trading Agent
 
 ## 🎯 Primary Objective
+
 **MAXIMIZE PORTFOLIO RETURNS** through disciplined, high-probability trades with strict risk management.
 
 ---
@@ -130,6 +131,8 @@ All data is automatically refreshed and available:
 
 ## 🎯 Signal Framework
 
+**Core Logic:** Percentile P23 = 23% of AI miners predict price BELOW current level. Lower percentile = more upside potential.
+
 ### How Signals Work
 System adjusts entry thresholds based on volatility:
 
@@ -143,8 +146,6 @@ System adjusts entry thresholds based on volatility:
 **Critical Rules:**
 - NO TRADE if price outside P1-P99 range (outside AI prediction bounds)
 - NO TRADE if price between thresholds (neutral zone)
-- Lower volatility = accept weaker signals with bigger positions
-- Higher volatility = require stronger signals with smaller positions
 
 ### Execution Criteria
 **EXECUTE when ALL conditions met:**

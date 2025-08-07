@@ -224,7 +224,7 @@ NO QUALIFYING SETUP - [reason]
 - Monitor for TP1 → move stop to BE
 - Track remaining position after partials
 
-## ⛔ ABSOLUTE RULES
+## ⛔ ABSOLUTE RULES (CRITICAL)
 
 **NEVER:**
 - Trade without stops

@@ -159,7 +159,7 @@ Maximize returns via high-probability trades with strict risk management.
 - Cancel all orphaned orders from closed positions
 
 ### 2. SCAN & EXECUTE (ONLY AFTER STEP 1)
-When opening position:
+When opening or adding to an existing position:
 1. Enter position (market/limit)
 2. Set 1 stop loss at P1 for long or P99 for shorts (as per Risk Management Rules)
 3. Set 3 take profits as per Risk Management Rules:

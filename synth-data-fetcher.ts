@@ -33,7 +33,7 @@ interface SnapshotStorage {
 
 // Constants
 const DATA_FILE_PATH = path.join(__dirname, 'data', 'lp-bounds-snapshots.json');
-const MAX_SNAPSHOTS = 2016; // 7 days * 24 hours * 12 (5-minute intervals)
+const MAX_SNAPSHOTS = 8640; // 30 days * 24 hours * 12 (5-minute intervals)
 const SYNTH_API_KEY = process.env.SYNTH_API_KEY;
 const LP_BOUNDS_COOLDOWN_MS = 5000; // 5 seconds between requests
 

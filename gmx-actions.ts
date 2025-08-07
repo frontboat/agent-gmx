@@ -801,13 +801,13 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                 });
                 
                 // Check if PnL is positive
-                if (calculatedPnl <= 0n) {
+                /*if (calculatedPnl <= 0n) {
                     const pnlFormatted = formatUsdAmount(calculatedPnl, 2);
                     throw new Error(`Cannot close position with negative PnL (${pnlFormatted}). Position must be in profit to close.`);
                 }
                 
                 console.warn(`[CLOSE_POSITION] Position PnL: ${formatUsdAmount(calculatedPnl, 2)} - Proceeding with close`);
-                               
+                */    
                 // Use GMX SDK's low-level transaction method with proper DecreasePositionAmounts
                 const slippageBps = FIXED_SLIPPAGE_BPS;
                     

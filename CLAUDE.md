@@ -4,15 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is **Vega**, an autonomous AI-powered trading agent for GMX perpetual futures on Arbitrum/Avalanche networks. It uses the Daydreams AI framework to create an aggressive, high-frequency scalping trader personality.
+**Vega** - An autonomous AI-powered trading agent for GMX perpetual futures on Arbitrum/Avalanche networks. Built with the Daydreams AI framework to implement aggressive, high-frequency scalping strategies with advanced risk management.
 
 ## Key Commands
 
 ```bash
 # Install dependencies
 bun install
-# or alternatively
-pnpm install
 
 # Run the trading agent
 bun run start
@@ -21,12 +19,9 @@ bun run dev
 # or directly
 bun run agent-gmx.ts
 
-# Run backtesting (analyze historical performance)
-bun run backtest-synth-strategy.ts
-
 # No build step needed - Bun handles TypeScript compilation
-# No test commands - testing framework not implemented
-# No lint commands defined - TypeScript strict mode enforces code quality
+# No test framework implemented - TypeScript strict mode enforces code quality
+# No lint commands defined
 ```
 
 ## Architecture Overview
@@ -39,7 +34,7 @@ bun run backtest-synth-strategy.ts
    - Handles memory persistence and action orchestration
 
 2. **gmx-actions.ts** - All trading actions and GMX SDK integration
-   - Each action follows a consistent pattern: name, description, handler
+   - Each action follows consistent pattern: name, description, handler
    - Actions include: portfolio queries, position management, order placement
    - All outputs formatted as strings for AI comprehension
 
@@ -56,9 +51,8 @@ bun run backtest-synth-strategy.ts
 
 5. **gmx-cache.ts** - High-performance caching system with promise deduplication
    - Handles multi-level caching with 5-minute TTL for all GMX data types
-   - Prevents concurrent duplicate API calls with promise deduplication
-   - Used by all query functions for optimal data access and reduced latency
-   - Includes comprehensive cache management and status monitoring
+   - Prevents concurrent duplicate API calls
+   - Used by all query functions for optimal data access
 
 6. **transaction-queue.ts** - Sequential transaction execution
    - Singleton pattern for managing blockchain transactions
@@ -75,19 +69,6 @@ bun run backtest-synth-strategy.ts
    - Volatility dial data fetching and parsing
    - Past percentile data analysis with scalable architecture
    - Consolidated prediction formatting for AI consumption
-   - Risk percentile calculations based on market conditions
-
-9. **backtest-synth-strategy.ts** - Historical performance analysis tool
-   - 48-hour backtest implementation using chronological snapshots
-   - Applies same regime/tilt/range logic as live agent
-   - Configurable parameters (signal strength, cooldown periods)
-   - Generates detailed trade logs and performance metrics
-   - Results stored in backtest-results/ directory
-
-10. **synth-data-fetcher.ts** - Historical data collection utility
-    - Fetches and stores Synth AI prediction snapshots
-    - Creates chronological data sets for backtesting
-    - Manages data storage in data/ directory
 
 ### Key Design Patterns
 
@@ -99,9 +80,6 @@ bun run backtest-synth-strategy.ts
 - **Error Resilience**: Comprehensive error handling with detailed logging
 - **Risk Management**: Built-in position sizing and stop-loss mechanisms with failsafe validations
 - **Dynamic Asset Support**: Scalable architecture supporting multiple trading pairs (BTC/ETH/SOL)
-- **Intelligent Analysis**: Advanced Synth AI integration with momentum analysis and dynamic levels
-- **Event-Driven Trading**: Multiple trigger types (scheduled, Synth alerts, user input)
-- **Backtesting Framework**: Historical performance analysis with configurable parameters
 
 ## Development Requirements
 
@@ -139,13 +117,12 @@ GMX_PRIVATE_KEY=0x...     # 64 hex chars
 2. **ES Modules**: Use import/export syntax, not require() (specified in package.json)
 3. **BigInt for Precision**: All financial values use BigInt to avoid floating-point precision issues
 4. **Async/Await**: All blockchain operations are asynchronous and use proper error handling
-5. **Cache-First Data Access**: All query functions use cache for optimal performance and reduced API calls
+5. **Cache-First Data Access**: All query functions use cache for optimal performance
 6. **Sequential Write Operations**: All write transactions must use the transaction queue to prevent nonce errors
 7. **30-Decimal Precision**: GMX uses 30-decimal precision for USD values (USD_DECIMALS constant)
 8. **Dynamic Asset Architecture**: Single codebase scales to support any number of trading pairs
 9. **Action Pattern**: All trading actions follow consistent structure with name, description, handler
 10. **Dynamic Leverage**: Position sizes adjusted based on volatility (higher volatility = lower leverage)
-11. **Regime Signal Triggers**: High-strength regime signals (≥80% confidence) trigger immediate trading cycles
 
 ## Trading Action Pattern
 
@@ -312,43 +289,6 @@ VOLATILITY: LOW (34.2nd percentile). PERCENTILE: 89.1% (HIGH - SHORT bias). Sign
 2. **Analysis Function**: Processes raw data into intelligent trading signals
 3. **Action Layer**: Consumes analyzed recommendations for trading decisions
 
-## Backtesting System
-
-### Running Backtests
-
-```bash
-# Run 48-hour historical backtest
-bun run backtest-synth-strategy.ts
-```
-
-### Backtest Configuration
-
-Key parameters in `backtest-synth-strategy.ts`:
-
-```typescript
-const MIN_SIGNAL_STRENGTH = 0.8;  // 80% minimum signal strength
-// Strategy: Percentile-based mean reversion with 4-tier volatility system
-// Entry: Based on current price percentile within 24h distribution
-// Exit: 24h time limit OR mean reversion to Q50 (whichever first)
-// Results expressed as percentage returns per "unit" position
-// Requires all 7 snapshots (22h-26h ago) for robust percentile calculation
-```
-
-### Backtest Output
-
-Results saved to `backtest-results/` directory:
-- **trades.json**: Individual trade records with entry/exit details
-- **summary.json**: Overall performance metrics and statistics
-- **equity.json**: Equity curve data for performance visualization
-
-### Data Collection
-
-Use `synth-data-fetcher.ts` to collect historical Synth AI prediction snapshots for backtesting:
-
-```bash
-bun run synth-data-fetcher.ts
-```
-
 ## Debugging and Logging
 
 - **Console Logging**: All actions log with `[Action]` prefix for easy filtering
@@ -356,7 +296,6 @@ bun run synth-data-fetcher.ts
 - **Transaction Queue**: Operations logged with execution timing
 - **Error Handling**: Comprehensive error logging with context
 - **Failsafe Logging**: Detailed validation error messages for debugging risk management
-- **Backtest Logging**: Detailed trade execution logs during backtesting
 
 ## Recent Architectural Changes
 
@@ -386,4 +325,3 @@ bun run synth-data-fetcher.ts
 - **Strict Data Requirements**: Requires ALL 7 snapshots for trading decisions, ensuring data integrity
 - **Anti-Bias Architecture**: Eliminates selective data usage through comprehensive snapshot requirements
 - **Simplified Decision Logic**: Clear percentile-based signals replace complex multi-timeframe analysis
-- **Improved Backtesting**: Historical performance analysis using same percentile logic as live trading

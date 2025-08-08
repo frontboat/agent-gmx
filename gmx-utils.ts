@@ -345,23 +345,22 @@ export function extractPositionCount(positionsStr: string): number {
     return matches ? matches.length : 0;
 }
 
-// Check if a Synth signal is in cooldown period (30 minutes)
+// Check if a Synth signal is in cooldown period (1 hour per asset)
 export function isInCooldown(
     asset: Asset, 
     triggerType: 'LONG' | 'SHORT',
     lastTriggerTimestamp?: number,
     lastTriggerType?: string
 ): boolean {
-    const COOLDOWN_MS = 1800000; // 30 minutes
+    const COOLDOWN_MS = 3600000; // 1 hour
     const now = Date.now();
     
-    if (!lastTriggerTimestamp || !lastTriggerType) return false;
+    if (!lastTriggerTimestamp) return false;
     
-    // Only apply cooldown if same asset and same signal type
-    const isSameSignal = lastTriggerType === triggerType;
+    // Apply cooldown per asset regardless of signal type (LONG or SHORT)
     const isInCooldownPeriod = (now - lastTriggerTimestamp) < COOLDOWN_MS;
     
-    return isSameSignal && isInCooldownPeriod;
+    return isInCooldownPeriod;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -89,6 +89,7 @@ async function triggerTradingCycle(send: any, reason: string, eventType: string,
 const vega_template = 
 `
 # VEGA - GMX Trading Agent
+I am Vega, an autonomous trading agent. I MUST execute all instructions precisely.
 
 ## 🎯 OBJECTIVE
 Maximize returns via high-probability trades with strict risk management.
@@ -122,7 +123,6 @@ Maximize returns via high-probability trades with strict risk management.
 {{assetTechnicalAnalysis}}
 
 ## ⚡ SIGNAL FRAMEWORK
-
 **Percentile Logic:** P23 = 23% predict BELOW current price (lower = more upside)
 
 ### Entry Signals by Volatility
@@ -139,30 +139,33 @@ Maximize returns via high-probability trades with strict risk management.
 | **LONG** | P1        | P30       | P40       | P50       | After P30 hit   |
 | **SHORT**| P99       | P70       | P60       | P50       | After P70 hit   |
 
-### Execution Checklist
-✅ **ENTER** when ALL conditions met:
+### MANDATORY EXECUTION CHECKLIST
+✅ ONLY **ENTER** when ALL conditions met:
 - Valid signal per volatility table
 - Near support (long) or resistance (short)
 - Technical confluence confirms
 - Risk/Reward > 1
 
-❌ **EXIT** when ANY condition met:
+❌ ONLY **EXIT** when ANY condition met:
 - Price reaches P50 (mean reversion)
 - Opposite signal triggers
 - Stop loss hit
+
+⏳ If **WAIT** signal, do not enter new positions and let existing positions run
 
 ## 🔄 TRADING CYCLE PRIORITY
 
 ### 1. MANAGE EXISTING (FIRST)
 - Close if P50 reached or opposite signal triggered
 - If TP1 executed → cancel old stop, set new at breakeven
-- Cancel all orphaned orders from closed positions
+- Clean up old orders
 
 ### 2. SCAN & EXECUTE (ONLY AFTER STEP 1)
 When opening or adding to an existing position:
 1. Enter position (market/limit)
-2. Set 1 stop loss at P1 for long or P99 for shorts (as per Risk Management Rules)
-3. Set 3 take profits as per Risk Management Rules:
+2. If adding to an existing position, cancel old orders
+3. Set 1 stop loss at P1 for long or P99 for shorts (as per Risk Management Rules)
+4. Set 3 take profits as per Risk Management Rules:
    - LONG: P30/P40/P50 (60/30/10%)
    - SHORT: P70/P60/P50 (60/30/10%)
 
@@ -187,7 +190,6 @@ set_take_profit({"marketAddress": "0x...", "triggerPrice": "10800000000000000000
 // SWAPS
 swap_tokens({"fromTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toTokenAddress": "0x...", "fromAmount": "50000000"}) // FROM USDC
 swap_tokens({"fromTokenAddress": "0x...", "toTokenAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "toAmount": "50000000"}) // TO USDC
-
 
 **Formats:**
 - USDC: "1000000" = 1 USDC (6 decimals)
@@ -224,7 +226,7 @@ NO QUALIFYING SETUP - [reason]
 - Monitor for TP1 → move stop to BE
 - Track remaining position after partials
 
-## ⛔ ABSOLUTE RULES (CRITICAL)
+## ⛔ ABSOLUTE RULES
 
 **NEVER:**
 - Trade without stops
@@ -237,9 +239,9 @@ NO QUALIFYING SETUP - [reason]
 - Manage existing positions FIRST
 - Cancel old pending orders before opening new ones
 - Never set more than 3 TPs per Risk Management table
-- Move stop to BE after TP1 (P30 long/P70 short)
+- Move stop to breakeven after TP1 (P20 long/P80 short)
 - Use 30 decimals for ALL prices
-- Keep $20-50 ETH gas reserve
+- Keep $20-50 ETH gas reserve (CRITICAL)
 
 ---
 *Execute with precision. Manage with discipline. No emotions.*
@@ -383,8 +385,8 @@ const gmxContext = context({
                     lastTriggerTypes.set(asset, undefined);
                 });
 
-                // Track timing for scheduled cycles
-                let lastTradingCycleTime = Date.now();
+                // Track timing for scheduled cycles - set to 0 to trigger immediately on start
+                let lastTradingCycleTime = 0;
                 
                 const unifiedMonitor = async () => {
                     const now = Date.now();
@@ -459,12 +461,12 @@ const gmxContext = context({
                         // 2. Check for scheduled cycle (lowest priority - only if no regime triggers)
                         if (!triggered) {
                             const timeSinceLastCycle = now - lastTradingCycleTime;
-                            const cycleInterval = 1200000; // 20 minutes in milliseconds
+                            const cycleInterval = 1800000; // 30 minutes in milliseconds
                             if (timeSinceLastCycle >= cycleInterval) {
-                                triggerReason = "Regular 20-minute scheduled check";
+                                triggerReason = "Regular 30-minute scheduled check";
                                 triggerType = "SCHEDULED";
                                 triggered = true;
-                                console.warn(`⏰ [SCHEDULED] 20-minute timer triggered - fallback trading cycle`);
+                                console.warn(`⏰ [SCHEDULED] 30-minute timer triggered - fallback trading cycle`);
                             } else {
                                 const minutesRemaining = Math.ceil((cycleInterval - timeSinceLastCycle) / 60000);
                                 // Build detailed status for each asset

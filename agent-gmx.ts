@@ -147,7 +147,8 @@ Maximize returns via high-probability trades with strict risk management.
 - Risk/Reward > 1
 
 ❌ ONLY **EXIT** when ANY condition met:
-- Price reaches P50 (mean reversion)
+- Price is above P48 for longs (P50 mean reversion)
+- Price is below P52 for shorts (P50 mean reversion)
 - Opposite signal triggers
 - Stop loss hit
 

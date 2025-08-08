@@ -66,6 +66,20 @@ export function isValidAsset(value: string): value is Asset {
     return ASSETS.includes(value as Asset);
 }
 
+/**
+ * Extract asset from GMX market name
+ * @param marketName GMX market name (e.g. 'BTC/USD [BTC-USDC]' or 'ETH/USD [ETH-USDC]')
+ * @returns Asset symbol (BTC, ETH, SOL) or null if not found
+ */
+export function getAssetFromMarketName(marketName: string): Asset | null {
+    for (const asset of ASSETS) {
+        if (marketName.includes(`${asset}/USD`)) {
+            return asset;
+        }
+    }
+    return null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════

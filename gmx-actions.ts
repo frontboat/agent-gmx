@@ -16,9 +16,11 @@ import {
     safeBigInt,
     calculatePositionPnl,
     sleep,
-    formatError
+    formatError,
+    extractPercentileFromSynthAnalysis,
+    getAssetFromMarketName
 } from './gmx-utils';
-import { get_positions_str, get_portfolio_balance_str, get_orders_str } from './gmx-queries';
+import { get_positions_str, get_portfolio_balance_str, get_orders_str, get_synth_analysis_str } from './gmx-queries';
 import { transactionQueue } from './transaction-queue';
 
 // Fixed slippage constant (1%)
@@ -772,6 +774,27 @@ export function createGmxActions(sdk: GmxSdk, gmxDataCache: EnhancedDataCache) {
                                 
                 const isLong = position.isLong;
                 const direction = isLong ? 'LONG' : 'SHORT';
+                
+                // Get the asset for this market to check percentile
+                const asset = getAssetFromMarketName(marketInfo.name);
+                if (asset) {
+                    // Get current percentile from Synth analysis
+                    const synthAnalysis = await get_synth_analysis_str(asset, gmxDataCache);
+                    const currentPercentile = extractPercentileFromSynthAnalysis(synthAnalysis);
+                    
+                    if (currentPercentile !== null) {
+                        // Check percentile conditions: P48+ for longs, P52- for shorts
+                        if (isLong && currentPercentile < 48) {
+                            throw new Error(`Cannot close LONG position at P${currentPercentile.toFixed(1)}. Price must be above P48 for profitable exit. Current percentile indicates price is still low - hold for mean reversion.`);
+                        }
+                        if (!isLong && currentPercentile > 52) {
+                            throw new Error(`Cannot close SHORT position at P${currentPercentile.toFixed(1)}. Price must be below P52 for profitable exit. Current percentile indicates price is still high - hold for mean reversion.`);
+                        }
+                        console.warn(`[CLOSE_POSITION] Percentile check passed: P${currentPercentile.toFixed(1)} for ${direction} position`);
+                    } else {
+                        console.warn(`[CLOSE_POSITION] Could not determine percentile, proceeding with close`);
+                    }
+                }
                 
                 // Validate receive token
                 const receiveToken = tokensData[data.receiveTokenAddress];
